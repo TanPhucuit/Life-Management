@@ -1,4 +1,4 @@
-import { startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, format, getWeek } from 'date-fns';
+import { startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, format } from 'date-fns';
 
 export interface DateInfo {
   date: Date;

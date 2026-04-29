@@ -2,23 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { mockSessions } from '@/app/lib/sessions';
+import { api, ApiDate, ApiSession } from '@/app/lib/api';
+import { useAppStore } from '@/app/lib/store';
 import { Clock, Target, Play, Pause, RotateCcw, Save, ChevronLeft } from 'lucide-react';
 import { BentoCard3D } from './BentoCard';
 import { TestTubeStudyHours } from './TestTubeStudyHours';
 import { RainbowCelebration } from './RainbowCelebration';
 import { useRouter } from 'next/navigation';
-
-interface Session {
-  id: string;
-  task_id: string;
-  user_id: string;
-  start_time: string;
-  end_time: string;
-  session_date: string;
-  in_time_status: 'in_time' | 'out_time';
-  focused_minutes: number;
-}
 
 interface DayDetailsPageProps {
   day: number;
@@ -28,21 +18,42 @@ interface DayDetailsPageProps {
 
 export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps) {
   const router = useRouter();
+  const { user } = useAppStore();
   const [focusedMinutes, setFocusedMinutes] = useState(0);
   const [keyOfSuccess, setKeyOfSuccess] = useState(0);
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [stopwatchTime, setStopwatchTime] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [targetHours, setTargetHours] = useState(8);
   const [showStopwatch, setShowStopwatch] = useState(false);
+  const [dateRecordId, setDateRecordId] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load sessions for this date
   useEffect(() => {
+    if (!user?.id) return;
+
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const daySessions = mockSessions.filter((s) => s.session_date === dateStr);
-    setSessions(daySessions);
-  }, [day, month, year]);
+    const loadDateData = async () => {
+      try {
+        const [dateRows, daySessions] = await Promise.all([
+          api.getDates(user.id, month, year),
+          api.getSessions(user.id, { date: dateStr }),
+        ]);
+
+        const matchedDate = dateRows.find((item: ApiDate) => item.day === day && item.month === month && item.year === year);
+
+        setDateRecordId(matchedDate?.id || null);
+        setFocusedMinutes(matchedDate?.focused_minutes || 0);
+        setKeyOfSuccess(matchedDate?.key_of_success || 0);
+        setSessions(daySessions as ApiSession[]);
+      } catch (error) {
+        console.error('Error loading day details:', error);
+      }
+    };
+
+    void loadDateData();
+  }, [day, month, year, user?.id]);
 
   // Stopwatch interval
   useEffect(() => {
@@ -76,10 +87,19 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
 
   const handleSaveStopwatch = () => {
     const newMinutes = Math.floor(stopwatchTime / 60);
-    setFocusedMinutes(focusedMinutes + newMinutes);
+    const updatedMinutes = focusedMinutes + newMinutes;
+    setFocusedMinutes(updatedMinutes);
     setStopwatchTime(0);
     setIsRunning(false);
     setShowStopwatch(false);
+
+    if (dateRecordId) {
+      void api.updateDate({
+        id: dateRecordId,
+        focusedMinutes: updatedMinutes,
+        keyOfSuccess,
+      });
+    }
   };
 
   const isToday = (): boolean => {
@@ -147,7 +167,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
           >
             <BentoCard3D
               className="h-full p-6 flex flex-col items-center justify-center relative overflow-hidden"
-              variant={isCelebrating ? 'accent' : 'default'}
               glowing={isCelebrating}
               enablePerspectiveTilt
               enableSpotlight
@@ -171,7 +190,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
           >
             <BentoCard3D
               className="h-full p-5 flex flex-col relative overflow-hidden"
-              variant="default"
               enablePerspectiveTilt
               enableSpotlight
               icon={<Clock size={16} />}
@@ -242,7 +260,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
           >
             <BentoCard3D
               className="h-full p-5 flex flex-col"
-              variant="default"
               enablePerspectiveTilt
               enableSpotlight
               icon={<Target size={16} />}
@@ -287,7 +304,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
           >
             <BentoCard3D
               className="h-full p-5 flex flex-col"
-              variant="accent"
               glowing
               enablePerspectiveTilt
               title="Quality"
@@ -326,7 +342,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
           >
             <BentoCard3D
               className="h-full p-5 flex flex-col"
-              variant="subtle"
               enablePerspectiveTilt
               title="Manual Input"
             >
@@ -364,7 +379,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
           >
             <BentoCard3D
               className="h-full p-4 flex flex-col overflow-hidden"
-              variant="default"
               enablePerspectiveTilt
               title={`Sessions (${sessions.length})`}
             >

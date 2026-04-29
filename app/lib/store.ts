@@ -50,7 +50,7 @@ export const useAppStore = create<AppStore>((set) => ({
   isAuthenticated: true,
 
   setUser: (user) =>
-    set((state) => ({
+    set(() => ({
       user,
       isAuthenticated: user !== null,
     })),

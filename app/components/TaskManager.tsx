@@ -1,44 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { mockTopics, mockTasks } from '@/app/lib/mockData';
-import { mockSessions } from '@/app/lib/sessions';
+import { api, ApiSession, ApiTask, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { Plus, Trash2, CheckCircle, Circle, Clock, X, ListTodo, BookOpen } from 'lucide-react';
-import { BentoCard, BentoCard3D } from './BentoCard';
-
-interface Topic {
-  id: string;
-  name: string;
-}
-
-interface Task {
-  id: string;
-  topic_id: string;
-  title: string;
-  description?: string;
-  deadline?: string;
-  status: 'completed' | 'not_completed';
-}
-
-interface Session {
-  id: string;
-  task_id: string;
-  user_id: string;
-  start_time: string;
-  end_time: string;
-  session_date: string;
-  in_time_status: 'in_time' | 'out_time';
-  focused_minutes: number;
-}
+import { BentoCard3D } from './BentoCard';
 
 export default function TaskManager() {
   const { user } = useAppStore();
-  const [topics, setTopics] = useState<Topic[]>(mockTopics);
-  const [tasks, setTasks] = useState<Task[]>(mockTasks);
-  const [sessions, setSessions] = useState<Session[]>(mockSessions);
-  const [selectedTopic, setSelectedTopic] = useState<string>(mockTopics[0]?.id || '');
+  const [topics, setTopics] = useState<ApiTopic[]>([]);
+  const [tasks, setTasks] = useState<ApiTask[]>([]);
+  const [sessions, setSessions] = useState<ApiSession[]>([]);
+  const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [showNewTopicForm, setShowNewTopicForm] = useState(false);
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
@@ -58,16 +32,37 @@ export default function TaskManager() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadData = async () => {
+      try {
+        const [topicsData, tasksData, sessionsData] = await Promise.all([
+          api.getTopics(user.id),
+          api.getTasks(user.id),
+          api.getSessions(user.id),
+        ]);
+
+        setTopics(topicsData);
+        setTasks(tasksData);
+        setSessions(sessionsData);
+        setSelectedTopic((current) => current || topicsData[0]?.id || '');
+      } catch (error) {
+        console.error('Error loading task manager data:', error);
+      }
+    };
+
+    void loadData();
+  }, [user?.id]);
+
   const handleAddTopic = async () => {
     if (!newTopicName.trim()) return;
+    if (!user?.id) return;
 
     try {
       setIsLoading(true);
-      const newTopic: Topic = {
-        id: Math.random().toString(),
-        name: newTopicName,
-      };
-      setTopics([newTopic, ...topics]);
+      const newTopic = await api.createTopic(user.id, newTopicName.trim());
+      setTopics((current) => [newTopic, ...current]);
       setSelectedTopic(newTopic.id);
       setNewTopicName('');
       setShowNewTopicForm(false);
@@ -80,18 +75,18 @@ export default function TaskManager() {
 
   const handleAddTask = async () => {
     if (!selectedTopic || !newTaskData.title.trim()) return;
+    if (!user?.id) return;
 
     try {
       setIsLoading(true);
-      const newTask: Task = {
-        id: Math.random().toString(),
-        topic_id: selectedTopic,
-        title: newTaskData.title,
-        description: newTaskData.description,
-        deadline: newTaskData.deadline,
-        status: 'not_completed',
-      };
-      setTasks([newTask, ...tasks]);
+      const newTask = await api.createTask({
+        userId: user.id,
+        topicId: selectedTopic,
+        title: newTaskData.title.trim(),
+        description: newTaskData.description.trim() || undefined,
+        deadline: newTaskData.deadline || undefined,
+      });
+      setTasks((current) => [newTask, ...current]);
       setNewTaskData({ title: '', description: '', deadline: '' });
       setShowNewTaskForm(false);
     } catch (error) {
@@ -101,12 +96,11 @@ export default function TaskManager() {
     }
   };
 
-  const handleToggleTaskStatus = async (taskId: string, currentStatus: string) => {
+  const handleToggleTaskStatus = async (taskId: string, currentStatus: ApiTask['status']) => {
     try {
-      const newStatus = currentStatus === 'completed' ? 'not_completed' : 'completed';
-      setTasks(
-        tasks.map((t) => (t.id === taskId ? { ...t, status: newStatus as any } : t))
-      );
+      const newStatus: ApiTask['status'] = currentStatus === 'completed' ? 'not_completed' : 'completed';
+      await api.updateTask({ id: taskId, status: newStatus });
+      setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: newStatus } : task)));
     } catch (error) {
       console.error('Error updating task:', error);
     }
@@ -114,7 +108,8 @@ export default function TaskManager() {
 
   const handleDeleteTask = async (taskId: string) => {
     try {
-      setTasks(tasks.filter((t) => t.id !== taskId));
+      await api.deleteTask(taskId);
+      setTasks((current) => current.filter((task) => task.id !== taskId));
     } catch (error) {
       console.error('Error deleting task:', error);
     }
@@ -122,20 +117,20 @@ export default function TaskManager() {
 
   const handleAddSession = async () => {
     if (!selectedTask || !newSessionData.sessionDate || !newSessionData.startTime || !newSessionData.endTime) return;
+    if (!user?.id) return;
 
     try {
       setIsLoading(true);
-      const newSession: Session = {
-        id: Math.random().toString(),
-        task_id: selectedTask,
-        user_id: user?.id || '1',
-        start_time: `${newSessionData.sessionDate}T${newSessionData.startTime}:00`,
-        end_time: `${newSessionData.sessionDate}T${newSessionData.endTime}:00`,
-        session_date: newSessionData.sessionDate,
-        in_time_status: 'in_time',
-        focused_minutes: newSessionData.focusedMinutes,
-      };
-      setSessions([newSession, ...sessions]);
+      const newSession = await api.createSession({
+        userId: user.id,
+        taskId: selectedTask,
+        startTime: `${newSessionData.sessionDate}T${newSessionData.startTime}:00`,
+        endTime: `${newSessionData.sessionDate}T${newSessionData.endTime}:00`,
+        sessionDate: newSessionData.sessionDate,
+        focusedMinutes: newSessionData.focusedMinutes,
+        inTimeStatus: 'in_time',
+      });
+      setSessions((current) => [newSession, ...current]);
       setNewSessionData({ sessionDate: '', startTime: '', endTime: '', focusedMinutes: 0 });
       setShowNewSessionForm(false);
     } catch (error) {
@@ -164,7 +159,6 @@ export default function TaskManager() {
       >
         <BentoCard3D
           className="h-full flex flex-col p-6"
-          variant="default"
           icon={<BookOpen size={24} />}
           title="Topics"
           description={`${topics.length} topics`}
@@ -244,7 +238,6 @@ export default function TaskManager() {
       >
         <BentoCard3D
           className="h-full flex flex-col p-6"
-          variant="accent"
           glowing
           icon={<ListTodo size={24} />}
           title={topics.find((t) => t.id === selectedTopic)?.name || 'Tasks'}

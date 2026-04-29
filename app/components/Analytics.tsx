@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   PieChart,
@@ -16,26 +16,41 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { mockSessions } from '@/app/lib/sessions';
-import { mockDayTracking } from '@/app/lib/dayTracking';
+import { api, ApiDate } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 type AnalyticsView = 'month_overview' | 'week_daily' | 'key_of_success';
 
 export default function Analytics() {
-  const { selectedMonth, selectedYear } = useAppStore();
+  const { selectedMonth, selectedYear, user } = useAppStore();
   const [currentMonth, setCurrentMonth] = useState(selectedMonth || 4);
   const [currentYear, setCurrentYear] = useState(selectedYear || 2026);
   const [analyticsView, setAnalyticsView] = useState<AnalyticsView>('month_overview');
   const [selectedWeek, setSelectedWeek] = useState(1);
+  const [allDates, setAllDates] = useState<ApiDate[]>([]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadDates = async () => {
+      try {
+        const dates = await api.getDates(user.id);
+        setAllDates(dates);
+      } catch (error) {
+        console.error('Error loading analytics dates:', error);
+      }
+    };
+
+    void loadDates();
+  }, [user?.id]);
 
   // Calculate study hours by date
   const getStudyHoursByDate = () => {
     const hoursByDate: { [key: string]: number } = {};
-    mockSessions.forEach((session) => {
-      const dateStr = session.session_date;
-      hoursByDate[dateStr] = (hoursByDate[dateStr] || 0) + session.focused_minutes / 60;
+    allDates.forEach((date) => {
+      const dateStr = `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
+      hoursByDate[dateStr] = (hoursByDate[dateStr] || 0) + date.focused_minutes / 60;
     });
     return hoursByDate;
   };
@@ -103,13 +118,10 @@ export default function Analytics() {
 
   // Get key of success distribution
   const getKeyOfSuccessDistribution = (month: number, year: number) => {
-    const data = mockDayTracking.filter((d) => {
-      const [y, m] = d.date.split('-').map(Number);
-      return y === year && m === month;
-    });
+    const data = allDates.filter((d) => d.year === year && d.month === month);
 
-    const successDays = data.filter((d) => d.keyOfSuccess > 0).length;
-    const failDays = data.filter((d) => d.keyOfSuccess === 0).length;
+    const successDays = data.filter((d) => d.key_of_success > 0).length;
+    const failDays = data.filter((d) => d.key_of_success === 0).length;
 
     return [
       { name: 'Success (KOS > 0)', value: successDays, color: '#ef4444' },
@@ -123,11 +135,8 @@ export default function Analytics() {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     
     return months.map((m) => {
-      const monthData = mockDayTracking.filter((d) => {
-        const [y, month] = d.date.split('-').map(Number);
-        return y === currentYear && month === m;
-      });
-      const avgSuccess = monthData.length > 0 ? Math.round((monthData.reduce((sum, d) => sum + d.keyOfSuccess, 0) / monthData.length) * 10) / 10 : 0;
+      const monthData = allDates.filter((d) => d.year === currentYear && d.month === m);
+      const avgSuccess = monthData.length > 0 ? Math.round((monthData.reduce((sum, d) => sum + d.key_of_success, 0) / monthData.length) * 10) / 10 : 0;
       return { name: monthNames[m - 1], value: avgSuccess };
     });
   };

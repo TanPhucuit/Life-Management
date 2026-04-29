@@ -84,7 +84,6 @@ export default function MonthSelector({ onMonthSelect }: MonthSelectorProps) {
               >
                 <BentoCard3D
                   className="p-6 h-full min-h-56 flex flex-col"
-                  variant="default"
                   onClick={() => onMonthSelect(index + 1)}
                   enablePerspectiveTilt
                   enableSpotlight

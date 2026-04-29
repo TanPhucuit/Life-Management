@@ -1,8 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { DateInfo } from '@/app/lib/calendar';
-import { mockSessions } from '@/app/lib/sessions';
 import { BentoCard3D } from './BentoCard';
 import { Calendar, Clock, Sparkles } from 'lucide-react';
 
@@ -15,37 +13,16 @@ interface DateData {
   key_of_success: number;
 }
 
-interface Session {
-  id: string;
-  task_id: string;
-  user_id: string;
-  start_time: string;
-  end_time: string;
-  session_date: string;
-  in_time_status: 'in_time' | 'out_time';
-  focused_minutes: number;
-}
-
 interface DayCardProps {
   date: DateInfo;
   data?: DateData;
-  onUpdate: (updates: Partial<DateData>) => void;
   onSelectDay?: () => void;
+  sessionCount?: number;
 }
 
-export default function DayCard({ date, data, onUpdate, onSelectDay }: DayCardProps) {
-  const [focusedMinutes, setFocusedMinutes] = useState(data?.focused_minutes || 0);
-  const [keyOfSuccess, setKeyOfSuccess] = useState(data?.key_of_success || 0);
-  const [sessions, setSessions] = useState<Session[]>([]);
-
-  // Load sessions for this date
-  useEffect(() => {
-    const dateStr = `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
-    const daySessions = mockSessions.filter((s) => s.session_date === dateStr);
-    setSessions(daySessions);
-  }, [date]);
-
-
+export default function DayCard({ date, data, onSelectDay, sessionCount = 0 }: DayCardProps) {
+  const focusedMinutes = data?.focused_minutes || 0;
+  const keyOfSuccess = data?.key_of_success || 0;
 
   const isToday = (): boolean => {
     const today = new Date();
@@ -66,21 +43,20 @@ export default function DayCard({ date, data, onUpdate, onSelectDay }: DayCardPr
 
   const getIcon = () => {
     if (isToday()) return <Calendar size={20} className="text-yellow-400" />;
-    if (sessions.length > 0) return <Clock size={20} className="text-blue-400" />;
+    if (sessionCount > 0) return <Clock size={20} className="text-blue-400" />;
     return <Sparkles size={20} className="text-white/40" />;
   };
 
   return (
     <BentoCard3D
       className={`p-4 h-full min-h-32 flex flex-col ${!date.isCurrentMonth ? 'opacity-40' : ''}`}
-      variant={isToday() ? 'accent' : 'default'}
       glowing={isToday()}
       onClick={handleClick}
       enablePerspectiveTilt={date.isCurrentMonth}
       enableSpotlight={date.isCurrentMonth}
       icon={getIcon()}
       title={`Day ${date.day}`}
-      description={sessions.length > 0 ? `${sessions.length} session${sessions.length !== 1 ? 's' : ''}` : 'No sessions'}
+      description={sessionCount > 0 ? `${sessionCount} session${sessionCount !== 1 ? 's' : ''}` : 'No sessions'}
     >
       {date.isCurrentMonth && data && (
         <div className="space-y-4">
@@ -111,5 +87,5 @@ export default function DayCard({ date, data, onUpdate, onSelectDay }: DayCardPr
         </div>
       )}
     </BentoCard3D>
-    );
+  );
 }

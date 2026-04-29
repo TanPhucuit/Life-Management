@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { calendarUtils } from '@/app/lib/calendar';
-import { mockDates } from '@/app/lib/mockData';
+import { api, ApiDate, ApiSession } from '@/app/lib/api';
+import { useAppStore } from '@/app/lib/store';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import DayCard from './DayCard';
 import { BentoCard } from './BentoCard';
@@ -25,21 +26,27 @@ interface DateData {
 }
 
 export default function CalendarView({ month, year, onMonthChange, onSelectDay }: CalendarViewProps) {
+  const { user } = useAppStore();
   const [dateData, setDateData] = useState<Map<string, DateData>>(new Map());
+  const [sessionCountByDate, setSessionCountByDate] = useState<Map<string, number>>(new Map());
 
   const calendar_data = calendarUtils.getMonthCalendar(year, month);
 
   useEffect(() => {
-    loadDatesData();
+    if (!user?.id) return;
+
+    void loadDatesData(user.id);
   }, [month, year]);
 
-  const loadDatesData = async () => {
+  const loadDatesData = async (userId: string) => {
     try {
-      // Mock data loading - filter by month and year
-      const filteredData = mockDates.filter(d => d.month === month && d.year === year);
+      const [filteredData, sessions] = await Promise.all([
+        api.getDates(userId, month, year),
+        api.getSessions(userId, { month, year }),
+      ]);
 
       const dataMap = new Map<string, DateData>();
-      filteredData.forEach((item: any) => {
+      filteredData.forEach((item: ApiDate) => {
         const key = `${item.day}-${item.month}-${item.year}`;
         dataMap.set(key, {
           id: item.id,
@@ -51,6 +58,14 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
         });
       });
       setDateData(dataMap);
+
+      const counts = new Map<string, number>();
+      sessions.forEach((session: ApiSession) => {
+        const [sessionYear, sessionMonth, sessionDay] = session.session_date.split('-').map(Number);
+        const key = `${sessionDay}-${sessionMonth}-${sessionYear}`;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+      setSessionCountByDate(counts);
     } catch (error) {
       console.error('Error loading dates:', error);
     }
@@ -69,27 +84,6 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
       onMonthChange(1, year + 1);
     } else {
       onMonthChange(month + 1, year);
-    }
-  };
-
-  const handleDateUpdate = async (day: number, updates: Partial<DateData>) => {
-    try {
-      const key = `${day}-${month}-${year}`;
-      const existingData = dateData.get(key);
-
-      const newData: DateData = {
-        day,
-        month,
-        year,
-        focused_minutes: updates.focused_minutes ?? existingData?.focused_minutes ?? 0,
-        key_of_success: updates.key_of_success ?? existingData?.key_of_success ?? 0,
-        id: existingData?.id ?? Math.random().toString(),
-      };
-
-      setDateData((prev) => new Map(prev).set(key, newData));
-      console.log('Date updated (mock):', newData);
-    } catch (error) {
-      console.error('Error updating date:', error);
     }
   };
 
@@ -148,7 +142,7 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
               <DayCard
                 date={dateInfo}
                 data={data}
-                onUpdate={(updates) => handleDateUpdate(dateInfo.day, updates)}
+                sessionCount={sessionCountByDate.get(key) || 0}
                 onSelectDay={() => onSelectDay?.(dateInfo.day, dateInfo.month, dateInfo.year)}
               />
             </motion.div>

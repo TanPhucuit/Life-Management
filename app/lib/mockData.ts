@@ -10,6 +10,8 @@ export const mockTopics = [
   { id: '3', user_id: '1', name: 'Work', created_at: new Date().toISOString() },
 ];
 
+export type MockTaskStatus = 'completed' | 'not_completed';
+
 export const mockTasks = [
   {
     id: '1',
@@ -51,7 +53,16 @@ export const mockTasks = [
     status: 'not_completed',
     created_at: new Date().toISOString(),
   },
-];
+] satisfies Array<{
+  id: string;
+  user_id: string;
+  topic_id: string;
+  title: string;
+  description: string;
+  deadline: string;
+  status: MockTaskStatus;
+  created_at: string;
+}>;
 
 export const mockDates = [
   // April 2026

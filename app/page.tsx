@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/app/lib/store';
 import Login from '@/app/components/Login';
 import Dashboard from '@/app/components/Dashboard';

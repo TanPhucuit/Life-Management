@@ -1,5 +1,17 @@
 // Mock sessions data - Extended for April 2026
-export const mockSessions = [
+
+interface Session {
+  id: string;
+  task_id: string;
+  user_id: string;
+  start_time: string;
+  end_time: string;
+  session_date: string;
+  in_time_status: 'in_time' | 'out_time';
+  focused_minutes: number;
+}
+
+export const mockSessions: Session[] = [
   // Week 1: April 1-7
   // April 1
   { id: '1', task_id: '1', user_id: '1', start_time: '2026-04-01T09:00:00', end_time: '2026-04-01T10:30:00', session_date: '2026-04-01', in_time_status: 'in_time', focused_minutes: 90 },
