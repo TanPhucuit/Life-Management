@@ -85,7 +85,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     setIsRunning(false);
   };
 
-  const handleSaveStopwatch = () => {
+  const handleSaveStopwatch = async () => {
     const newMinutes = Math.floor(stopwatchTime / 60);
     const updatedMinutes = focusedMinutes + newMinutes;
     setFocusedMinutes(updatedMinutes);
@@ -93,12 +93,29 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     setIsRunning(false);
     setShowStopwatch(false);
 
+    if (!user?.id) return;
+
     if (dateRecordId) {
-      void api.updateDate({
+      await api.updateDate({
         id: dateRecordId,
         focusedMinutes: updatedMinutes,
         keyOfSuccess,
       });
+      return;
+    }
+
+    try {
+      const created = await api.createDate({
+        userId: user.id,
+        day,
+        month,
+        year,
+        focusedMinutes: updatedMinutes,
+        keyOfSuccess,
+      });
+      setDateRecordId(created.id);
+    } catch (error) {
+      console.error('Error creating date record:', error);
     }
   };
 

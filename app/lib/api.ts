@@ -124,6 +124,20 @@ export const api = {
     }
     return requestJson<ApiDate[]>(`/api/dates?${params.toString()}`);
   },
+  createDate(input: {
+    userId: string;
+    monthId?: string;
+    day: number;
+    month: number;
+    year: number;
+    focusedMinutes?: number;
+    keyOfSuccess?: number;
+  }) {
+    return requestJson<ApiDate>(`/api/dates`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
   updateDate(input: {
     id: string;
     focusedMinutes?: number;
