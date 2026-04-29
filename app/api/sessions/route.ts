@@ -1,7 +1,19 @@
 import { supabase } from '@/app/lib/supabase';
 import { NextRequest, NextResponse } from 'next/server';
 
+// CORS headers
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
 export async function GET(request: NextRequest) {
+  // Handle preflight requests
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
   try {
     const userId = request.nextUrl.searchParams.get('userId');
     const taskId = request.nextUrl.searchParams.get('taskId');
@@ -10,7 +22,7 @@ export async function GET(request: NextRequest) {
     const year = request.nextUrl.searchParams.get('year');
 
     if (!userId) {
-      return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+      return NextResponse.json({ error: 'userId is required' }, { status: 400, headers: corsHeaders });
     }
 
     let query = supabase
@@ -36,16 +48,21 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query;
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: corsHeaders });
   } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
 
 export async function POST(request: NextRequest) {
+  // Handle preflight requests
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
   try {
     const body = await request.json();
     const {
@@ -59,7 +76,7 @@ export async function POST(request: NextRequest) {
     } = body;
 
     if (!userId || !taskId || !startTime || !endTime || !sessionDate) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400, headers: corsHeaders });
     }
 
     const { data, error } = await supabase
@@ -79,22 +96,27 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
     }
 
-    return NextResponse.json(data, { status: 201 });
+    return NextResponse.json(data, { status: 201, headers: corsHeaders });
   } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
 
 export async function PUT(request: NextRequest) {
+  // Handle preflight requests
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
   try {
     const body = await request.json();
     const { id, startTime, endTime, sessionDate, focusedMinutes, inTimeStatus } = body;
 
     if (!id) {
-      return NextResponse.json({ error: 'Session id is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Session id is required' }, { status: 400, headers: corsHeaders });
     }
 
     const updateData: Record<string, unknown> = {};
@@ -112,31 +134,36 @@ export async function PUT(request: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: corsHeaders });
   } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
 
 export async function DELETE(request: NextRequest) {
+  // Handle preflight requests
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
   try {
     const id = request.nextUrl.searchParams.get('id');
 
     if (!id) {
-      return NextResponse.json({ error: 'Session id is required' }, { status: 400 });
+      return NextResponse.json({ error: 'Session id is required' }, { status: 400, headers: corsHeaders });
     }
 
     const { error } = await supabase.from('sessions').delete().eq('id', id);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true }, { headers: corsHeaders });
   } catch (error) {
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
