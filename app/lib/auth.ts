@@ -10,11 +10,23 @@ export interface AuthResponse {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
+// Helper to construct API endpoints - prevents double /api/ issue
+const getApiUrl = (endpoint: string): string => {
+  if (!API_URL) {
+    // Use relative paths for same-origin requests
+    return endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  }
+  // Remove trailing slash from API_URL if present
+  const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+  // Remove leading slash from endpoint if present
+  const path = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
+  return `${baseUrl}/${path}`;
+};
+
 export const authUtils = {
   async login(username: string, password: string): Promise<AuthResponse> {
     try {
-      const baseUrl = API_URL || '';
-      const url = baseUrl ? `${baseUrl}/api/auth` : '/api/auth';
+      const url = getApiUrl('api/auth');
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -46,8 +58,7 @@ export const authUtils = {
 
   async register(username: string, password: string): Promise<AuthResponse> {
     try {
-      const baseUrl = API_URL || '';
-      const url = baseUrl ? `${baseUrl}/api/auth` : '/api/auth';
+      const url = getApiUrl('api/auth');
       const response = await fetch(url, {
         method: 'POST',
         headers: {

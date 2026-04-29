@@ -30,9 +30,11 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 NEXT_PUBLIC_APP_NAME=Life Management
-NEXT_PUBLIC_API_URL=http://localhost:3000/api
+# NEXT_PUBLIC_API_URL=http://localhost:3000  # Only set if using a separate API server
 NODE_ENV=development
 ```
+
+**Note:** For production/Vercel deployment, do NOT set `NEXT_PUBLIC_API_URL`. The app will use relative paths (`/api/*`) which is the correct behavior.
 
 ## 3. Install & Run
 
