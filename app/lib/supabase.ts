@@ -1,11 +1,30 @@
 import { createClient } from '@supabase/supabase-js';
+import { existsSync, readFileSync } from 'fs';
+import { resolve } from 'path';
+
+const envFilePath = resolve(process.cwd(), '.env.local');
+const loadedEnv = { ...process.env };
+
+if (existsSync(envFilePath)) {
+  const envFile = readFileSync(envFilePath, 'utf-8');
+  envFile.split(/\r?\n/).forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const [key, ...rest] = trimmed.split('=');
+    if (!key || rest.length === 0) return;
+    const value = rest.join('=').trim();
+    if (!loadedEnv[key]) {
+      loadedEnv[key] = value;
+    }
+  });
+}
 
 const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  loadedEnv.NEXT_PUBLIC_SUPABASE_URL || loadedEnv.SUPABASE_URL;
 const supabaseAnonKey =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-  process.env.SUPABASE_ANON_KEY;
+  loadedEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  loadedEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  loadedEnv.SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   const missing = [
