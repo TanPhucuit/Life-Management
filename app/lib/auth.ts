@@ -8,12 +8,12 @@ export interface AuthResponse {
   error: string | null;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 export const authUtils = {
   async login(username: string, password: string): Promise<AuthResponse> {
     try {
-      const response = await fetch(`${API_URL}/auth`, {
+      const response = await fetch(`${API_URL}/api/auth`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -44,7 +44,7 @@ export const authUtils = {
 
   async register(username: string, password: string): Promise<AuthResponse> {
     try {
-      const response = await fetch(`${API_URL}/auth`, {
+      const response = await fetch(`${API_URL}/api/auth`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
