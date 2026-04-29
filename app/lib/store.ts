@@ -45,9 +45,9 @@ interface AppStore {
 }
 
 export const useAppStore = create<AppStore>((set) => ({
-  // Auth - default to mock user for testing
-  user: typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') || { id: '1', username: 'testuser' } : null,
-  isAuthenticated: true,
+  // Auth - no default user
+  user: typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null,
+  isAuthenticated: typeof window !== 'undefined' ? !!localStorage.getItem('user') : false,
 
   setUser: (user) =>
     set(() => ({
