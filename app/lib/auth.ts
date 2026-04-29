@@ -13,7 +13,8 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 export const authUtils = {
   async login(username: string, password: string): Promise<AuthResponse> {
     try {
-      const url = API_URL ? `${API_URL}/api/auth` : '/api/auth';
+      const baseUrl = API_URL || '';
+      const url = baseUrl ? `${baseUrl}/api/auth` : '/api/auth';
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -45,7 +46,8 @@ export const authUtils = {
 
   async register(username: string, password: string): Promise<AuthResponse> {
     try {
-      const url = API_URL ? `${API_URL}/api/auth` : '/api/auth';
+      const baseUrl = API_URL || '';
+      const url = baseUrl ? `${baseUrl}/api/auth` : '/api/auth';
       const response = await fetch(url, {
         method: 'POST',
         headers: {
