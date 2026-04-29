@@ -13,25 +13,27 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 // Helper to construct API endpoints - prevents double /api/ issue
 // Handles various formats: '', 'http://localhost:3000', 'http://localhost:3000/api'
 const getApiUrl = (endpoint: string): string => {
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
   if (!API_URL) {
-    // Use relative paths for same-origin requests (correct for Vercel)
-    return endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    // Use relative /api paths for same-origin requests (correct for Vercel)
+    return normalizedEndpoint.startsWith('/api') ? normalizedEndpoint : `/api${normalizedEndpoint}`;
   }
-  
-  // Remove trailing/leading slashes for normalization
+
+  // Remove trailing slash from API_URL if present
   let baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
-  let path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  
-  // If API_URL already ends with /api, don't add it again
+  let path = normalizedEndpoint;
+
+  // If API_URL already ends with /api, don't add /api again
   if (baseUrl.endsWith('/api')) {
     return `${baseUrl}${path}`;
   }
-  
-  // Otherwise, add /api prefix if endpoint doesn't start with /api
+
+  // Otherwise, add /api prefix if missing
   if (!path.startsWith('/api')) {
     path = `/api${path}`;
   }
-  
+
   return `${baseUrl}${path}`;
 };
 
