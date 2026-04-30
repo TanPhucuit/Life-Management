@@ -27,6 +27,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
   const [targetHours, setTargetHours] = useState(8);
   const [showStopwatch, setShowStopwatch] = useState(false);
   const [dateRecordId, setDateRecordId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load sessions for this date
@@ -116,6 +117,35 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
       setDateRecordId(created.id);
     } catch (error) {
       console.error('Error creating date record:', error);
+    }
+  };
+
+  const handleSaveDayDetails = async () => {
+    if (!user?.id) return;
+    setIsSaving(true);
+
+    try {
+      if (dateRecordId) {
+        await api.updateDate({
+          id: dateRecordId,
+          focusedMinutes,
+          keyOfSuccess,
+        });
+      } else {
+        const created = await api.createDate({
+          userId: user.id,
+          day,
+          month,
+          year,
+          focusedMinutes,
+          keyOfSuccess,
+        });
+        setDateRecordId(created.id);
+      }
+    } catch (error) {
+      console.error('Error saving day details:', error);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -382,6 +412,13 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                   onChange={(e) => setFocusedMinutes(Math.max(0, Number(e.target.value)))}
                   className="px-2 py-1 bg-white/10 border border-white/10 rounded-md text-white text-xs focus:outline-none focus:border-white/30"
                 />
+                <button
+                  onClick={handleSaveDayDetails}
+                  disabled={isSaving}
+                  className="w-full mt-3 px-3 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white text-sm font-semibold transition disabled:opacity-50"
+                >
+                  {isSaving ? 'Saving...' : 'Save Day Details'}
+                </button>
               </div>
             </BentoCard3D>
           </motion.div>

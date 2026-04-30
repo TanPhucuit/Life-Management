@@ -29,6 +29,7 @@ export default function TaskManager() {
     startTime: '',
     endTime: '',
     focusedMinutes: 0,
+    inTimeStatus: 'in_time' as 'in_time' | 'out_time',
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -128,7 +129,7 @@ export default function TaskManager() {
         endTime: `${newSessionData.sessionDate}T${newSessionData.endTime}:00`,
         sessionDate: newSessionData.sessionDate,
         focusedMinutes: newSessionData.focusedMinutes,
-        inTimeStatus: 'in_time',
+        inTimeStatus: newSessionData.inTimeStatus,
       });
       setSessions((current) => [newSession, ...current]);
       setNewSessionData({ sessionDate: '', startTime: '', endTime: '', focusedMinutes: 0 });
@@ -162,7 +163,7 @@ export default function TaskManager() {
           icon={<BookOpen size={24} />}
           title="Topics"
           description={`${topics.length} topics`}
-          enablePerspectiveTilt
+          enablePerspectiveTilt={false}
         >
           {/* New Topic Form */}
           {showNewTopicForm && (
@@ -242,7 +243,7 @@ export default function TaskManager() {
           icon={<ListTodo size={24} />}
           title={topics.find((t) => t.id === selectedTopic)?.name || 'Tasks'}
           description={`${tasks.filter((t) => t.topic_id === selectedTopic).length} tasks`}
-          enablePerspectiveTilt
+          enablePerspectiveTilt={false}
         >
           {/* New Task Form */}
           {showNewTaskForm && selectedTopic && (
@@ -468,6 +469,17 @@ export default function TaskManager() {
                   className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-white/30"
                   placeholder="Focused Minutes"
                 />
+                <div className="flex flex-col gap-2">
+                  <label className="text-white/70 text-xs font-semibold">Session Status</label>
+                  <select
+                    value={newSessionData.inTimeStatus}
+                    onChange={(e) => setNewSessionData({ ...newSessionData, inTimeStatus: e.target.value as 'in_time' | 'out_time' })}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-white/30"
+                  >
+                    <option value="in_time">On Time</option>
+                    <option value="out_time">Late</option>
+                  </select>
+                </div>
                 <div className="flex gap-2 pt-4">
                   <button
                     onClick={handleAddSession}
