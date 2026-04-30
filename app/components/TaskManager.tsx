@@ -132,7 +132,7 @@ export default function TaskManager() {
         inTimeStatus: newSessionData.inTimeStatus,
       });
       setSessions((current) => [newSession, ...current]);
-      setNewSessionData({ sessionDate: '', startTime: '', endTime: '', focusedMinutes: 0 });
+      setNewSessionData({ sessionDate: '', startTime: '', endTime: '', focusedMinutes: 0, inTimeStatus: 'in_time' });
       setShowNewSessionForm(false);
     } catch (error) {
       console.error('Error adding session:', error);
@@ -491,7 +491,7 @@ export default function TaskManager() {
                   <button
                     onClick={() => {
                       setShowNewSessionForm(false);
-                      setNewSessionData({ sessionDate: '', startTime: '', endTime: '', focusedMinutes: 0 });
+                      setNewSessionData({ sessionDate: '', startTime: '', endTime: '', focusedMinutes: 0, inTimeStatus: 'in_time' });
                     }}
                     className="flex-1 py-2 rounded-lg bg-white/10 hover:bg-white/15 text-white font-semibold transition border border-white/10"
                   >
