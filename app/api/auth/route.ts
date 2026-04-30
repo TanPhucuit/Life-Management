@@ -65,65 +65,76 @@ export async function POST(request: NextRequest) {
 
       const now = new Date();
       const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth() + 1;
-      const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+      const currentMonth = now.getMonth() + 1; // April 2026 = 4
 
-      const { data: monthData, error: monthError } = await supabase
+      // Create months from current month (April) to December 2026
+      const monthsToCreate = [];
+      for (let month = currentMonth; month <= 12; month++) {
+        const daysInMonth = new Date(currentYear, month, 0).getDate();
+        monthsToCreate.push({
+          user_id: newUser.id,
+          month: month,
+          year: currentYear,
+          total_hours: 0,
+          days_in_month: daysInMonth,
+        });
+      }
+
+      const { data: monthsData, error: monthsError } = await supabase
         .from('months')
-        .insert([
-          {
-            user_id: newUser.id,
-            month: currentMonth,
-            year: currentYear,
-            total_hours: 0,
-            days_in_month: daysInMonth,
-          },
-        ])
-        .select('id')
-        .single();
+        .insert(monthsToCreate)
+        .select('id, month, year');
 
-      if (monthError || !monthData) {
+      if (monthsError || !monthsData) {
         return NextResponse.json(
-          { error: monthError?.message || 'Unable to initialize month data' },
+          { error: monthsError?.message || 'Unable to initialize months data' },
           { status: 500, headers: corsHeaders }
         );
       }
 
-      const monthId = monthData.id;
-      const firstDayOfWeek = new Date(currentYear, currentMonth - 1, 1).getDay();
-      const weeksCount = Math.ceil((daysInMonth + firstDayOfWeek) / 7);
+      // Create weeks and dates for each month
+      for (const monthData of monthsData) {
+        const monthId = monthData.id;
+        const month = monthData.month;
+        const year = monthData.year;
+        const daysInMonth = new Date(year, month, 0).getDate();
 
-      const weekRows = Array.from({ length: weeksCount }, (_, index) => ({
-        user_id: newUser.id,
-        month_id: monthId,
-        week_order: index + 1,
-        total_hours: 0,
-      }));
+        // Calculate weeks for this month
+        const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
+        const weeksCount = Math.ceil((daysInMonth + firstDayOfWeek) / 7);
 
-      const dateRows = Array.from({ length: daysInMonth }, (_, index) => ({
-        user_id: newUser.id,
-        month_id: monthId,
-        day: index + 1,
-        month: currentMonth,
-        year: currentYear,
-        focused_minutes: 0,
-        key_of_success: 0,
-      }));
+        const weekRows = Array.from({ length: weeksCount }, (_, index) => ({
+          user_id: newUser.id,
+          month_id: monthId,
+          week_order: index + 1,
+          total_hours: 0,
+        }));
 
-      const { error: weekError } = await supabase.from('weeks').insert(weekRows);
-      if (weekError) {
-        return NextResponse.json(
-          { error: weekError.message || 'Unable to initialize weeks' },
-          { status: 500, headers: corsHeaders }
-        );
-      }
+        const dateRows = Array.from({ length: daysInMonth }, (_, index) => ({
+          user_id: newUser.id,
+          month_id: monthId,
+          day: index + 1,
+          month: month,
+          year: year,
+          focused_minutes: 0,
+          key_of_success: 0,
+        }));
 
-      const { error: dateError } = await supabase.from('dates').insert(dateRows);
-      if (dateError) {
-        return NextResponse.json(
-          { error: dateError.message || 'Unable to initialize dates' },
-          { status: 500, headers: corsHeaders }
-        );
+        const { error: weekError } = await supabase.from('weeks').insert(weekRows);
+        if (weekError) {
+          return NextResponse.json(
+            { error: weekError.message || `Unable to initialize weeks for month ${month}` },
+            { status: 500, headers: corsHeaders }
+          );
+        }
+
+        const { error: dateError } = await supabase.from('dates').insert(dateRows);
+        if (dateError) {
+          return NextResponse.json(
+            { error: dateError.message || `Unable to initialize dates for month ${month}` },
+            { status: 500, headers: corsHeaders }
+          );
+        }
       }
 
       return NextResponse.json(newUser, { status: 201, headers: corsHeaders });
