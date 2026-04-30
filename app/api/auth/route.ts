@@ -99,9 +99,9 @@ export async function POST(request: NextRequest) {
         const year = monthData.year;
         const daysInMonth = new Date(year, month, 0).getDate();
 
-        // Calculate weeks for this month
+        // Calculate weeks for this month (capped at 5 to match database constraint)
         const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
-        const weeksCount = Math.ceil((daysInMonth + firstDayOfWeek) / 7);
+        const weeksCount = Math.min(Math.ceil((daysInMonth + firstDayOfWeek) / 7), 5);
 
         const weekRows = Array.from({ length: weeksCount }, (_, index) => ({
           user_id: newUser.id,
