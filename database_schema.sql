@@ -87,7 +87,7 @@ CREATE TABLE sessions (
   start_time TIMESTAMP NOT NULL,
   end_time TIMESTAMP NOT NULL,
   session_date DATE NOT NULL,
-  in_time_status VARCHAR(20) DEFAULT 'on_time' CHECK (in_time_status IN ('in_time', 'out_time')),
+  in_time_status VARCHAR(20) DEFAULT 'in_time' CHECK (in_time_status IN ('in_time', 'out_time')),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -494,7 +494,6 @@ export function UnifiedBentoControlCenter({
                       {new Date(s.end_time).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-white/50 font-medium">{s.focused_minutes}m</span>
                       <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium"
                         style={s.in_time_status === 'in_time'
                           ? { background:'rgba(16,185,129,0.15)', color:'#6ee7b7' }

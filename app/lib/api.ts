@@ -26,7 +26,6 @@ export interface ApiSession {
   end_time: string;
   session_date: string;
   in_time_status: 'in_time' | 'out_time';
-  focused_minutes: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -164,8 +163,6 @@ export const api = {
     startTime: string;
     endTime: string;
     sessionDate: string;
-    focusedMinutes: number;
-    inTimeStatus?: ApiSession['in_time_status'];
   }) {
     return requestJson<ApiSession>(`/api/sessions`, {
       method: 'POST',
@@ -177,7 +174,6 @@ export const api = {
     startTime?: string;
     endTime?: string;
     sessionDate?: string;
-    focusedMinutes?: number;
     inTimeStatus?: ApiSession['in_time_status'];
   }) {
     return requestJson<ApiSession>(`/api/sessions`, {

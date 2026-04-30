@@ -71,8 +71,6 @@ export async function POST(request: NextRequest) {
       startTime,
       endTime,
       sessionDate,
-      focusedMinutes,
-      inTimeStatus,
     } = body;
 
     if (!userId || !taskId || !startTime || !endTime || !sessionDate) {
@@ -88,8 +86,6 @@ export async function POST(request: NextRequest) {
           start_time: startTime,
           end_time: endTime,
           session_date: sessionDate,
-          in_time_status: inTimeStatus || 'in_time',
-          focused_minutes: focusedMinutes || 0,
         },
       ])
       .select()
@@ -113,7 +109,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { id, startTime, endTime, sessionDate, focusedMinutes, inTimeStatus } = body;
+    const { id, startTime, endTime, sessionDate, inTimeStatus } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Session id is required' }, { status: 400, headers: corsHeaders });
@@ -123,7 +119,6 @@ export async function PUT(request: NextRequest) {
     if (startTime) updateData.start_time = startTime;
     if (endTime) updateData.end_time = endTime;
     if (sessionDate) updateData.session_date = sessionDate;
-    if (focusedMinutes !== undefined) updateData.focused_minutes = focusedMinutes;
     if (inTimeStatus) updateData.in_time_status = inTimeStatus;
 
     const { data, error } = await supabase

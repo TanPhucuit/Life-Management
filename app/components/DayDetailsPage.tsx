@@ -453,7 +453,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                         <div className="text-[8px] font-mono text-white/70 mb-0.5">
                           {new Date(session.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </div>
-                        <div className="text-xs text-white/60">{session.focused_minutes}m</div>
                         <span className={`text-[7px] px-1 py-0.5 rounded-full font-medium inline-block mt-0.5 ${session.in_time_status === 'in_time' ? 'bg-green-500/20 text-green-300' : 'bg-orange-500/20 text-orange-300'}`}>
                           {session.in_time_status === 'in_time' ? 'OK' : 'Late'}
                         </span>
