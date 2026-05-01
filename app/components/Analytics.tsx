@@ -176,22 +176,25 @@ export default function Analytics() {
     const days = getDaysInWeek(month, year, weekNum);
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     
-    // Find the last day in THIS week that has a data record
+    // Find all days in THIS week that have a data record
     const weekDaysWithData = allDates.filter(d => 
       d.year === year && 
       d.month === month && 
       days.some(wd => wd.day === d.day)
     );
-    const lastDayInWeekWithData = weekDaysWithData.length > 0 
-      ? Math.max(...weekDaysWithData.map(d => d.day)) 
-      : 0;
+
+    if (weekDaysWithData.length === 0) return [];
+
+    const firstDayInWeekWithData = Math.min(...weekDaysWithData.map(d => d.day));
+    const lastDayInWeekWithData = Math.max(...weekDaysWithData.map(d => d.day));
 
     const trendData = [];
     let cumulativeSum = 0;
     
-    trendData.push({ name: 'Start', value: 0 });
-
     for (const d of days) {
+      // Skip days before the first day with data
+      if (d.day < firstDayInWeekWithData) continue;
+      
       // Stop drawing if we've passed the last day with data in this week
       if (d.month === month && d.day > lastDayInWeekWithData) break;
       
