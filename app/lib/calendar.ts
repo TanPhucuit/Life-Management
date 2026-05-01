@@ -26,8 +26,8 @@ export const calendarUtils = {
   getMonthCalendar(year: number, month: number): MonthCalendar {
     const monthStart = startOfMonth(new Date(year, month - 1));
     const monthEnd = endOfMonth(monthStart);
-    const calendarStart = startOfWeek(monthStart);
-    const calendarEnd = endOfWeek(monthEnd);
+    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
 
     const allDays = eachDayOfInterval({
       start: calendarStart,
@@ -49,7 +49,7 @@ export const calendarUtils = {
     for (const dateInfo of dates) {
       currentWeek.push(dateInfo);
 
-      if (dateInfo.date.getDay() === 6 || dateInfo === dates[dates.length - 1]) {
+      if (dateInfo.date.getDay() === 0 || dateInfo === dates[dates.length - 1]) {
         const weekStart = currentWeek[0].date;
         const weekEnd = currentWeek[currentWeek.length - 1].date;
         weeks.push({
@@ -90,10 +90,10 @@ export const calendarUtils = {
   },
 
   getStartOfWeek(date: Date): Date {
-    return startOfWeek(date);
+    return startOfWeek(date, { weekStartsOn: 1 });
   },
 
   getEndOfWeek(date: Date): Date {
-    return endOfWeek(date);
+    return endOfWeek(date, { weekStartsOn: 1 });
   },
 };

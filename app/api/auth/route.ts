@@ -100,7 +100,8 @@ export async function POST(request: NextRequest) {
         const daysInMonth = new Date(year, month, 0).getDate();
 
         // Calculate weeks for this month (capped at 5 to match database constraint)
-        const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
+        const firstDayOfMonth = new Date(year, month - 1, 1);
+        const firstDayOfWeek = (firstDayOfMonth.getDay() + 6) % 7; // Monday = 0, Sunday = 6
         const weeksCount = Math.min(Math.ceil((daysInMonth + firstDayOfWeek) / 7), 5);
 
         const weekRows = Array.from({ length: weeksCount }, (_, index) => ({

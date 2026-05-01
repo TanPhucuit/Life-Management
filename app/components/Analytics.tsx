@@ -57,20 +57,20 @@ export default function Analytics() {
     return hoursByDate;
   };
 
-  // Get weeks in month
+  // Get weeks in month (Monday start)
   const getWeeksInMonth = (month: number, year: number) => {
     const firstDay = new Date(year, month - 1, 1);
     const lastDay = new Date(year, month, 0);
-    const adjustedFirstDay = firstDay.getDay(); // 0 for Sunday, 6 for Saturday
+    const adjustedFirstDay = (firstDay.getDay() + 6) % 7; // Monday = 0, Sunday = 6
     return Math.ceil((lastDay.getDate() + adjustedFirstDay) / 7);
   };
 
-  // Get days in specific week
+  // Get days in specific week (Monday start)
   const getDaysInWeek = (month: number, year: number, weekNum: number) => {
     const firstDay = new Date(year, month - 1, 1);
     const daysInMonth = new Date(year, month, 0).getDate();
     
-    const adjustedFirstDay = firstDay.getDay(); // 0 for Sunday, 6 for Saturday
+    const adjustedFirstDay = (firstDay.getDay() + 6) % 7; // Monday = 0, Sunday = 6
     let dayCounter = 1 - adjustedFirstDay;
     let currentWeek = 1;
     const weekDays: Array<{ day: number; date: string; month: number; year: number }> = [];
