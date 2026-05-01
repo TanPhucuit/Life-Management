@@ -15,6 +15,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  ReferenceLine,
 } from 'recharts';
 import { api, ApiDate } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
@@ -204,10 +205,8 @@ export default function Analytics() {
   const kosTrend = getKeyOfSuccessTrend();
   const dailyData = getDailyStudyHours(currentMonth, currentYear, selectedWeek);
   
-  const allWeeksProgress = Array.from({ length: weeksCount }, (_, i) => ({
-    weekNum: i + 1,
-    data: getCumulativeDailyStudyHoursForWeek(currentMonth, currentYear, i + 1)
-  }));
+
+
 
   return (
     <div className="w-full space-y-8">
@@ -334,47 +333,41 @@ export default function Analytics() {
         </motion.div>
       )}
 
-      {/* Weekly Progress: Grid of 5 weeks cumulative charts */}
+      {/* Weekly Progress: Cumulative Study Hours Chart for Selected Week */}
       {analyticsView === 'weekly_progress' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {allWeeksProgress.map((week) => (
-            <motion.div 
-              key={week.weekNum}
-              initial={{ opacity: 0, scale: 0.95 }} 
-              animate={{ opacity: 1, scale: 1 }} 
-              className="bg-white/10 rounded-xl p-5 border border-white/5"
-            >
-              <h3 className="text-md font-bold text-white mb-4 flex justify-between items-center">
-                <span>Week {week.weekNum} Progress</span>
-                <span className="text-xs text-white/40">{monthNames[currentMonth - 1]}</span>
-              </h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={week.data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
-                  <XAxis 
-                    dataKey="name" 
-                    stroke="rgba(255,255,255,0.4)" 
-                    fontSize={10}
-                    tickFormatter={(val) => val === 'Start' ? '' : val.split(' ')[0]} 
-                  />
-                  <YAxis stroke="rgba(255,255,255,0.4)" fontSize={10} />
-                  <Tooltip 
-                    contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', borderRadius: '8px', fontSize: '12px' }} 
-                    itemStyle={{ color: '#3b82f6' }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="value" 
-                    stroke="#3b82f6" 
-                    strokeWidth={2} 
-                    dot={{ fill: '#3b82f6', r: 2 }} 
-                    activeDot={{ r: 4 }} 
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </motion.div>
-          ))}
-        </div>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+          {/* Week Selector */}
+          <div className="bg-white/10 rounded-xl p-4">
+            <p className="text-white/70 text-sm mb-3">Select Week Progress:</p>
+            <div className="flex gap-2">
+              {Array.from({ length: weeksCount }, (_, i) => i + 1).map((week) => (
+                <button
+                  key={week}
+                  onClick={() => setSelectedWeek(week)}
+                  className={`px-4 py-2 rounded-lg font-semibold transition ${selectedWeek === week ? 'bg-white text-blue-600' : 'bg-white/20 text-white hover:bg-white/30'}`}
+                >
+                  W{week}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Cumulative Chart */}
+          <div className="bg-white/10 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Cumulative Study Hours - Week {selectedWeek}</h3>
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={getCumulativeDailyStudyHoursForWeek(currentMonth, currentYear, selectedWeek)}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" angle={-45} textAnchor="end" height={80} />
+                <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, (dataMax: number) => Math.max(dataMax + 2, 85)]} />
+                <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
+                <ReferenceLine y={40} label={{ value: '40h', fill: 'orange', fontSize: 12 }} stroke="orange" strokeDasharray="3 3" />
+                <ReferenceLine y={80} label={{ value: '80h', fill: '#ef4444', fontSize: 12 }} stroke="#ef4444" strokeDasharray="3 3" />
+                <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </motion.div>
       )}
 
       {/* Key of Success Trend */}
