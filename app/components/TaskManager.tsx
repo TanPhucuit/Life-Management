@@ -13,7 +13,6 @@ export default function TaskManager() {
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [selectedTopic, setSelectedTopic] = useState<string>('');
-  const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [showNewTopicForm, setShowNewTopicForm] = useState(false);
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
