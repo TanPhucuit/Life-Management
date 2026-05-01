@@ -176,7 +176,16 @@ export default function Analytics() {
     const days = getDaysInWeek(month, year, weekNum);
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     
-    const limitDay = getMaxDayWithActualData(month, year, 'focused_minutes');
+    // Find the last day in THIS week that actually has study data
+    const weekDaysWithData = allDates.filter(d => 
+      d.year === year && 
+      d.month === month && 
+      d.focused_minutes > 0 && 
+      days.some(wd => wd.day === d.day)
+    );
+    const lastDayInWeekWithData = weekDaysWithData.length > 0 
+      ? Math.max(...weekDaysWithData.map(d => d.day)) 
+      : 0;
 
     const trendData = [];
     let cumulativeSum = 0;
@@ -184,8 +193,8 @@ export default function Analytics() {
     trendData.push({ name: 'Start', value: 0 });
 
     for (const d of days) {
-      // If it's the current month, stop drawing if the day is in the future relative to our actual data
-      if (d.month === month && d.day > limitDay) break;
+      // Stop drawing if we've passed the last day with data in this week
+      if (d.month === month && d.day > lastDayInWeekWithData) break;
       
       cumulativeSum += studyByDate[d.date] || 0;
       const dayOfWeek = new Date(d.year, d.month - 1, d.day).getDay();
