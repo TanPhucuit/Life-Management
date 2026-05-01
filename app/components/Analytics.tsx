@@ -167,40 +167,7 @@ export default function Analytics() {
     return trendData;
   };
 
-  // Get cumulative study hours across weeks
-  const getCumulativeWeeklyStudyHours = (month: number, year: number) => {
-    const studyByDate = getStudyHoursByDate();
-    const weeksCount = getWeeksInMonth(month, year);
-    const limitDay = getMaxDayWithActualData(month, year, 'focused_minutes');
 
-    const trendData = [];
-    let cumulativeSum = 0;
-
-    trendData.push({ name: 'Start', value: 0 });
-
-    for (let week = 1; week <= weeksCount; week++) {
-      const days = getDaysInWeek(month, year, week);
-      
-      // Stop drawing if the week starts after our limit day in the current month
-      if (days.length > 0 && days[0].day > limitDay && days[0].month === month) {
-        break;
-      }
-
-      let weekHours = 0;
-      days.forEach((d) => {
-        // Only sum days up to the limit day
-        if (d.month === month && d.day <= limitDay) {
-          weekHours += studyByDate[d.date] || 0;
-        } else if (d.month !== month) {
-          weekHours += studyByDate[d.date] || 0;
-        }
-      });
-
-      cumulativeSum += weekHours;
-      trendData.push({ name: `W${week}`, value: Math.round(cumulativeSum * 10) / 10 });
-    }
-    return trendData;
-  };
 
   // Get cumulative daily study hours for a specific week
   const getCumulativeDailyStudyHoursForWeek = (month: number, year: number, weekNum: number) => {
@@ -236,7 +203,6 @@ export default function Analytics() {
   const kosDistribution = getKeyOfSuccessDistribution(currentMonth, currentYear);
   const kosTrend = getKeyOfSuccessTrend();
   const dailyData = getDailyStudyHours(currentMonth, currentYear, selectedWeek);
-  const cumulativeWeeklyData = getCumulativeWeeklyStudyHours(currentMonth, currentYear);
   
   const allWeeksProgress = Array.from({ length: weeksCount }, (_, i) => ({
     weekNum: i + 1,
