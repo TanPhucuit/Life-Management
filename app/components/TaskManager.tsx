@@ -592,15 +592,15 @@ export default function TaskManager() {
                                       <div className="flex gap-2">
                                         <button
                                           onClick={() => handleUpdateSession(session.id)}
-                                          className="p-1.5 bg-green-500/20 text-green-400 rounded-md hover:bg-green-500/30"
+                                          className="px-3 py-1 bg-green-500/20 text-green-400 text-xs font-medium rounded hover:bg-green-500/30 transition-all border border-green-500/30"
                                         >
-                                          <CheckCircle size={14} />
+                                          Lưu
                                         </button>
                                         <button
                                           onClick={() => setEditingSessionId(null)}
-                                          className="p-1.5 bg-white/10 text-white/50 rounded-md hover:bg-white/20"
+                                          className="px-3 py-1 bg-white/10 text-white/50 text-xs font-medium rounded hover:bg-white/20 transition-all border border-white/10"
                                         >
-                                          <X size={14} />
+                                          Hủy
                                         </button>
                                       </div>
                                     </div>
