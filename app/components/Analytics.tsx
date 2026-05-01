@@ -44,14 +44,15 @@ export default function Analytics() {
     };
 
     void loadDates();
-  }, [user?.id]);
+  }, [user?.id, analyticsView, currentMonth, currentYear]);
 
   // Calculate study hours by date
   const getStudyHoursByDate = () => {
     const hoursByDate: { [key: string]: number } = {};
     allDates.forEach((date) => {
       const dateStr = `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
-      hoursByDate[dateStr] = (hoursByDate[dateStr] || 0) + date.focused_minutes / 60;
+      const minutes = Number(date.focused_minutes) || 0;
+      hoursByDate[dateStr] = (hoursByDate[dateStr] || 0) + minutes / 60;
     });
     return hoursByDate;
   };
@@ -132,9 +133,9 @@ export default function Analytics() {
     ];
   };
 
-  // Find max day with actual positive data in current month
-  const getMaxDayWithActualData = (month: number, year: number, field: 'focused_minutes' | 'key_of_success') => {
-    const monthData = allDates.filter((d) => d.year === year && d.month === month && d[field] > 0);
+  // Find max day with ANY data record in current month
+  const getMaxDayWithData = (month: number, year: number) => {
+    const monthData = allDates.filter((d) => d.year === year && d.month === month);
     if (monthData.length === 0) return 0;
     return Math.max(...monthData.map((d) => d.day));
   };
@@ -143,8 +144,7 @@ export default function Analytics() {
   const getKeyOfSuccessTrend = () => {
     const monthData = allDates.filter((d) => d.year === currentYear && d.month === currentMonth);
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-
-    const limitDay = getMaxDayWithActualData(currentMonth, currentYear, 'key_of_success');
+    const limitDay = getMaxDayWithData(currentMonth, currentYear);
 
     const trendData = [];
     let cumulativeSum = 0;
@@ -176,11 +176,10 @@ export default function Analytics() {
     const days = getDaysInWeek(month, year, weekNum);
     const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     
-    // Find the last day in THIS week that actually has study data
+    // Find the last day in THIS week that has a data record
     const weekDaysWithData = allDates.filter(d => 
       d.year === year && 
       d.month === month && 
-      d.focused_minutes > 0 && 
       days.some(wd => wd.day === d.day)
     );
     const lastDayInWeekWithData = weekDaysWithData.length > 0 
