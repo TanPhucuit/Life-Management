@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     
     if (!finalMonthId) {
       // Try to find existing month
-      const { data: monthData, error: monthError } = await supabase
+      const { data: monthData } = await supabase
         .from('months')
         .select('id')
         .eq('user_id', userId)
