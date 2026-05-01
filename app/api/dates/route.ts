@@ -72,12 +72,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Ensure we have a month_id
+    let finalMonthId = monthId;
+    
+    if (!finalMonthId) {
+      // Try to find existing month
+      const { data: monthData, error: monthError } = await supabase
+        .from('months')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('month', month)
+        .eq('year', year)
+        .single();
+        
+      if (monthData) {
+        finalMonthId = monthData.id;
+      } else {
+        // Create the month record if it doesn't exist
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const { data: newMonth, error: createMonthError } = await supabase
+          .from('months')
+          .insert([
+            {
+              user_id: userId,
+              month,
+              year,
+              days_in_month: daysInMonth,
+              total_hours: 0,
+            },
+          ])
+          .select()
+          .single();
+          
+        if (createMonthError || !newMonth) {
+          return NextResponse.json(
+            { error: createMonthError?.message || 'Failed to create month record' },
+            { status: 500, headers: corsHeaders }
+          );
+        }
+        finalMonthId = newMonth.id;
+      }
+    }
+
     const { data, error } = await supabase
       .from('dates')
       .insert([
         {
           user_id: userId,
-          month_id: monthId || null,
+          month_id: finalMonthId,
           day,
           month,
           year,
