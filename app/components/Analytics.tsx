@@ -202,6 +202,34 @@ export default function Analytics() {
     return trendData;
   };
 
+  // Get cumulative daily study hours for a specific week
+  const getCumulativeDailyStudyHoursForWeek = (month: number, year: number, weekNum: number) => {
+    const studyByDate = getStudyHoursByDate();
+    const days = getDaysInWeek(month, year, weekNum);
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    
+    const limitDay = getMaxDayWithActualData(month, year, 'focused_minutes');
+
+    const trendData = [];
+    let cumulativeSum = 0;
+    
+    trendData.push({ name: 'Start', value: 0 });
+
+    for (const d of days) {
+      // If it's the current month, stop drawing if the day is in the future relative to our actual data
+      if (d.month === month && d.day > limitDay) break;
+      
+      cumulativeSum += studyByDate[d.date] || 0;
+      const dayOfWeek = new Date(d.year, d.month - 1, d.day).getDay();
+      trendData.push({
+        name: `${dayNames[dayOfWeek]} ${d.day}`,
+        value: Math.round(cumulativeSum * 10) / 10
+      });
+    }
+
+    return trendData;
+  };
+
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const weeksCount = getWeeksInMonth(currentMonth, currentYear);
   const weeklyData = getWeeklyStudyHours(currentMonth, currentYear);
@@ -209,6 +237,11 @@ export default function Analytics() {
   const kosTrend = getKeyOfSuccessTrend();
   const dailyData = getDailyStudyHours(currentMonth, currentYear, selectedWeek);
   const cumulativeWeeklyData = getCumulativeWeeklyStudyHours(currentMonth, currentYear);
+  
+  const allWeeksProgress = Array.from({ length: weeksCount }, (_, i) => ({
+    weekNum: i + 1,
+    data: getCumulativeDailyStudyHoursForWeek(currentMonth, currentYear, i + 1)
+  }));
 
   return (
     <div className="w-full space-y-8">
@@ -335,20 +368,47 @@ export default function Analytics() {
         </motion.div>
       )}
 
-      {/* Weekly Progress: Cumulative Study Hours Chart */}
+      {/* Weekly Progress: Grid of 5 weeks cumulative charts */}
       {analyticsView === 'weekly_progress' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white/10 rounded-xl p-6">
-          <h3 className="text-lg font-bold text-white mb-4">Cumulative Weekly Progress - {monthNames[currentMonth - 1]}</h3>
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={cumulativeWeeklyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-              <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
-              <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 'dataMax + 5']} />
-              <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-              <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </motion.div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {allWeeksProgress.map((week) => (
+            <motion.div 
+              key={week.weekNum}
+              initial={{ opacity: 0, scale: 0.95 }} 
+              animate={{ opacity: 1, scale: 1 }} 
+              className="bg-white/10 rounded-xl p-5 border border-white/5"
+            >
+              <h3 className="text-md font-bold text-white mb-4 flex justify-between items-center">
+                <span>Week {week.weekNum} Progress</span>
+                <span className="text-xs text-white/40">{monthNames[currentMonth - 1]}</span>
+              </h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={week.data}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis 
+                    dataKey="name" 
+                    stroke="rgba(255,255,255,0.4)" 
+                    fontSize={10}
+                    tickFormatter={(val) => val === 'Start' ? '' : val.split(' ')[0]} 
+                  />
+                  <YAxis stroke="rgba(255,255,255,0.4)" fontSize={10} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none', borderRadius: '8px', fontSize: '12px' }} 
+                    itemStyle={{ color: '#3b82f6' }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="value" 
+                    stroke="#3b82f6" 
+                    strokeWidth={2} 
+                    dot={{ fill: '#3b82f6', r: 2 }} 
+                    activeDot={{ r: 4 }} 
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </motion.div>
+          ))}
+        </div>
       )}
 
       {/* Key of Success Trend */}
