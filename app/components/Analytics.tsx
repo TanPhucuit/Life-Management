@@ -329,6 +329,8 @@ export default function Analytics() {
                 <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={40} />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+
           {/* Cumulative Weekly Study Hours Chart */}
           <div className="bg-white/10 rounded-xl p-6 mt-8">
             <h3 className="text-lg font-bold text-white mb-4">Cumulative Study Hours Progress - {monthNames[currentMonth - 1]}</h3>
