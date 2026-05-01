@@ -342,10 +342,6 @@ export default function Analytics() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
         </motion.div>
       )}
 
