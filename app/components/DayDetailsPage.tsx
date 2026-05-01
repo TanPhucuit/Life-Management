@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { api, ApiDate, ApiSession } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
-import { Target, Play, Pause, RotateCcw, Save, ChevronLeft } from 'lucide-react';
+import { Play, Pause, RotateCcw, Save, ChevronLeft } from 'lucide-react';
 import { UnifiedDashboardShell } from './UnifiedDashboardShell';
 import { StudyTubeVisual } from './StudyTubeVisual';
 import { RainbowCelebration } from './RainbowCelebration';
