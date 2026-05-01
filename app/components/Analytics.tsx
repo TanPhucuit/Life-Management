@@ -144,8 +144,7 @@ export default function Analytics() {
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
 
     const maxDay = getMaxDayWithData(currentMonth, currentYear);
-    const isCurrentMonth = currentYear === new Date().getFullYear() && currentMonth === new Date().getMonth() + 1;
-    const limitDay = isCurrentMonth ? Math.max(maxDay, new Date().getDate()) : (maxDay > 0 ? maxDay : daysInMonth);
+    const limitDay = maxDay; // Strictly stop at the last day with data
 
     const trendData = [];
     let cumulativeSum = 0;
@@ -175,8 +174,7 @@ export default function Analytics() {
     const weeksCount = getWeeksInMonth(month, year);
     
     const maxDay = getMaxDayWithData(month, year);
-    const isCurrentMonth = year === new Date().getFullYear() && month === new Date().getMonth() + 1;
-    const limitDay = isCurrentMonth ? Math.max(maxDay, new Date().getDate()) : (maxDay > 0 ? maxDay : 31);
+    const limitDay = maxDay; // Strictly stop at the last day with data
 
     const trendData = [];
     let cumulativeSum = 0;
@@ -295,6 +293,20 @@ export default function Analytics() {
               </PieChart>
             </ResponsiveContainer>
           </motion.div>
+
+          {/* Cumulative Weekly Study Hours Chart - Moved here for better visibility */}
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="col-span-2 bg-white/10 rounded-xl p-6">
+            <h3 className="text-lg font-bold text-white mb-4">Cumulative Study Hours Progress - {monthNames[currentMonth - 1]}</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={cumulativeWeeklyData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
+                <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 'dataMax + 5']} />
+                <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
+                <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </motion.div>
         </div>
       )}
 
@@ -331,17 +343,7 @@ export default function Analytics() {
             </ResponsiveContainer>
           </div>
 
-          {/* Cumulative Weekly Study Hours Chart */}
-          <div className="bg-white/10 rounded-xl p-6 mt-8">
-            <h3 className="text-lg font-bold text-white mb-4">Cumulative Study Hours Progress - {monthNames[currentMonth - 1]}</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={cumulativeWeeklyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
-                <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 'dataMax + 5']} />
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-                <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} />
-              </LineChart>
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </motion.div>
