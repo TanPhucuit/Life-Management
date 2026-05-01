@@ -16,6 +16,20 @@ export default function TaskManager() {
   const [showNewTopicForm, setShowNewTopicForm] = useState(false);
   const [showNewTaskForm, setShowNewTaskForm] = useState(false);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [showNewSessionForm, setShowNewSessionForm] = useState(false);
+  const [newTopicName, setNewTopicName] = useState('');
+  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
+  const [editTopicName, setEditTopicName] = useState('');
+  const [newTaskData, setNewTaskData] = useState({
+    title: '',
+    description: '',
+    deadline: '',
+  });
+  const [newSessionData, setNewSessionData] = useState({
+    sessionDate: '',
+    startTime: '',
+    endTime: '',
+  });
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editSessionData, setEditSessionData] = useState({
     sessionDate: '',
