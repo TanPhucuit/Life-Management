@@ -66,3 +66,60 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
+
+export async function PUT(request: NextRequest) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  try {
+    const body = await request.json();
+    const { id, name } = body;
+
+    if (!id || !name) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400, headers: corsHeaders });
+    }
+
+    const { data, error } = await supabase
+      .from('topics')
+      .update({ name })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
+    }
+
+    return NextResponse.json(data, { headers: corsHeaders });
+  } catch (error) {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
+  }
+
+  try {
+    const id = request.nextUrl.searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ error: 'id is required' }, { status: 400, headers: corsHeaders });
+    }
+
+    const { error } = await supabase
+      .from('topics')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400, headers: corsHeaders });
+    }
+
+    return NextResponse.json({ success: true }, { headers: corsHeaders });
+  } catch (error) {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
+  }
+}

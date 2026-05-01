@@ -5,10 +5,12 @@ import { motion } from 'framer-motion';
 import { api, ApiDate, ApiSession } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { Clock, Target, Play, Pause, RotateCcw, Save, ChevronLeft } from 'lucide-react';
-import { BentoCard3D } from './BentoCard';
-import { TestTubeStudyHours } from './TestTubeStudyHours';
+import { UnifiedDashboardShell } from './UnifiedDashboardShell';
+import { StudyTubeVisual } from './StudyTubeVisual';
 import { RainbowCelebration } from './RainbowCelebration';
 import { useRouter } from 'next/navigation';
+import { SessionItem } from './SessionItem';
+import { AnimatePresence } from 'framer-motion';
 
 interface DayDetailsPageProps {
   day: number;
@@ -149,6 +151,28 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     }
   };
 
+  const handleUpdateSession = async (id: string, updates: Partial<ApiSession>) => {
+    try {
+      await api.updateSession({
+        id,
+        focusedMinutes: updates.focused_minutes,
+        keyOfSuccess: updates.key_of_success,
+      });
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteSession = async (id: string) => {
+    try {
+      await api.deleteSession(id);
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const isToday = (): boolean => {
     const today = new Date();
     return (
@@ -193,278 +217,144 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
         </p>
       </motion.div>
 
-      {/* Main Container - 92% of viewport (calc(100vh - 4rem)) */}
-      <div className="flex-1 overflow-hidden">
-        <div className="w-full h-full max-w-[1440px] mx-auto flex flex-col gap-0">
-        <div 
-          className="flex-1 grid gap-3 p-4 overflow-hidden"
-          style={{
-            gridTemplateColumns: '1.5fr 1fr 1fr',
-            gridTemplateRows: '1fr 1fr 0.8fr',
-          }}
-        >
-          
-          {/* ===== COLUMN 1: Visual Master (Test Tubes) ===== */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.1 }}
-            className="row-span-3"
-            style={{ gridColumn: 1 }}
-          >
-            <BentoCard3D
-              className="h-full p-6 flex flex-col items-center justify-center relative overflow-hidden"
-              glowing={isCelebrating}
-              enablePerspectiveTilt
-              enableSpotlight
-            >
+      {/* Main Container */}
+      <div className="flex-1 overflow-hidden pb-4">
+        <UnifiedDashboardShell
+          visual={
+            <div className="h-full w-full flex flex-col items-center justify-center relative">
               <RainbowCelebration isActive={isCelebrating} />
-              <TestTubeStudyHours
+              <StudyTubeVisual
                 currentHours={parseFloat(focusedHours)}
                 targetHours={targetHours}
                 isRunning={isRunning}
                 sunMood={isCelebrating ? 'celebrate' : sunMood}
               />
-            </BentoCard3D>
-          </motion.div>
-
-          {/* ===== COLUMN 2: Stopwatch ===== */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            style={{ gridColumn: 2 }}
-          >
-            <BentoCard3D
-              className="h-full p-5 flex flex-col relative overflow-hidden"
-              enablePerspectiveTilt
-              enableSpotlight
-              icon={<Clock size={16} />}
-              title="Stopwatch"
-            >
-              {!showStopwatch ? (
-                <button
-                  onClick={() => setShowStopwatch(true)}
-                  className="flex-1 flex items-center justify-center py-2 rounded-lg bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-700 hover:to-blue-600 text-white font-bold transition-all border border-blue-500/30 text-sm"
-                >
-                  <Clock className="w-3 h-3 mr-1" />
-                  Start
+            </div>
+          }
+          stopwatch={
+            !showStopwatch ? (
+                <button onClick={() => setShowStopwatch(true)} className="w-full h-full min-h-[80px] rounded-xl bg-gradient-to-r from-blue-600/10 to-blue-500/10 hover:from-blue-600/20 hover:to-blue-500/20 text-blue-400 font-bold transition-all border border-blue-500/20 flex flex-col items-center justify-center gap-2">
+                  <Play className="w-6 h-6" />
+                  <span className="text-[10px] uppercase tracking-wider">Start Stopwatch</span>
                 </button>
-              ) : (
-                <div className="flex-1 flex flex-col justify-between gap-2">
-                  <div className="text-center">
-                    <div className="text-3xl font-mono font-bold text-blue-300 mb-1">
+            ) : (
+                <div className="flex flex-col h-full justify-between">
+                  <div className="text-center my-auto">
+                    <div className="text-4xl font-mono font-bold text-blue-400 tracking-tighter drop-shadow-[0_0_15px_rgba(96,165,250,0.3)]">
                       {formatTime(stopwatchTime)}
                     </div>
-                    <div className="text-white/60 text-xs">{Math.floor(stopwatchTime / 60)}m</div>
                   </div>
-
-                  <div className="grid grid-cols-2 gap-1">
-                    <button
-                      onClick={handlePlayPause}
-                      className="py-1.5 rounded-md bg-green-600 hover:bg-green-700 text-white font-medium text-xs flex items-center justify-center gap-0.5 transition"
-                    >
-                      {isRunning ? <Pause size={12} /> : <Play size={12} />}
+                  <div className="grid grid-cols-2 grid-rows-2 gap-2 mt-4">
+                    <button onClick={handlePlayPause} className="py-2.5 rounded-xl bg-[#161616] hover:bg-[#222] text-white font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition border border-[#333]">
+                      {isRunning ? <Pause size={14} /> : <Play size={14} />}
                       {isRunning ? 'Pause' : 'Play'}
                     </button>
-                    <button
-                      onClick={handleReset}
-                      className="py-1.5 rounded-md bg-red-600 hover:bg-red-700 text-white font-medium text-xs flex items-center justify-center gap-0.5 transition"
-                    >
-                      <RotateCcw size={12} />
+                    <button onClick={handleReset} className="py-2.5 rounded-xl bg-[#161616] hover:bg-[#222] text-white font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition border border-[#333]">
+                      <RotateCcw size={14} />
                       Reset
                     </button>
-                    <button
-                      onClick={handleSaveStopwatch}
-                      className="py-1.5 rounded-md bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white font-bold text-xs flex items-center justify-center gap-0.5 transition border border-purple-500/30 col-span-2"
-                    >
-                      <Save size={12} />
+                    <button onClick={handleSaveStopwatch} className="py-2.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition border border-blue-500/30">
+                      <Save size={14} />
                       Save
                     </button>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setShowStopwatch(false);
-                      setStopwatchTime(0);
-                      setIsRunning(false);
-                    }}
-                    className="py-1 rounded-md bg-white/10 hover:bg-white/15 text-white font-medium text-xs transition"
-                  >
-                    Close
-                  </button>
-                </div>
-              )}
-            </BentoCard3D>
-          </motion.div>
-
-          {/* ===== COLUMN 3: Daily Target ===== */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.3 }}
-            style={{ gridColumn: 3 }}
-          >
-            <BentoCard3D
-              className="h-full p-5 flex flex-col"
-              enablePerspectiveTilt
-              enableSpotlight
-              icon={<Target size={16} />}
-              title="Daily Target"
-            >
-              <div className="flex-1 flex flex-col justify-between gap-2">
-                <div className="bg-white/5 border border-white/10 rounded-lg p-2 text-center">
-                  <div className="text-2xl font-bold text-cyan-400">{targetHours}h</div>
-                  <div className="text-white/60 text-xs">target</div>
-                </div>
-
-                <input
-                  type="range"
-                  min="1"
-                  max="12"
-                  step="0.5"
-                  value={targetHours}
-                  onChange={(e) => setTargetHours(Number(e.target.value))}
-                  className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                />
-
-                <div className="grid grid-cols-2 gap-1 text-center">
-                  <div className="bg-white/5 rounded-md p-1">
-                    <div className="text-[9px] text-white/50">Focused</div>
-                    <div className="text-sm font-bold text-blue-400">{focusedHours}h</div>
-                  </div>
-                  <div className="bg-white/5 rounded-md p-1">
-                    <div className="text-[9px] text-white/50">Left</div>
-                    <div className="text-sm font-bold text-orange-400">{Math.max(0, (targetHours - parseFloat(focusedHours))).toFixed(1)}h</div>
-                  </div>
-                </div>
-              </div>
-            </BentoCard3D>
-          </motion.div>
-
-          {/* ===== COLUMN 2: Key of Success ===== */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.4 }}
-            style={{ gridColumn: 2 }}
-          >
-            <BentoCard3D
-              className="h-full p-5 flex flex-col"
-              glowing
-              enablePerspectiveTilt
-              title="Quality"
-            >
-              <div className="flex-1 flex flex-col justify-between gap-2">
-                <div className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 rounded-lg p-2 text-center">
-                  <div className="text-2xl font-bold text-purple-300">{keyOfSuccess}</div>
-                  <div className="text-white/60 text-xs">out of 3</div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-1">
-                  {[1, 2, 3].map((num) => (
-                    <button
-                      key={num}
-                      onClick={() => setKeyOfSuccess(num)}
-                      className={`py-1.5 px-0.5 rounded-md font-bold transition border text-xs ${
-                        keyOfSuccess === num
-                          ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white border-purple-500/50'
-                          : 'bg-white/5 text-white/70 hover:bg-white/10 border-white/10'
-                      }`}
-                    >
-                      {num === 1 ? '😔' : num === 2 ? '😐' : '😊'}
+                    <button onClick={() => { setShowStopwatch(false); setStopwatchTime(0); setIsRunning(false); }} className="py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold text-[10px] uppercase tracking-wider transition border border-red-500/20">
+                      Close
                     </button>
-                  ))}
+                  </div>
+                </div>
+            )
+          }
+          target={
+            <div className="flex flex-col h-full justify-center gap-5">
+              <div className="flex justify-between items-end px-2">
+                <div className="text-4xl font-bold text-cyan-400 tracking-tighter drop-shadow-[0_0_15px_rgba(34,211,238,0.2)]">{targetHours}h</div>
+                <div className="text-right">
+                  <div className="text-[9px] text-white/40 uppercase tracking-wider font-bold mb-1">Status</div>
+                  <div className="text-xs font-bold text-white">
+                    {focusedHours}h / <span className="text-orange-400">{Math.max(0, (targetHours - parseFloat(focusedHours))).toFixed(1)}h left</span>
+                  </div>
                 </div>
               </div>
-            </BentoCard3D>
-          </motion.div>
-
-          {/* ===== COLUMN 3: Manual Input ===== */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.5 }}
-            style={{ gridColumn: 3 }}
-          >
-            <BentoCard3D
-              className="h-full p-5 flex flex-col"
-              enablePerspectiveTilt
-              title="Manual Input"
-            >
-              <div className="flex-1 flex flex-col justify-between gap-2">
-                <label className="text-white/80 font-bold text-xs">
-                  {focusedMinutes}m ({focusedHours}h)
+              <input
+                type="range" min="1" max="12" step="0.5"
+                value={targetHours}
+                onChange={(e) => setTargetHours(Number(e.target.value))}
+                className="w-full h-1.5 bg-[#222] rounded-full appearance-none cursor-pointer accent-cyan-400 outline-none"
+              />
+            </div>
+          }
+          quality={
+            <div className="flex flex-col h-full justify-center items-center gap-5">
+              <div className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-purple-400 to-pink-500 drop-shadow-[0_0_15px_rgba(192,132,252,0.3)]">
+                {keyOfSuccess}
+              </div>
+              <div className="flex gap-3 justify-center">
+                {[0, 1, 2, 3].map((num) => (
+                  <button
+                    key={num}
+                    onClick={() => setKeyOfSuccess(num)}
+                    className={`w-10 h-10 rounded-[12px] font-bold transition-all flex items-center justify-center border text-sm ${
+                      keyOfSuccess === num
+                        ? 'bg-gradient-to-br from-purple-600/80 to-pink-600/80 text-white border-white/20 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                        : 'bg-[#161616] text-white/50 hover:bg-[#222] hover:text-white/80 border-[#333]'
+                    }`}
+                  >
+                    {num === 0 ? 'X' : num === 1 ? '😔' : num === 2 ? '😐' : '😊'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          }
+          input={
+            <div className="flex flex-col h-full justify-center gap-4">
+              <div className="flex justify-between items-center px-1">
+                <label className="text-white/80 font-bold text-sm">
+                  {focusedMinutes}m <span className="text-white/40 text-xs font-medium ml-1">({focusedHours}h)</span>
                 </label>
                 <input
-                  type="range"
-                  min="0"
-                  max="720"
-                  step="15"
-                  value={focusedMinutes}
-                  onChange={(e) => setFocusedMinutes(Number(e.target.value))}
-                  className="w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
-                />
-                <input
-                  type="number"
-                  min="0"
+                  type="number" min="0"
                   value={focusedMinutes}
                   onChange={(e) => setFocusedMinutes(Math.max(0, Number(e.target.value)))}
-                  className="px-2 py-1 bg-white/10 border border-white/10 rounded-md text-white text-xs focus:outline-none focus:border-white/30"
+                  className="w-16 px-2 py-1.5 bg-[#161616] border border-[#333] rounded-[8px] text-white text-xs font-mono font-bold text-center focus:outline-none focus:border-white/50 transition-colors"
                 />
-                <button
-                  onClick={handleSaveDayDetails}
-                  disabled={isSaving}
-                  className="w-full mt-3 px-3 py-2 rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-700 hover:to-cyan-600 text-white text-sm font-semibold transition disabled:opacity-50"
-                >
-                  {isSaving ? 'Saving...' : 'Save Day Details'}
-                </button>
               </div>
-            </BentoCard3D>
-          </motion.div>
-
-          {/* ===== FULL WIDTH: Sessions List ===== */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.6 }}
-            style={{ gridColumn: '1 / -1' }}
-            className="overflow-hidden"
-          >
-            <BentoCard3D
-              className="h-full p-4 flex flex-col overflow-hidden"
-              enablePerspectiveTilt
-              title={`Sessions (${sessions.length})`}
-            >
-              <div className="flex-1 flex flex-col gap-2 overflow-y-auto pr-2"
-                style={{
-                  scrollbarWidth: 'thin',
-                  scrollbarColor: 'rgba(139, 92, 246, 0.4) rgba(10, 10, 10, 0.1)'
-                }}
+              <input
+                type="range" min="0" max="720" step="15"
+                value={focusedMinutes}
+                onChange={(e) => setFocusedMinutes(Number(e.target.value))}
+                className="w-full h-1.5 bg-[#222] rounded-full appearance-none cursor-pointer accent-blue-500 outline-none"
+              />
+              <button
+                onClick={handleSaveDayDetails} disabled={isSaving}
+                className="w-full mt-2 py-3 rounded-xl bg-white hover:bg-gray-200 text-black text-[10px] uppercase tracking-wider font-bold transition-all disabled:opacity-50"
               >
-                {sessions.length === 0 ? (
-                  <div className="flex items-center justify-center h-full text-white/50 text-xs">
-                    No sessions recorded yet
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1">
-                    {sessions.map((session) => (
-                      <div key={session.id} className="bg-white/5 border border-white/10 rounded-md p-1.5 hover:bg-white/10 transition">
-                        <div className="text-[8px] font-mono text-white/70 mb-0.5">
-                          {new Date(session.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                        <span className={`text-[7px] px-1 py-0.5 rounded-full font-medium inline-block mt-0.5 ${session.in_time_status === 'in_time' ? 'bg-green-500/20 text-green-300' : 'bg-orange-500/20 text-orange-300'}`}>
-                          {session.in_time_status === 'in_time' ? 'OK' : 'Late'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </BentoCard3D>
-          </motion.div>
-        </div>
-        </div>
+                {isSaving ? 'Saving...' : 'Save Day Details'}
+              </button>
+            </div>
+          }
+          sessions={
+            <div className="w-full h-full flex flex-row gap-3 overflow-x-auto overflow-y-hidden items-center pt-2 pb-2 px-1"
+              style={{ scrollbarWidth: 'none' }}
+            >
+              {sessions.length === 0 ? (
+                <div className="flex items-center justify-center w-full h-full text-white/30 text-xs font-medium">
+                  Chưa có dữ liệu học tập cho ngày này
+                </div>
+              ) : (
+                <AnimatePresence>
+                  {sessions.map((session) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      onUpdate={handleUpdateSession}
+                      onDelete={handleDeleteSession}
+                    />
+                  ))}
+                </AnimatePresence>
+              )}
+            </div>
+          }
+        />
       </div>
     </div>
   );

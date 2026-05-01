@@ -44,10 +44,27 @@ interface AppStore {
   setIsLoading: (loading: boolean) => void;
 }
 
+const getUserFromStorage = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const userStr = localStorage.getItem('user');
+    if (!userStr) return null;
+    const user = JSON.parse(userStr);
+    // Basic UUID validation to prevent database errors for old mock data (like id: "1")
+    if (user && user.id && typeof user.id === 'string' && user.id.length > 10 && user.id.includes('-')) {
+      return user;
+    }
+    localStorage.removeItem('user');
+    return null;
+  } catch (e) {
+    return null;
+  }
+};
+
 export const useAppStore = create<AppStore>((set) => ({
   // Auth - no default user
-  user: typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null,
-  isAuthenticated: typeof window !== 'undefined' ? !!localStorage.getItem('user') : false,
+  user: getUserFromStorage(),
+  isAuthenticated: getUserFromStorage() !== null,
 
   setUser: (user) =>
     set(() => ({

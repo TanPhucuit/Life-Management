@@ -59,7 +59,8 @@ export default function Analytics() {
   const getWeeksInMonth = (month: number, year: number) => {
     const firstDay = new Date(year, month - 1, 1);
     const lastDay = new Date(year, month, 0);
-    return Math.ceil((lastDay.getDate() + firstDay.getDay()) / 7);
+    const adjustedFirstDay = (firstDay.getDay() + 6) % 7; // 0 for Monday, 6 for Sunday
+    return Math.ceil((lastDay.getDate() + adjustedFirstDay) / 7);
   };
 
   // Get days in specific week
@@ -67,7 +68,8 @@ export default function Analytics() {
     const firstDay = new Date(year, month - 1, 1);
     const daysInMonth = new Date(year, month, 0).getDate();
     
-    let dayCounter = 1 - firstDay.getDay();
+    const adjustedFirstDay = (firstDay.getDay() + 6) % 7; // 0 for Monday, 6 for Sunday
+    let dayCounter = 1 - adjustedFirstDay;
     let currentWeek = 1;
     const weekDays: Array<{ day: number; date: string; month: number; year: number }> = [];
 
@@ -129,16 +131,80 @@ export default function Analytics() {
     ];
   };
 
-  // Get key of success trend
+  // Find max day with data in current month
+  const getMaxDayWithData = (month: number, year: number) => {
+    const monthData = allDates.filter((d) => d.year === year && d.month === month);
+    if (monthData.length === 0) return 0;
+    return Math.max(...monthData.map((d) => d.day));
+  };
+
+  // Get key of success trend for current month (cumulative over days)
   const getKeyOfSuccessTrend = () => {
-    const months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthData = allDates.filter((d) => d.year === currentYear && d.month === currentMonth);
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+
+    const maxDay = getMaxDayWithData(currentMonth, currentYear);
+    const isCurrentMonth = currentYear === new Date().getFullYear() && currentMonth === new Date().getMonth() + 1;
+    const limitDay = isCurrentMonth ? Math.max(maxDay, new Date().getDate()) : (maxDay > 0 ? maxDay : daysInMonth);
+
+    const trendData = [];
+    let cumulativeSum = 0;
     
-    return months.map((m) => {
-      const monthData = allDates.filter((d) => d.year === currentYear && d.month === m);
-      const avgSuccess = monthData.length > 0 ? Math.round((monthData.reduce((sum, d) => sum + d.key_of_success, 0) / monthData.length) * 10) / 10 : 0;
-      return { name: monthNames[m - 1], value: avgSuccess };
-    });
+    // Start from 0 before Day 1
+    trendData.push({ name: 'Start', value: 0 });
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      if (day > limitDay) break; // Không vẽ trước nếu chưa tới ngày hoặc chưa có data
+
+      const dayData = monthData.find((d) => d.day === day);
+      if (dayData) {
+        cumulativeSum += dayData.key_of_success;
+      }
+      trendData.push({
+        name: `Day ${day}`,
+        value: cumulativeSum
+      });
+    }
+
+    return trendData;
+  };
+
+  // Get cumulative study hours across weeks
+  const getCumulativeWeeklyStudyHours = (month: number, year: number) => {
+    const studyByDate = getStudyHoursByDate();
+    const weeksCount = getWeeksInMonth(month, year);
+    
+    const maxDay = getMaxDayWithData(month, year);
+    const isCurrentMonth = year === new Date().getFullYear() && month === new Date().getMonth() + 1;
+    const limitDay = isCurrentMonth ? Math.max(maxDay, new Date().getDate()) : (maxDay > 0 ? maxDay : 31);
+
+    const trendData = [];
+    let cumulativeSum = 0;
+
+    trendData.push({ name: 'Start', value: 0 });
+
+    for (let week = 1; week <= weeksCount; week++) {
+      const days = getDaysInWeek(month, year, week);
+      
+      // Stop drawing if the week starts after our limit day in the current month
+      if (days.length > 0 && days[0].day > limitDay && days[0].month === month) {
+        break;
+      }
+
+      let weekHours = 0;
+      days.forEach((d) => {
+        // Only sum days up to the limit day
+        if (d.month === month && d.day <= limitDay) {
+          weekHours += studyByDate[d.date] || 0;
+        } else if (d.month !== month) {
+          weekHours += studyByDate[d.date] || 0;
+        }
+      });
+
+      cumulativeSum += weekHours;
+      trendData.push({ name: `W${week}`, value: Math.round(cumulativeSum * 10) / 10 });
+    }
+    return trendData;
   };
 
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -147,6 +213,7 @@ export default function Analytics() {
   const kosDistribution = getKeyOfSuccessDistribution(currentMonth, currentYear);
   const kosTrend = getKeyOfSuccessTrend();
   const dailyData = getDailyStudyHours(currentMonth, currentYear, selectedWeek);
+  const cumulativeWeeklyData = getCumulativeWeeklyStudyHours(currentMonth, currentYear);
 
   return (
     <div className="w-full space-y-8">
@@ -205,12 +272,12 @@ export default function Analytics() {
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white/10 rounded-xl p-6">
             <h3 className="text-lg font-bold text-white mb-4">Weekly Study Hours - {monthNames[currentMonth - 1]}</h3>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={weeklyData}>
+              <BarChart data={weeklyData} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
                 <YAxis stroke="rgba(255,255,255,0.6)" />
                 <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-                <Bar dataKey="hours" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="hours" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={50} />
               </BarChart>
             </ResponsiveContainer>
           </motion.div>
@@ -254,13 +321,25 @@ export default function Analytics() {
           <div className="bg-white/10 rounded-xl p-6">
             <h3 className="text-lg font-bold text-white mb-4">Daily Study Hours - Week {selectedWeek}</h3>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={dailyData}>
+              <BarChart data={dailyData} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" angle={-45} textAnchor="end" height={80} />
                 <YAxis stroke="rgba(255,255,255,0.6)" />
                 <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-                <Bar dataKey="hours" fill="#8b5cf6" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={40} />
               </BarChart>
+            </ResponsiveContainer>
+          {/* Cumulative Weekly Study Hours Chart */}
+          <div className="bg-white/10 rounded-xl p-6 mt-8">
+            <h3 className="text-lg font-bold text-white mb-4">Cumulative Study Hours Progress - {monthNames[currentMonth - 1]}</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={cumulativeWeeklyData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
+                <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 'dataMax + 5']} />
+                <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
+                <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} />
+              </LineChart>
             </ResponsiveContainer>
           </div>
         </motion.div>
@@ -269,14 +348,14 @@ export default function Analytics() {
       {/* Key of Success Trend */}
       {analyticsView === 'key_of_success' && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white/10 rounded-xl p-6">
-          <h3 className="text-lg font-bold text-white mb-4">Key of Success Trend - {currentYear}</h3>
+          <h3 className="text-lg font-bold text-white mb-4">Key of Success Progress - {monthNames[currentMonth - 1]} {currentYear}</h3>
           <ResponsiveContainer width="100%" height={350}>
             <LineChart data={kosTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
               <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
-              <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 3]} />
+              <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 'dataMax + 5']} />
               <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-              <Line type="monotone" dataKey="value" stroke="#ec4899" strokeWidth={3} dot={{ fill: '#ec4899', r: 5 }} activeDot={{ r: 7 }} />
+              <Line type="monotone" dataKey="value" stroke="#ec4899" strokeWidth={3} dot={{ fill: '#ec4899', r: 3 }} activeDot={{ r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
         </motion.div>

@@ -26,6 +26,8 @@ export interface ApiSession {
   end_time: string;
   session_date: string;
   in_time_status: 'in_time' | 'out_time';
+  focused_minutes?: number;
+  key_of_success?: number;
   created_at?: string;
   updated_at?: string;
 }
@@ -43,8 +45,21 @@ export interface ApiDate {
   updated_at?: string;
 }
 
+const API_URL = typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : '';
+
+const getApiUrl = (endpoint: string): string => {
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  if (!API_URL) return normalizedEndpoint.startsWith('/api') ? normalizedEndpoint : `/api${normalizedEndpoint}`;
+  let baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+  let path = normalizedEndpoint;
+  if (baseUrl.endsWith('/api')) return `${baseUrl}${path}`;
+  if (!path.startsWith('/api')) path = `/api${path}`;
+  return `${baseUrl}${path}`;
+};
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const url = getApiUrl(path);
+  const response = await fetch(url, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -175,6 +190,8 @@ export const api = {
     endTime?: string;
     sessionDate?: string;
     inTimeStatus?: ApiSession['in_time_status'];
+    focusedMinutes?: number;
+    keyOfSuccess?: number;
   }) {
     return requestJson<ApiSession>(`/api/sessions`, {
       method: 'PUT',

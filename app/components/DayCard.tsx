@@ -52,8 +52,6 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0 }: D
       className={`p-4 h-full min-h-32 flex flex-col ${!date.isCurrentMonth ? 'opacity-40' : ''}`}
       glowing={isToday()}
       onClick={handleClick}
-      enablePerspectiveTilt={date.isCurrentMonth}
-      enableSpotlight={date.isCurrentMonth}
       icon={getIcon()}
       title={`Day ${date.day}`}
       description={sessionCount > 0 ? `${sessionCount} session${sessionCount !== 1 ? 's' : ''}` : 'No sessions'}

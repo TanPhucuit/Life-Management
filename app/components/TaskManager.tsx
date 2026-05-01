@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { api, ApiSession, ApiTask, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
-import { Plus, Trash2, CheckCircle, Circle, Clock, X, ListTodo, BookOpen } from 'lucide-react';
+import { Plus, Trash2, CheckCircle, Circle, Clock, X, ListTodo, BookOpen, Pencil } from 'lucide-react';
 import { BentoCard3D } from './BentoCard';
 
 export default function TaskManager() {
@@ -19,6 +19,8 @@ export default function TaskManager() {
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showNewSessionForm, setShowNewSessionForm] = useState(false);
   const [newTopicName, setNewTopicName] = useState('');
+  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
+  const [editTopicName, setEditTopicName] = useState('');
   const [newTaskData, setNewTaskData] = useState({
     title: '',
     description: '',
@@ -67,6 +69,36 @@ export default function TaskManager() {
       setShowNewTopicForm(false);
     } catch (error) {
       console.error('Error adding topic:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdateTopic = async (id: string) => {
+    if (!editTopicName.trim()) return;
+    try {
+      setIsLoading(true);
+      await api.updateTopic(id, editTopicName.trim());
+      setTopics((current) => current.map((t) => (t.id === id ? { ...t, name: editTopicName.trim() } : t)));
+      setEditingTopicId(null);
+    } catch (error) {
+      console.error('Error updating topic:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDeleteTopic = async (id: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa topic này và toàn bộ tasks bên trong?')) return;
+    try {
+      setIsLoading(true);
+      await api.deleteTopic(id);
+      setTopics((current) => current.filter((t) => t.id !== id));
+      if (selectedTopic === id) {
+        setSelectedTopic(topics.find((t) => t.id !== id)?.id || '');
+      }
+    } catch (error) {
+      console.error('Error deleting topic:', error);
     } finally {
       setIsLoading(false);
     }
@@ -159,7 +191,6 @@ export default function TaskManager() {
           icon={<BookOpen size={24} />}
           title="Topics"
           description={`${topics.length} topics`}
-          enablePerspectiveTilt={false}
         >
           {/* New Topic Form */}
           {showNewTopicForm && (
@@ -195,17 +226,62 @@ export default function TaskManager() {
           {/* Topics List */}
           <div className="space-y-2 flex-1 mt-4">
             {topics.map((topic) => (
-              <button
-                key={topic.id}
-                onClick={() => setSelectedTopic(topic.id)}
-                className={`w-full text-left px-4 py-3 rounded-lg transition-all ${
-                  selectedTopic === topic.id
-                    ? 'bg-gradient-to-r from-purple-600/60 to-purple-500/60 text-white border border-purple-500/30'
-                    : 'bg-white/5 text-white/70 hover:bg-white/10 border border-transparent'
-                }`}
-              >
-                <span className="text-sm font-medium">{topic.name}</span>
-              </button>
+              <div key={topic.id} className="relative group">
+                {editingTopicId === topic.id ? (
+                  <div className="flex gap-2 p-2 bg-white/5 rounded-lg border border-white/20">
+                    <input
+                      type="text"
+                      value={editTopicName}
+                      onChange={(e) => setEditTopicName(e.target.value)}
+                      className="flex-1 bg-transparent border-none outline-none text-sm text-white px-2"
+                      autoFocus
+                      onKeyDown={(e) => e.key === 'Enter' && handleUpdateTopic(topic.id)}
+                    />
+                    <button onClick={() => handleUpdateTopic(topic.id)} className="p-1.5 bg-green-500/20 text-green-400 rounded-md hover:bg-green-500/30">
+                      <CheckCircle size={14} />
+                    </button>
+                    <button onClick={() => setEditingTopicId(null)} className="p-1.5 bg-white/10 text-white/50 rounded-md hover:bg-white/20">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setSelectedTopic(topic.id)}
+                      className={`w-full text-left px-4 py-3 rounded-lg transition-all pr-16 ${
+                        selectedTopic === topic.id
+                          ? 'bg-gradient-to-r from-purple-600/60 to-purple-500/60 text-white border border-purple-500/30'
+                          : 'bg-white/5 text-white/70 hover:bg-white/10 border border-transparent'
+                      }`}
+                    >
+                      <span className="text-sm font-medium">{topic.name}</span>
+                    </button>
+                    <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingTopicId(topic.id);
+                          setEditTopicName(topic.name);
+                        }}
+                        className="p-1.5 text-white/50 hover:text-white hover:bg-white/10 rounded-md transition"
+                        title="Edit Topic"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTopic(topic.id);
+                        }}
+                        className="p-1.5 text-red-400/50 hover:text-red-400 hover:bg-red-500/10 rounded-md transition"
+                        title="Delete Topic"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             ))}
           </div>
 
@@ -235,13 +311,11 @@ export default function TaskManager() {
       >
         <BentoCard3D
           hover={false}
-          enableSpotlight={false}
           className="h-full flex flex-col p-6"
           glowing
           icon={<ListTodo size={24} />}
           title={topics.find((t) => t.id === selectedTopic)?.name || 'Tasks'}
           description={`${tasks.filter((t) => t.topic_id === selectedTopic).length} tasks`}
-          enablePerspectiveTilt={false}
         >
           {/* New Task Form */}
           {showNewTaskForm && selectedTopic && (

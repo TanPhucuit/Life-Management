@@ -85,8 +85,6 @@ export default function MonthSelector({ onMonthSelect }: MonthSelectorProps) {
                 <BentoCard3D
                   className="p-6 h-full min-h-56 flex flex-col"
                   onClick={() => onMonthSelect(index + 1)}
-                  enablePerspectiveTilt
-                  enableSpotlight
                   icon={<IconComponent size={24} className="text-white/60" />}
                   title={monthItem.name}
                   description={`Month ${String(index + 1).padStart(2, '0')} • 2026`}

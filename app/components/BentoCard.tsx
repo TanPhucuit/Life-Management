@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ReactNode, useState } from 'react';
+import { ReactNode } from 'react';
 
 // Shimmer effect for progress bars
 export function ShimmerProgressBar({
@@ -80,18 +80,11 @@ export function BentoCard({
         hover
           ? {
               boxShadow: '0 0 40px rgba(139, 92, 246, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
-              transition: { duration: 0.3 },
             }
           : undefined
       }
-      whileTap={
-        hover
-          ? {
-              scale: 0.96,
-              transition: { duration: 0.1 },
-            }
-          : undefined
-      }
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       onClick={onClick}
     >
       {/* Gradient background layer */}
@@ -141,8 +134,6 @@ export function BentoCard({
 }
 
 interface BentoCard3DProps extends BentoCardProps {
-  enablePerspectiveTilt?: boolean;
-  enableSpotlight?: boolean;
 }
 
 export function BentoCard3D({
@@ -154,35 +145,7 @@ export function BentoCard3D({
   icon,
   title,
   description,
-  enablePerspectiveTilt = true,
-  enableSpotlight = true,
 }: BentoCard3DProps) {
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [isHovering, setIsHovering] = useState(false);
-  const [spotlightPos, setSpotlightPos] = useState({ x: 0, y: 0 });
-
-  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    const x = (e.clientX - rect.left - centerX) / 25; // Reduced tilt: 5-8deg
-    const y = (e.clientY - rect.top - centerY) / 25;
-
-    setMousePosition({ x, y });
-
-    // Spotlight position (relative coordinates)
-    if (enableSpotlight) {
-      setSpotlightPos({
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
-      });
-    }
-  };
-
-  const handleMouseLeave = () => {
-    setMousePosition({ x: 0, y: 0 });
-    setIsHovering(false);
-  };
 
   return (
     <motion.div
@@ -198,29 +161,21 @@ export function BentoCard3D({
         boxShadow: glowing
           ? '0 0 32px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
           : 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-        perspective: '1000px',
       }}
-      animate={
-        enablePerspectiveTilt && isHovering
+      animate={{
+        boxShadow: glowing
+          ? '0 0 32px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+          : 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+      }}
+      whileHover={
+        hover
           ? {
-              rotateX: mousePosition.y,
-              rotateY: mousePosition.x,
               boxShadow: '0 0 40px rgba(139, 92, 246, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
             }
-          : {
-              rotateX: 0,
-              rotateY: 0,
-              boxShadow: glowing
-                ? '0 0 32px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-                : 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-            }
+          : undefined
       }
-      transition={{ type: 'spring', stiffness: 400, damping: 40 }}
-      onMouseMove={handleMouseMove}
-      onMouseEnter={() => {
-        if (hover) setIsHovering(true);
-      }}
-      onMouseLeave={handleMouseLeave}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       onClick={onClick}
     >
       {/* Gradient background layer */}
@@ -230,20 +185,6 @@ export function BentoCard3D({
           background: `linear-gradient(135deg, rgba(139, 92, 246, 0.03) 0%, transparent 100%)`,
         }}
       />
-
-      {/* Spotlight effect */}
-      {enableSpotlight && isHovering && (
-        <motion.div
-          className="absolute inset-0 pointer-events-none"
-          animate={{
-            opacity: 0.6,
-          }}
-          transition={{ duration: 0.2 }}
-          style={{
-            background: `radial-gradient(circle 120px at ${spotlightPos.x}px ${spotlightPos.y}px, rgba(255, 255, 255, 0.1), transparent 70%)`,
-          }}
-        />
-      )}
 
       {/* Noise overlay for texture */}
       <div

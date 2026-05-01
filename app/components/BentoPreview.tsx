@@ -88,8 +88,6 @@ export function BentoPreview() {
             icon={<Zap size={24} />}
             title="Focus Session"
             description="Active study tracking"
-            enablePerspectiveTilt
-            enableSpotlight
           >
             <div className="space-y-6 mt-4">
               <div>
@@ -122,8 +120,6 @@ export function BentoPreview() {
             icon={<Flame size={24} />}
             title="Achievement Streak"
             description="Consistency tracker"
-            enablePerspectiveTilt
-            enableSpotlight
           >
             <div className="space-y-6 mt-4">
               <div>
@@ -157,8 +153,6 @@ export function BentoPreview() {
             icon={<Target size={28} />}
             title="Weekly Progress"
             description="Detailed insights"
-            enablePerspectiveTilt
-            enableSpotlight
           >
             <div className="space-y-6 mt-6">
               {['Monday', 'Wednesday', 'Friday'].map((day, idx) => (
@@ -182,8 +176,6 @@ export function BentoPreview() {
             glowing
             title="Statistics"
             description="Key metrics overview"
-            enablePerspectiveTilt
-            enableSpotlight
           >
             <div className="space-y-6 mt-6">
               <div className="grid grid-cols-2 gap-4">
