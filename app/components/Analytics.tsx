@@ -20,7 +20,7 @@ import { api, ApiDate } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-type AnalyticsView = 'month_overview' | 'week_daily' | 'key_of_success';
+type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success';
 
 export default function Analytics() {
   const { selectedMonth, selectedYear, user } = useAppStore();
@@ -131,9 +131,9 @@ export default function Analytics() {
     ];
   };
 
-  // Find max day with data in current month
-  const getMaxDayWithData = (month: number, year: number) => {
-    const monthData = allDates.filter((d) => d.year === year && d.month === month);
+  // Find max day with actual positive data in current month
+  const getMaxDayWithActualData = (month: number, year: number, field: 'focused_minutes' | 'key_of_success') => {
+    const monthData = allDates.filter((d) => d.year === year && d.month === month && d[field] > 0);
     if (monthData.length === 0) return 0;
     return Math.max(...monthData.map((d) => d.day));
   };
@@ -143,8 +143,7 @@ export default function Analytics() {
     const monthData = allDates.filter((d) => d.year === currentYear && d.month === currentMonth);
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
 
-    const maxDay = getMaxDayWithData(currentMonth, currentYear);
-    const limitDay = maxDay; // Strictly stop at the last day with data
+    const limitDay = getMaxDayWithActualData(currentMonth, currentYear, 'key_of_success');
 
     const trendData = [];
     let cumulativeSum = 0;
@@ -172,9 +171,7 @@ export default function Analytics() {
   const getCumulativeWeeklyStudyHours = (month: number, year: number) => {
     const studyByDate = getStudyHoursByDate();
     const weeksCount = getWeeksInMonth(month, year);
-    
-    const maxDay = getMaxDayWithData(month, year);
-    const limitDay = maxDay; // Strictly stop at the last day with data
+    const limitDay = getMaxDayWithActualData(month, year, 'focused_minutes');
 
     const trendData = [];
     let cumulativeSum = 0;
@@ -257,6 +254,12 @@ export default function Analytics() {
           Weekly Details
         </button>
         <button
+          onClick={() => setAnalyticsView('weekly_progress')}
+          className={`px-4 py-2 rounded-lg font-semibold transition ${analyticsView === 'weekly_progress' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
+        >
+          Weekly Progress
+        </button>
+        <button
           onClick={() => setAnalyticsView('key_of_success')}
           className={`px-4 py-2 rounded-lg font-semibold transition ${analyticsView === 'key_of_success' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
         >
@@ -294,19 +297,6 @@ export default function Analytics() {
             </ResponsiveContainer>
           </motion.div>
 
-          {/* Cumulative Weekly Study Hours Chart - Moved here for better visibility */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="col-span-2 bg-white/10 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-white mb-4">Cumulative Study Hours Progress - {monthNames[currentMonth - 1]}</h3>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={cumulativeWeeklyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
-                <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 'dataMax + 5']} />
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-                <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </motion.div>
         </div>
       )}
 
@@ -342,6 +332,22 @@ export default function Analytics() {
               </BarChart>
             </ResponsiveContainer>
           </div>
+        </motion.div>
+      )}
+
+      {/* Weekly Progress: Cumulative Study Hours Chart */}
+      {analyticsView === 'weekly_progress' && (
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white/10 rounded-xl p-6">
+          <h3 className="text-lg font-bold text-white mb-4">Cumulative Weekly Progress - {monthNames[currentMonth - 1]}</h3>
+          <ResponsiveContainer width="100%" height={400}>
+            <LineChart data={cumulativeWeeklyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+              <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
+              <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 'dataMax + 5']} />
+              <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
+              <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} />
+            </LineChart>
+          </ResponsiveContainer>
         </motion.div>
       )}
 
