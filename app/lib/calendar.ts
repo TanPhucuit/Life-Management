@@ -49,7 +49,7 @@ export const calendarUtils = {
     for (const dateInfo of dates) {
       currentWeek.push(dateInfo);
 
-      if (dateInfo.date.getDay() === 0 || dateInfo === dates[dates.length - 1]) {
+      if (dateInfo.date.getDay() === 6 || dateInfo === dates[dates.length - 1]) {
         const weekStart = currentWeek[0].date;
         const weekEnd = currentWeek[currentWeek.length - 1].date;
         weeks.push({
@@ -66,7 +66,7 @@ export const calendarUtils = {
       month,
       year,
       weeks,
-      allDates: dates.filter((d) => d.isCurrentMonth),
+      allDates: dates,
     };
   },
 

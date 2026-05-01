@@ -61,7 +61,7 @@ export default function Analytics() {
   const getWeeksInMonth = (month: number, year: number) => {
     const firstDay = new Date(year, month - 1, 1);
     const lastDay = new Date(year, month, 0);
-    const adjustedFirstDay = (firstDay.getDay() + 6) % 7; // 0 for Monday, 6 for Sunday
+    const adjustedFirstDay = firstDay.getDay(); // 0 for Sunday, 6 for Saturday
     return Math.ceil((lastDay.getDate() + adjustedFirstDay) / 7);
   };
 
@@ -70,7 +70,7 @@ export default function Analytics() {
     const firstDay = new Date(year, month - 1, 1);
     const daysInMonth = new Date(year, month, 0).getDate();
     
-    const adjustedFirstDay = (firstDay.getDay() + 6) % 7; // 0 for Monday, 6 for Sunday
+    const adjustedFirstDay = firstDay.getDay(); // 0 for Sunday, 6 for Saturday
     let dayCounter = 1 - adjustedFirstDay;
     let currentWeek = 1;
     const weekDays: Array<{ day: number; date: string; month: number; year: number }> = [];
