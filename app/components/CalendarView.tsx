@@ -165,7 +165,7 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
       </div>
 
       {/* Calendar Grid */}
-      <div className="grid flex-1 auto-rows-fr grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:gap-4 xl:grid-cols-7">
+      <div className="grid flex-1 auto-rows-[220px] grid-cols-1 gap-3 sm:auto-rows-[236px] sm:grid-cols-2 md:grid-cols-3 lg:gap-4 xl:auto-rows-[250px] xl:grid-cols-7">
         {calendar_data.allDates.map((dateInfo, index) => {
           const key = `${dateInfo.day}-${dateInfo.month}-${dateInfo.year}`;
           const data = dateData.get(key);

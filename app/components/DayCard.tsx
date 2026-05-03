@@ -26,8 +26,8 @@ interface DayCardProps {
 
 export default function DayCard({ date, data, onSelectDay, sessionCount = 0, sessions = [], deadlineTasks = [] }: DayCardProps) {
   const focusedMinutes = data?.focused_minutes || 0;
-  const visibleDeadlineTasks = deadlineTasks.slice(0, 2);
-  const visibleSessions = sessions.slice(0, 2);
+  const visibleDeadlineTasks = deadlineTasks.slice(0, 6);
+  const visibleSessions = sessions.slice(0, 6);
   const extraDeadlineCount = Math.max(deadlineTasks.length - visibleDeadlineTasks.length, 0);
   const extraSessionCount = Math.max(sessions.length - visibleSessions.length, 0);
   const hasDeadline = deadlineTasks.length > 0;
@@ -64,7 +64,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
 
   return (
     <BentoCard3D
-      className={`p-4 h-full min-h-32 flex flex-col ${!date.isCurrentMonth ? 'opacity-40' : ''}`}
+      className={`flex h-[220px] min-h-[220px] flex-col rounded-[24px] p-3 sm:h-[236px] sm:min-h-[236px] sm:p-4 xl:h-[250px] xl:min-h-[250px] ${!date.isCurrentMonth ? 'opacity-40' : ''}`}
       glowing={isToday()}
       hover={false}
       onClick={handleClick}
@@ -78,7 +78,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
       } : undefined}
     >
       {date.isCurrentMonth && (
-        <div className="space-y-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           {/* Hours Display */}
           <div className="flex items-center justify-between">
             <span className="text-sm text-white/60">Focus Time</span>
@@ -88,34 +88,34 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
           </div>
 
           {sessions.length > 0 ? (
-            <div className="space-y-1.5">
+            <div className="grid min-h-0 grid-cols-2 gap-1.5 overflow-hidden">
               {visibleSessions.map((session) => (
-                <div key={session.id} className="rounded-md border border-yellow-400/35 bg-yellow-950/70 px-2 py-1 text-yellow-200 shadow-sm shadow-yellow-950/40">
-                  <span className="block min-w-0 truncate text-xs font-semibold uppercase">
+                <div key={session.id} className="min-w-0 rounded border border-yellow-400/35 bg-yellow-950/70 px-1.5 py-1 text-yellow-200 shadow-sm shadow-yellow-950/40">
+                  <span className="block min-w-0 truncate text-[10px] font-semibold normal-case leading-tight">
                     {session.sessionName}
                   </span>
-                  <span className="block text-[10px] font-medium text-yellow-100/70">
+                  <span className="block truncate text-[9px] font-medium leading-tight text-yellow-100/65">
                     {formatTime(session.startTime)} - {formatTime(session.endTime)}
                   </span>
                 </div>
               ))}
               {extraSessionCount > 0 && (
-                <div className="rounded-md border border-yellow-400/25 bg-yellow-950/50 px-2 py-1 text-xs font-semibold text-yellow-200/90">
+                <div className="min-w-0 rounded border border-yellow-400/25 bg-yellow-950/50 px-1.5 py-1 text-[10px] font-semibold leading-tight text-yellow-200/90">
                   +{extraSessionCount} more session
                 </div>
               )}
             </div>
           ) : deadlineTasks.length > 0 && (
-            <div className="space-y-1.5">
+            <div className="grid min-h-0 grid-cols-2 gap-1.5 overflow-hidden">
               {visibleDeadlineTasks.map((task) => (
-                <div key={task.id} className="rounded-md border border-red-500/30 bg-red-950/70 px-2 py-1 text-red-200 shadow-sm shadow-red-950/40">
-                  <span className="min-w-0 truncate text-xs font-semibold uppercase">
+                <div key={task.id} className="min-w-0 rounded border border-red-500/30 bg-red-950/70 px-1.5 py-1 text-red-200 shadow-sm shadow-red-950/40">
+                  <span className="block min-w-0 truncate text-[10px] font-semibold normal-case leading-tight">
                     {task.title}
                   </span>
                 </div>
               ))}
               {extraDeadlineCount > 0 && (
-                <div className="rounded-md border border-red-500/25 bg-red-950/50 px-2 py-1 text-xs font-semibold text-red-200/90">
+                <div className="min-w-0 rounded border border-red-500/25 bg-red-950/50 px-1.5 py-1 text-[10px] font-semibold leading-tight text-red-200/90">
                   +{extraDeadlineCount} more deadline
                 </div>
               )}
