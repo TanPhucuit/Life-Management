@@ -264,6 +264,10 @@ export default function TaskManager() {
     return getTopicColorByName(topic?.topic_color, topicIndex >= 0 ? topicIndex : 0);
   };
 
+  const selectedTopicData = topics.find((topic) => topic.id === selectedTopic);
+  const selectedTopicIndex = topics.findIndex((topic) => topic.id === selectedTopic);
+  const selectedTopicColor = getTopicColorByName(selectedTopicData?.topic_color, selectedTopicIndex >= 0 ? selectedTopicIndex : 0);
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-8">
       {/* Topics Sidebar */}
@@ -422,6 +426,45 @@ export default function TaskManager() {
             <p className="text-white/50 text-xs text-center py-4 mt-4">
               No topics yet
             </p>
+          )}
+
+          {selectedTopicData && !editingTopicId && (
+            <div
+              className="mt-4 rounded-lg border p-3"
+              style={{
+                borderColor: selectedTopicColor.border,
+                background: selectedTopicColor.backgroundSoft,
+              }}
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-white/50">Topic Color</span>
+                <span
+                  className="truncate text-xs font-medium"
+                  style={{ color: selectedTopicColor.text }}
+                >
+                  {selectedTopicColor.label}
+                </span>
+              </div>
+              <div className="grid grid-cols-6 gap-2">
+                {topicColorPalette.map((color) => {
+                  const isActive = selectedTopicColor.name === color.name;
+
+                  return (
+                    <button
+                      key={color.name}
+                      onClick={() => void handleUpdateTopicColor(selectedTopicData.id, color.name)}
+                      className="h-8 rounded-lg border transition hover:scale-105"
+                      style={{
+                        background: color.backgroundStrong,
+                        borderColor: isActive ? '#ffffff' : color.border,
+                        boxShadow: isActive ? `0 0 12px ${color.shadow}` : undefined,
+                      }}
+                      title={color.label}
+                    />
+                  );
+                })}
+              </div>
+            </div>
           )}
 
           {!showNewTopicForm && (
