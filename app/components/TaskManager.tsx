@@ -264,10 +264,6 @@ export default function TaskManager() {
     return getTopicColorByName(topic?.topic_color, topicIndex >= 0 ? topicIndex : 0);
   };
 
-  const selectedTopicData = topics.find((topic) => topic.id === selectedTopic);
-  const selectedTopicIndex = topics.findIndex((topic) => topic.id === selectedTopic);
-  const selectedTopicColor = getTopicColorByName(selectedTopicData?.topic_color, selectedTopicIndex >= 0 ? selectedTopicIndex : 0);
-
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-8">
       {/* Topics Sidebar */}
@@ -323,21 +319,50 @@ export default function TaskManager() {
               return (
                 <div key={topic.id} className="relative group">
                   {editingTopicId === topic.id ? (
-                    <div className="flex gap-2 p-2 bg-white/5 rounded-lg border border-white/20">
-                      <input
-                        type="text"
-                        value={editTopicName}
-                        onChange={(e) => setEditTopicName(e.target.value)}
-                        className="flex-1 bg-transparent border-none outline-none text-sm text-white px-2"
-                        autoFocus
-                        onKeyDown={(e) => e.key === 'Enter' && handleUpdateTopic(topic.id)}
-                      />
-                      <button onClick={() => handleUpdateTopic(topic.id)} className="p-1.5 bg-green-500/20 text-green-400 rounded-md hover:bg-green-500/30">
-                        <CheckCircle size={14} />
-                      </button>
-                      <button onClick={() => setEditingTopicId(null)} className="p-1.5 bg-white/10 text-white/50 rounded-md hover:bg-white/20">
-                        <X size={14} />
-                      </button>
+                    <div className="space-y-3 rounded-lg border border-white/20 bg-white/5 p-3">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={editTopicName}
+                          onChange={(e) => setEditTopicName(e.target.value)}
+                          className="min-w-0 flex-1 bg-transparent border-none outline-none text-sm text-white px-2"
+                          autoFocus
+                          onKeyDown={(e) => e.key === 'Enter' && handleUpdateTopic(topic.id)}
+                        />
+                        <button onClick={() => handleUpdateTopic(topic.id)} className="p-1.5 bg-green-500/20 text-green-400 rounded-md hover:bg-green-500/30">
+                          <CheckCircle size={14} />
+                        </button>
+                        <button onClick={() => setEditingTopicId(null)} className="p-1.5 bg-white/10 text-white/50 rounded-md hover:bg-white/20">
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <div>
+                        <div className="mb-2 flex items-center justify-between">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-white/45">Topic Color</span>
+                          <span className="text-[10px] font-semibold" style={{ color: topicColor.text }}>
+                            {topicColor.label}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-5 gap-2">
+                          {topicColorPalette.map((color) => {
+                            const isActive = topicColor.name === color.name;
+
+                            return (
+                              <button
+                                key={color.name}
+                                onClick={() => void handleUpdateTopicColor(topic.id, color.name)}
+                                className="h-8 rounded-lg border transition hover:scale-105"
+                                style={{
+                                  background: color.backgroundStrong,
+                                  borderColor: isActive ? '#ffffff' : color.border,
+                                  boxShadow: isActive ? `0 0 12px ${color.shadow}` : undefined,
+                                }}
+                                title={color.label}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <>
@@ -372,26 +397,6 @@ export default function TaskManager() {
                           </span>
                         </span>
                       </button>
-                      {selectedTopic === topic.id && (
-                        <div className="mt-2 flex flex-wrap gap-1.5 px-1">
-                          {topicColorPalette.map((color) => (
-                            <button
-                              key={color.name}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleUpdateTopicColor(topic.id, color.name);
-                              }}
-                              className="h-5 w-5 rounded-full border transition hover:scale-110"
-                              style={{
-                                background: color.backgroundStrong,
-                                borderColor: topic.topic_color === color.name ? '#ffffff' : color.border,
-                                boxShadow: topic.topic_color === color.name ? `0 0 10px ${color.shadow}` : undefined,
-                              }}
-                              title={color.label}
-                            />
-                          ))}
-                        </div>
-                      )}
                       <div className="absolute right-2 top-3 flex gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                         <button
                           onClick={(e) => {
@@ -426,45 +431,6 @@ export default function TaskManager() {
             <p className="text-white/50 text-xs text-center py-4 mt-4">
               No topics yet
             </p>
-          )}
-
-          {selectedTopicData && !editingTopicId && (
-            <div
-              className="mt-4 rounded-lg border p-3"
-              style={{
-                borderColor: selectedTopicColor.border,
-                background: selectedTopicColor.backgroundSoft,
-              }}
-            >
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-white/50">Topic Color</span>
-                <span
-                  className="truncate text-xs font-medium"
-                  style={{ color: selectedTopicColor.text }}
-                >
-                  {selectedTopicColor.label}
-                </span>
-              </div>
-              <div className="grid grid-cols-6 gap-2">
-                {topicColorPalette.map((color) => {
-                  const isActive = selectedTopicColor.name === color.name;
-
-                  return (
-                    <button
-                      key={color.name}
-                      onClick={() => void handleUpdateTopicColor(selectedTopicData.id, color.name)}
-                      className="h-8 rounded-lg border transition hover:scale-105"
-                      style={{
-                        background: color.backgroundStrong,
-                        borderColor: isActive ? '#ffffff' : color.border,
-                        boxShadow: isActive ? `0 0 12px ${color.shadow}` : undefined,
-                      }}
-                      title={color.label}
-                    />
-                  );
-                })}
-              </div>
-            </div>
           )}
 
           {!showNewTopicForm && (
