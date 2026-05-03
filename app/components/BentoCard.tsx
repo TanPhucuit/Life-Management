@@ -86,7 +86,7 @@ export function BentoCard({
             }
           : undefined
       }
-      whileTap={{ scale: 0.98 }}
+      whileTap={hover ? { scale: 0.98 } : undefined}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       onClick={onClick}
     >
@@ -179,7 +179,7 @@ export function BentoCard3D({
             }
           : undefined
       }
-      whileTap={{ scale: 0.98 }}
+      whileTap={hover ? { scale: 0.98 } : undefined}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       onClick={onClick}
     >

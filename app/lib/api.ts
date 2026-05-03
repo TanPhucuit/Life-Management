@@ -22,6 +22,7 @@ export interface ApiSession {
   id: string;
   user_id: string;
   task_id: string;
+  session_name?: string | null;
   start_time: string;
   end_time: string;
   session_date: string;
@@ -175,6 +176,7 @@ export const api = {
   createSession(input: {
     userId: string;
     taskId: string;
+    sessionName?: string | null;
     startTime: string;
     endTime: string;
     sessionDate: string;
@@ -189,6 +191,7 @@ export const api = {
     startTime?: string;
     endTime?: string;
     sessionDate?: string;
+    sessionName?: string | null;
     inTimeStatus?: ApiSession['in_time_status'];
     focusedMinutes?: number;
     keyOfSuccess?: number;

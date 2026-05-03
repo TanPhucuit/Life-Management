@@ -27,7 +27,7 @@ interface DateData {
 
 export interface CalendarSessionItem {
   id: string;
-  taskTitle: string;
+  sessionName: string;
   startTime: string;
   endTime: string;
 }
@@ -70,7 +70,6 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
       setDateData(dataMap);
 
       const counts = new Map<string, number>();
-      const taskTitleById = new Map(tasks.map((task: ApiTask) => [task.id, task.title]));
       const sessionItems = new Map<string, CalendarSessionItem[]>();
 
       sessions.forEach((session: ApiSession) => {
@@ -81,7 +80,7 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
           ...(sessionItems.get(key) || []),
           {
             id: session.id,
-            taskTitle: taskTitleById.get(session.task_id) || 'Session',
+            sessionName: session.session_name || 'Untitled session',
             startTime: session.start_time,
             endTime: session.end_time,
           },

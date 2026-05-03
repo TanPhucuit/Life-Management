@@ -155,8 +155,13 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     try {
       await api.updateSession({
         id,
+        sessionName: updates.session_name,
         focusedMinutes: updates.focused_minutes,
         keyOfSuccess: updates.key_of_success,
+        startTime: updates.start_time,
+        endTime: updates.end_time,
+        sessionDate: updates.session_date,
+        inTimeStatus: updates.in_time_status,
       });
       setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
     } catch (e) {

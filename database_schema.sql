@@ -84,6 +84,7 @@ CREATE TABLE sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  session_name VARCHAR(255),
   start_time TIMESTAMP NOT NULL,
   end_time TIMESTAMP NOT NULL,
   session_date DATE NOT NULL,

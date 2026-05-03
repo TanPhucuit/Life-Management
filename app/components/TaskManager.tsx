@@ -26,12 +26,14 @@ export default function TaskManager() {
     deadline: '',
   });
   const [newSessionData, setNewSessionData] = useState({
+    sessionName: '',
     sessionDate: '',
     startTime: '',
     endTime: '',
   });
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editSessionData, setEditSessionData] = useState({
+    sessionName: '',
     sessionDate: '',
     startTime: '',
     endTime: '',
@@ -161,12 +163,13 @@ export default function TaskManager() {
       const newSession = await api.createSession({
         userId: user.id,
         taskId: taskId,
+        sessionName: newSessionData.sessionName.trim() || undefined,
         startTime: `${newSessionData.sessionDate}T${newSessionData.startTime}:00`,
         endTime: `${newSessionData.sessionDate}T${newSessionData.endTime}:00`,
         sessionDate: newSessionData.sessionDate,
       });
       setSessions((current) => [newSession, ...current]);
-      setNewSessionData({ sessionDate: '', startTime: '', endTime: '' });
+      setNewSessionData({ sessionName: '', sessionDate: '', startTime: '', endTime: '' });
       setShowNewSessionForm(false);
     } catch (error) {
       console.error('Error adding session:', error);
@@ -180,6 +183,7 @@ export default function TaskManager() {
       setIsLoading(true);
       const updatedSession = await api.updateSession({
         id: sessionId,
+        sessionName: editSessionData.sessionName,
         startTime: `${editSessionData.sessionDate}T${editSessionData.startTime}:00`,
         endTime: `${editSessionData.sessionDate}T${editSessionData.endTime}:00`,
         sessionDate: editSessionData.sessionDate,
@@ -212,6 +216,7 @@ export default function TaskManager() {
     const start = new Date(session.start_time);
     const end = new Date(session.end_time);
     setEditSessionData({
+      sessionName: session.session_name || '',
       sessionDate: session.session_date,
       startTime: `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`,
       endTime: `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`,
@@ -539,6 +544,13 @@ export default function TaskManager() {
 
                         {showNewSessionForm && (
                           <div className="bg-white/5 border border-white/10 rounded-lg p-3 space-y-2">
+                            <input
+                              type="text"
+                              value={newSessionData.sessionName}
+                              onChange={(e) => setNewSessionData({ ...newSessionData, sessionName: e.target.value })}
+                              placeholder="Session name"
+                              className="w-full rounded border border-white/10 bg-white/10 px-2 py-1 text-xs text-white placeholder-white/40 focus:outline-none"
+                            />
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                               <input
                                 type="date"
@@ -584,6 +596,13 @@ export default function TaskManager() {
                               <div key={session.id} className="bg-white/5 border border-white/5 rounded-lg p-3 group/session">
                                 {editingSessionId === session.id ? (
                                   <div className="space-y-2">
+                                    <input
+                                      type="text"
+                                      value={editSessionData.sessionName}
+                                      onChange={(e) => setEditSessionData({ ...editSessionData, sessionName: e.target.value })}
+                                      placeholder="Session name"
+                                      className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-white placeholder-white/40"
+                                    />
                                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                       <input
                                         type="date"
@@ -632,6 +651,9 @@ export default function TaskManager() {
                                 ) : (
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="flex flex-col">
+                                      <span className="text-white text-xs font-semibold">
+                                        {session.session_name || 'Untitled session'}
+                                      </span>
                                       <span className="text-white text-xs font-medium">
                                         {formatTime(session.start_time)} - {formatTime(session.end_time)}
                                       </span>

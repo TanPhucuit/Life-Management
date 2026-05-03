@@ -66,6 +66,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
     <BentoCard3D
       className={`p-4 h-full min-h-32 flex flex-col ${!date.isCurrentMonth ? 'opacity-40' : ''}`}
       glowing={isToday()}
+      hover={false}
       onClick={handleClick}
       icon={getIcon()}
       title={cardTitle}
@@ -91,7 +92,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
               {visibleSessions.map((session) => (
                 <div key={session.id} className="rounded-md border border-yellow-400/35 bg-yellow-950/70 px-2 py-1 text-yellow-200 shadow-sm shadow-yellow-950/40">
                   <span className="block min-w-0 truncate text-xs font-semibold uppercase">
-                    {session.taskTitle}
+                    {session.sessionName}
                   </span>
                   <span className="block text-[10px] font-medium text-yellow-100/70">
                     {formatTime(session.startTime)} - {formatTime(session.endTime)}

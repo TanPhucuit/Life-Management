@@ -68,6 +68,7 @@ export async function POST(request: NextRequest) {
     const {
       userId,
       taskId,
+      sessionName,
       startTime,
       endTime,
       sessionDate,
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
         {
           user_id: userId,
           task_id: taskId,
+          session_name: sessionName?.trim() || null,
           start_time: startTime,
           end_time: endTime,
           session_date: sessionDate,
@@ -110,7 +112,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { id, startTime, endTime, sessionDate, inTimeStatus, focusedMinutes, keyOfSuccess } = body;
+    const { id, startTime, endTime, sessionDate, sessionName, inTimeStatus, focusedMinutes, keyOfSuccess } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Session id is required' }, { status: 400, headers: corsHeaders });
@@ -120,6 +122,7 @@ export async function PUT(request: NextRequest) {
     if (startTime) updateData.start_time = startTime;
     if (endTime) updateData.end_time = endTime;
     if (sessionDate) updateData.session_date = sessionDate;
+    if (sessionName !== undefined) updateData.session_name = sessionName?.trim() || null;
     if (inTimeStatus) updateData.in_time_status = inTimeStatus;
     if (focusedMinutes !== undefined) updateData.focused_minutes = focusedMinutes;
     if (keyOfSuccess !== undefined) updateData.key_of_success = keyOfSuccess;

@@ -17,6 +17,7 @@ export function SessionItem({ session, onUpdate, onDelete }: SessionItemProps) {
   const defaultMinutes = session.focused_minutes ?? Math.round((new Date(session.end_time).getTime() - new Date(session.start_time).getTime()) / 60000);
   
   // Edit State
+  const [editSessionName, setEditSessionName] = useState(session.session_name || '');
   const [editDate, setEditDate] = useState(session.session_date);
   const [editStartTime, setEditStartTime] = useState(new Date(session.start_time).toTimeString().slice(0, 5));
   const [editEndTime, setEditEndTime] = useState(new Date(session.end_time).toTimeString().slice(0, 5));
@@ -38,6 +39,7 @@ export function SessionItem({ session, onUpdate, onDelete }: SessionItemProps) {
     const newEnd = `${editDate}T${editEndTime}:00`;
     
     await onUpdate(session.id, { 
+      session_name: editSessionName.trim() || null,
       session_date: editDate,
       start_time: newStart,
       end_time: newEnd,
@@ -71,7 +73,10 @@ export function SessionItem({ session, onUpdate, onDelete }: SessionItemProps) {
       >
         <div className="absolute inset-0 bg-white/5 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
         
-        <div className="text-xs font-bold text-white mb-2">{startTime}</div>
+        <div className="mb-1 truncate text-xs font-bold text-white">
+          {session.session_name || 'Untitled session'}
+        </div>
+        <div className="mb-2 text-[10px] font-medium text-white/40">{startTime}</div>
         
         <div className="flex items-center gap-1.5 text-xs text-white/70 mb-1.5 font-medium">
           <Timer size={14} className="text-blue-400" />
@@ -135,6 +140,16 @@ export function SessionItem({ session, onUpdate, onDelete }: SessionItemProps) {
               </div>
               
               <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1.5">Session Name</label>
+                  <input
+                    type="text"
+                    value={editSessionName}
+                    onChange={(e) => setEditSessionName(e.target.value)}
+                    placeholder="Session name"
+                    className="w-full bg-[#222] border border-[#333] rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-white/30 transition-colors"
+                  />
+                </div>
                 <div>
                   <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1.5">Date</label>
                   <input
