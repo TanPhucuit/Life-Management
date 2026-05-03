@@ -1,8 +1,9 @@
 'use client';
 
 import { DateInfo } from '@/app/lib/calendar';
+import { ApiTask } from '@/app/lib/api';
 import { BentoCard3D } from './BentoCard';
-import { Calendar, Clock, Sparkles } from 'lucide-react';
+import { AlertCircle, Calendar, Clock, Sparkles } from 'lucide-react';
 
 interface DateData {
   id?: string;
@@ -18,11 +19,15 @@ interface DayCardProps {
   data?: DateData;
   onSelectDay?: () => void;
   sessionCount?: number;
+  deadlineTasks?: ApiTask[];
 }
 
-export default function DayCard({ date, data, onSelectDay, sessionCount = 0 }: DayCardProps) {
+export default function DayCard({ date, data, onSelectDay, sessionCount = 0, deadlineTasks = [] }: DayCardProps) {
   const focusedMinutes = data?.focused_minutes || 0;
-  const keyOfSuccess = data?.key_of_success || 0;
+  const visibleDeadlineTasks = deadlineTasks.slice(0, 2);
+  const extraDeadlineCount = Math.max(deadlineTasks.length - visibleDeadlineTasks.length, 0);
+  const weekdayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const cardTitle = `${weekdayLabels[date.date.getDay()]} ${String(date.day).padStart(2, '0')}/${String(date.month).padStart(2, '0')}`;
 
   const isToday = (): boolean => {
     const today = new Date();
@@ -53,10 +58,10 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0 }: D
       glowing={isToday()}
       onClick={handleClick}
       icon={getIcon()}
-      title={`Day ${date.day}`}
+      title={cardTitle}
       description={sessionCount > 0 ? `${sessionCount} session${sessionCount !== 1 ? 's' : ''}` : 'No sessions'}
     >
-      {date.isCurrentMonth && data && (
+      {date.isCurrentMonth && (
         <div className="space-y-4">
           {/* Hours Display */}
           <div className="flex items-center justify-between">
@@ -66,22 +71,23 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0 }: D
             </span>
           </div>
 
-          {/* Key of Success Dots */}
-          <div className="flex gap-2 items-center">
-            <span className="text-xs text-white/50">Success</span>
-            <div className="flex gap-1">
-              {[...Array(3)].map((_, i) => (
-                <div
-                  key={i}
-                  className={`w-2 h-2 rounded-full transition-all ${
-                    i < keyOfSuccess
-                      ? 'bg-gradient-to-r from-green-400 to-emerald-500 shadow-lg shadow-green-500/50'
-                      : 'bg-white/10'
-                  }`}
-                />
+          {deadlineTasks.length > 0 && (
+            <div className="space-y-1.5">
+              {visibleDeadlineTasks.map((task) => (
+                <div key={task.id} className="flex items-center gap-1.5 text-red-300">
+                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="min-w-0 truncate text-xs font-semibold uppercase">
+                    {task.title}
+                  </span>
+                </div>
               ))}
+              {extraDeadlineCount > 0 && (
+                <div className="text-xs font-semibold text-red-300/80">
+                  +{extraDeadlineCount} more deadline
+                </div>
+              )}
             </div>
-          </div>
+          )}
         </div>
       )}
     </BentoCard3D>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { calendarUtils } from '@/app/lib/calendar';
-import { api, ApiDate, ApiSession } from '@/app/lib/api';
+import { api, ApiDate, ApiSession, ApiTask } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import DayCard from './DayCard';
@@ -29,6 +29,7 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
   const { user } = useAppStore();
   const [dateData, setDateData] = useState<Map<string, DateData>>(new Map());
   const [sessionCountByDate, setSessionCountByDate] = useState<Map<string, number>>(new Map());
+  const [deadlineTasksByDate, setDeadlineTasksByDate] = useState<Map<string, ApiTask[]>>(new Map());
 
   const calendar_data = calendarUtils.getMonthCalendar(year, month);
 
@@ -40,9 +41,10 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
 
   const loadDatesData = async (userId: string) => {
     try {
-      const [filteredData, sessions] = await Promise.all([
+      const [filteredData, sessions, tasks] = await Promise.all([
         api.getDates(userId, month, year),
         api.getSessions(userId, { month, year }),
+        api.getTasks(userId),
       ]);
 
       const dataMap = new Map<string, DateData>();
@@ -66,6 +68,18 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
         counts.set(key, (counts.get(key) || 0) + 1);
       });
       setSessionCountByDate(counts);
+
+      const deadlineTasks = new Map<string, ApiTask[]>();
+      tasks.forEach((task: ApiTask) => {
+        if (!task.deadline) return;
+
+        const [deadlineYear, deadlineMonth, deadlineDay] = task.deadline.split('T')[0].split('-').map(Number);
+        if (!deadlineDay || !deadlineMonth || !deadlineYear) return;
+
+        const key = `${deadlineDay}-${deadlineMonth}-${deadlineYear}`;
+        deadlineTasks.set(key, [...(deadlineTasks.get(key) || []), task]);
+      });
+      setDeadlineTasksByDate(deadlineTasks);
     } catch (error) {
       console.error('Error loading dates:', error);
     }
@@ -143,6 +157,7 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
                 date={dateInfo}
                 data={data}
                 sessionCount={sessionCountByDate.get(key) || 0}
+                deadlineTasks={deadlineTasksByDate.get(key) || []}
                 onSelectDay={() => onSelectDay?.(dateInfo.day, dateInfo.month, dateInfo.year)}
               />
             </motion.div>
