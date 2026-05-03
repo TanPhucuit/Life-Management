@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ReactNode } from 'react';
+import { CSSProperties, ReactNode } from 'react';
 
 // Shimmer effect for progress bars
 export function ShimmerProgressBar({
@@ -49,6 +49,7 @@ interface BentoCardProps {
   icon?: ReactNode;
   title?: string;
   description?: string;
+  style?: CSSProperties;
 }
 
 export function BentoCard({
@@ -60,6 +61,7 @@ export function BentoCard({
   icon,
   title,
   description,
+  style,
 }: BentoCardProps) {
   return (
     <motion.div
@@ -75,6 +77,7 @@ export function BentoCard({
         boxShadow: glowing 
           ? '0 0 32px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
           : 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+        ...style,
       }}
       whileHover={
         hover
@@ -145,6 +148,7 @@ export function BentoCard3D({
   icon,
   title,
   description,
+  style,
 }: BentoCard3DProps) {
 
   return (
@@ -161,6 +165,7 @@ export function BentoCard3D({
         boxShadow: glowing
           ? '0 0 32px rgba(139, 92, 246, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
           : 'inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+        ...style,
       }}
       animate={{
         boxShadow: glowing

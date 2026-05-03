@@ -26,6 +26,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, dea
   const focusedMinutes = data?.focused_minutes || 0;
   const visibleDeadlineTasks = deadlineTasks.slice(0, 2);
   const extraDeadlineCount = Math.max(deadlineTasks.length - visibleDeadlineTasks.length, 0);
+  const hasDeadline = deadlineTasks.length > 0;
   const weekdayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   const cardTitle = `${weekdayLabels[date.date.getDay()]} ${String(date.day).padStart(2, '0')}/${String(date.month).padStart(2, '0')}`;
 
@@ -47,6 +48,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, dea
   };
 
   const getIcon = () => {
+    if (hasDeadline) return <AlertCircle size={20} className="text-red-500" />;
     if (isToday()) return <Calendar size={20} className="text-yellow-400" />;
     if (sessionCount > 0) return <Clock size={20} className="text-blue-400" />;
     return <Sparkles size={20} className="text-white/40" />;
@@ -60,6 +62,11 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, dea
       icon={getIcon()}
       title={cardTitle}
       description={sessionCount > 0 ? `${sessionCount} session${sessionCount !== 1 ? 's' : ''}` : 'No sessions'}
+      style={hasDeadline ? {
+        border: '1px solid rgba(248, 113, 113, 0.38)',
+        background: 'linear-gradient(135deg, rgba(127, 29, 29, 0.34) 0%, rgba(69, 10, 10, 0.24) 55%, rgba(10, 10, 10, 0.96) 100%)',
+        boxShadow: '0 0 28px rgba(239, 68, 68, 0.18), inset 0 1px 0 rgba(254, 202, 202, 0.12)',
+      } : undefined}
     >
       {date.isCurrentMonth && (
         <div className="space-y-4">
@@ -74,7 +81,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, dea
           {deadlineTasks.length > 0 && (
             <div className="space-y-1.5">
               {visibleDeadlineTasks.map((task) => (
-                <div key={task.id} className="flex items-center gap-1.5 text-red-300">
+                <div key={task.id} className="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-950/70 px-2 py-1 text-red-200 shadow-sm shadow-red-950/40">
                   <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
                   <span className="min-w-0 truncate text-xs font-semibold uppercase">
                     {task.title}
@@ -82,7 +89,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, dea
                 </div>
               ))}
               {extraDeadlineCount > 0 && (
-                <div className="text-xs font-semibold text-red-300/80">
+                <div className="rounded-md border border-red-500/25 bg-red-950/50 px-2 py-1 text-xs font-semibold text-red-200/90">
                   +{extraDeadlineCount} more deadline
                 </div>
               )}
