@@ -28,6 +28,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
   const focusedMinutes = data?.focused_minutes || 0;
   const visibleDeadlineTasks = deadlineTasks.slice(0, 6);
   const visibleSessions = sessions.slice(0, 6);
+  const extraSessionColor = visibleSessions[0]?.topicColor;
   const extraDeadlineCount = Math.max(deadlineTasks.length - visibleDeadlineTasks.length, 0);
   const extraSessionCount = Math.max(sessions.length - visibleSessions.length, 0);
   const hasDeadline = deadlineTasks.length > 0;
@@ -107,17 +108,33 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
           {sessions.length > 0 ? (
             <div className={`grid min-h-0 ${sessionGridClass} gap-1.5 overflow-hidden`}>
               {visibleSessions.map((session) => (
-                <div key={session.id} className={`min-w-0 rounded border border-yellow-400/35 bg-yellow-950/70 ${sessionItemClass} text-yellow-200 shadow-sm shadow-yellow-950/40`}>
+                <div
+                  key={session.id}
+                  className={`min-w-0 rounded ${sessionItemClass} shadow-sm`}
+                  style={{
+                    border: `1px solid ${session.topicColor.border}`,
+                    background: session.topicColor.background,
+                    color: session.topicColor.text,
+                    boxShadow: `0 0 12px ${session.topicColor.shadow}`,
+                  }}
+                >
                   <span className={`block min-w-0 font-semibold normal-case ${sessionNameClass}`}>
                     {session.sessionName}
                   </span>
-                  <span className={`block font-medium text-yellow-100/65 ${sessionTimeClass}`}>
+                  <span className={`block font-medium opacity-70 ${sessionTimeClass}`}>
                     {formatTime(session.startTime)} - {formatTime(session.endTime)}
                   </span>
                 </div>
               ))}
               {extraSessionCount > 0 && (
-                <div className="min-w-0 rounded border border-yellow-400/25 bg-yellow-950/50 px-1.5 py-1 text-[10px] font-semibold leading-tight text-yellow-200/90">
+                <div
+                  className="min-w-0 rounded px-1.5 py-1 text-[10px] font-semibold leading-tight"
+                  style={extraSessionColor ? {
+                    border: `1px solid ${extraSessionColor.border}`,
+                    background: extraSessionColor.background,
+                    color: extraSessionColor.text,
+                  } : undefined}
+                >
                   +{extraSessionCount} more session
                 </div>
               )}

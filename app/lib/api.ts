@@ -2,6 +2,7 @@ export interface ApiTopic {
   id: string;
   user_id: string;
   name: string;
+  topic_color?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -80,16 +81,16 @@ export const api = {
   getTopics(userId: string) {
     return requestJson<ApiTopic[]>(`/api/topics?userId=${encodeURIComponent(userId)}`);
   },
-  createTopic(userId: string, name: string) {
+  createTopic(userId: string, name: string, topicColor?: string) {
     return requestJson<ApiTopic>(`/api/topics`, {
       method: 'POST',
-      body: JSON.stringify({ userId, name }),
+      body: JSON.stringify({ userId, name, topicColor }),
     });
   },
-  updateTopic(id: string, name: string) {
+  updateTopic(id: string, input: { name?: string; topicColor?: string }) {
     return requestJson<ApiTopic>(`/api/topics`, {
       method: 'PUT',
-      body: JSON.stringify({ id, name }),
+      body: JSON.stringify({ id, ...input }),
     });
   },
   deleteTopic(id: string) {

@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { calendarUtils } from '@/app/lib/calendar';
-import { api, ApiDate, ApiSession, ApiTask } from '@/app/lib/api';
+import { api, ApiDate, ApiSession, ApiTask, ApiTopic } from '@/app/lib/api';
+import { getTopicColor, getTopicColorByName, TopicColor } from '@/app/lib/topicColors';
 import { useAppStore } from '@/app/lib/store';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import DayCard from './DayCard';
@@ -30,6 +31,7 @@ export interface CalendarSessionItem {
   sessionName: string;
   startTime: string;
   endTime: string;
+  topicColor: TopicColor;
 }
 
 export default function CalendarView({ month, year, onMonthChange, onSelectDay }: CalendarViewProps) {
@@ -58,10 +60,11 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
 
   const loadDatesData = async (userId: string) => {
     try {
-      const [filteredData, sessions, tasks] = await Promise.all([
+      const [filteredData, sessions, tasks, topics] = await Promise.all([
         api.getDates(userId, month, year),
         api.getSessions(userId, { month, year }),
         api.getTasks(userId),
+        api.getTopics(userId),
       ]);
 
       const dataMap = new Map<string, DateData>();
@@ -79,10 +82,15 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
       setDateData(dataMap);
 
       const sessionItems = new Map<string, CalendarSessionItem[]>();
+      const topicColorById = new Map(topics.map((topic: ApiTopic, index: number) => [topic.id, getTopicColorByName(topic.topic_color, index)]));
+      const taskTopicById = new Map(tasks.map((task: ApiTask) => [task.id, task.topic_id]));
 
       sessions.forEach((session: ApiSession) => {
         const key = getDateKeyFromDateString(session.session_date);
         if (!key) return;
+
+        const topicId = taskTopicById.get(session.task_id);
+        const topicColor = topicId ? topicColorById.get(topicId) : undefined;
 
         sessionItems.set(key, [
           ...(sessionItems.get(key) || []),
@@ -91,6 +99,7 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
             sessionName: session.session_name || 'Untitled session',
             startTime: session.start_time,
             endTime: session.end_time,
+            topicColor: topicColor || getTopicColor(0),
           },
         ]);
       });

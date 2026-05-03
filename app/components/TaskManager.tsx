@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { api, ApiSession, ApiTask, ApiTopic } from '@/app/lib/api';
+import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
 import { useAppStore } from '@/app/lib/store';
 import { Plus, Trash2, CheckCircle, Circle, Clock, X, ListTodo, BookOpen, Pencil } from 'lucide-react';
 import { BentoCard3D } from './BentoCard';
@@ -70,7 +71,8 @@ export default function TaskManager() {
 
     try {
       setIsLoading(true);
-      const newTopic = await api.createTopic(user.id, newTopicName.trim());
+      const defaultColor = topicColorPalette[topics.length % topicColorPalette.length].name;
+      const newTopic = await api.createTopic(user.id, newTopicName.trim(), defaultColor);
       setTopics((current) => [newTopic, ...current]);
       setSelectedTopic(newTopic.id);
       setNewTopicName('');
@@ -86,7 +88,7 @@ export default function TaskManager() {
     if (!editTopicName.trim()) return;
     try {
       setIsLoading(true);
-      await api.updateTopic(id, editTopicName.trim());
+      await api.updateTopic(id, { name: editTopicName.trim() });
       setTopics((current) => current.map((t) => (t.id === id ? { ...t, name: editTopicName.trim() } : t)));
       setEditingTopicId(null);
     } catch (error) {
@@ -232,6 +234,15 @@ export default function TaskManager() {
     return sessions.filter((s) => s.task_id === taskId && s.in_time_status === 'in_time').length;
   };
 
+  const handleUpdateTopicColor = async (id: string, topicColor: string) => {
+    try {
+      await api.updateTopic(id, { topicColor });
+      setTopics((current) => current.map((t) => (t.id === id ? { ...t, topic_color: topicColor } : t)));
+    } catch (error) {
+      console.error('Error updating topic color:', error);
+    }
+  };
+
   const getTopicTaskStats = (topicId: string) => {
     const topicTasks = tasks.filter((task) => task.topic_id === topicId);
     const completed = topicTasks.filter((task) => task.status === 'completed').length;
@@ -245,6 +256,12 @@ export default function TaskManager() {
   const formatTime = (timeStr: string) => {
     const date = new Date(timeStr);
     return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  };
+
+  const getTopicColorForTask = (topicId: string) => {
+    const topicIndex = topics.findIndex((topic) => topic.id === topicId);
+    const topic = topics[topicIndex];
+    return getTopicColorByName(topic?.topic_color, topicIndex >= 0 ? topicIndex : 0);
   };
 
   return (
@@ -296,6 +313,8 @@ export default function TaskManager() {
           <div className="space-y-2 flex-1 mt-4">
             {topics.map((topic) => {
               const stats = getTopicTaskStats(topic.id);
+              const topicIndex = topics.findIndex((item) => item.id === topic.id);
+              const topicColor = getTopicColorByName(topic.topic_color, topicIndex);
 
               return (
                 <div key={topic.id} className="relative group">
@@ -322,11 +341,22 @@ export default function TaskManager() {
                         onClick={() => setSelectedTopic(topic.id)}
                         className={`w-full text-left px-4 py-3 rounded-lg transition-all pr-16 ${
                           selectedTopic === topic.id
-                            ? 'bg-gradient-to-r from-purple-600/60 to-purple-500/60 text-white border border-purple-500/30'
+                            ? 'text-white'
                             : 'bg-white/5 text-white/70 hover:bg-white/10 border border-transparent'
                         }`}
+                        style={selectedTopic === topic.id ? {
+                          border: `1px solid ${topicColor.border}`,
+                          background: `linear-gradient(135deg, ${topicColor.backgroundStrong}, ${topicColor.background})`,
+                          boxShadow: `0 0 18px ${topicColor.shadow}`,
+                        } : undefined}
                       >
-                        <span className="block text-sm font-medium">{topic.name}</span>
+                        <span className="flex items-center gap-2 text-sm font-medium">
+                          <span
+                            className="h-2.5 w-2.5 rounded-full"
+                            style={{ background: topicColor.text, boxShadow: `0 0 10px ${topicColor.shadow}` }}
+                          />
+                          {topic.name}
+                        </span>
                         <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
                           <span className={`inline-flex items-center gap-1 ${stats.notCompleted === 0 ? 'text-green-300/90' : 'text-red-300/90'}`}>
                             {stats.notCompleted === 0 ? (
@@ -338,6 +368,26 @@ export default function TaskManager() {
                           </span>
                         </span>
                       </button>
+                      {selectedTopic === topic.id && (
+                        <div className="mt-2 flex flex-wrap gap-1.5 px-1">
+                          {topicColorPalette.map((color) => (
+                            <button
+                              key={color.name}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleUpdateTopicColor(topic.id, color.name);
+                              }}
+                              className="h-5 w-5 rounded-full border transition hover:scale-110"
+                              style={{
+                                background: color.backgroundStrong,
+                                borderColor: topic.topic_color === color.name ? '#ffffff' : color.border,
+                                boxShadow: topic.topic_color === color.name ? `0 0 10px ${color.shadow}` : undefined,
+                              }}
+                              title={color.label}
+                            />
+                          ))}
+                        </div>
+                      )}
                       <div className="absolute right-2 top-3 flex gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                         <button
                           onClick={(e) => {
@@ -453,14 +503,22 @@ export default function TaskManager() {
               ) : (
                 tasks
                   .filter((t) => t.topic_id === selectedTopic)
-                  .map((task) => (
+                  .map((task) => {
+                    const taskTopicColor = getTopicColorForTask(task.topic_id);
+
+                    return (
                   <div key={task.id} className="flex flex-col">
                     <motion.div
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className={`flex cursor-pointer items-start justify-between rounded-xl border bg-white/5 p-3 transition-all hover:border-white/20 hover:bg-white/10 sm:p-4 ${
-                        expandedTaskId === task.id ? 'border-purple-500/50 bg-white/10' : 'border-white/10'
-                      }`}
+                      className="flex cursor-pointer items-start justify-between rounded-xl border p-3 transition-all hover:border-white/20 sm:p-4"
+                      style={{
+                        borderColor: expandedTaskId === task.id ? taskTopicColor.border : 'rgba(255,255,255,0.10)',
+                        background: expandedTaskId === task.id
+                          ? `linear-gradient(135deg, ${taskTopicColor.backgroundSoft}, rgba(255,255,255,0.08))`
+                          : `linear-gradient(135deg, ${taskTopicColor.backgroundSoft}, rgba(255,255,255,0.04))`,
+                        boxShadow: expandedTaskId === task.id ? `0 0 18px ${taskTopicColor.shadow}` : undefined,
+                      }}
                       onClick={() => {
                         setExpandedTaskId(expandedTaskId === task.id ? null : task.id);
                         setShowNewSessionForm(false);
@@ -691,7 +749,8 @@ export default function TaskManager() {
                       </motion.div>
                     )}
                   </div>
-                ))
+                    );
+                  })
               )}
             </div>
           )}

@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { userId, name } = body;
+    const { userId, name, topicColor } = body;
 
     if (!userId || !name) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400, headers: corsHeaders });
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     const { data, error } = await supabase
       .from('topics')
-      .insert([{ user_id: userId, name }])
+      .insert([{ user_id: userId, name, topic_color: topicColor || null }])
       .select()
       .single();
 
@@ -74,15 +74,19 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { id, name } = body;
+    const { id, name, topicColor } = body;
 
-    if (!id || !name) {
+    if (!id || (name === undefined && topicColor === undefined)) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400, headers: corsHeaders });
     }
 
+    const updateData: Record<string, string | null> = {};
+    if (name !== undefined) updateData.name = name;
+    if (topicColor !== undefined) updateData.topic_color = topicColor || null;
+
     const { data, error } = await supabase
       .from('topics')
-      .update({ name })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
