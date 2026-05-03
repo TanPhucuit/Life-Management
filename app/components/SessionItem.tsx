@@ -67,7 +67,7 @@ export function SessionItem({ session, onUpdate, onDelete }: SessionItemProps) {
         whileTap={{ scale: 0.95 }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className="relative min-w-[140px] flex flex-col p-3 rounded-[16px] bg-[#161616] border border-[#222] overflow-hidden shrink-0 cursor-pointer"
+        className="relative flex w-full flex-col overflow-hidden rounded-[16px] border border-[#222] bg-[#161616] p-3 sm:min-w-[140px] sm:w-auto sm:shrink-0 cursor-pointer"
       >
         <div className="absolute inset-0 bg-white/5 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
         

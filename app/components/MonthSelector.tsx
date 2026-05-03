@@ -38,7 +38,7 @@ export default function MonthSelector({ onMonthSelect }: MonthSelectorProps) {
   };
 
   return (
-    <div className="min-h-screen bg-black flex items-center justify-center p-8">
+    <div className="flex min-h-screen items-center justify-center overflow-x-hidden bg-black px-4 py-8 sm:p-8">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <motion.div
@@ -59,20 +59,20 @@ export default function MonthSelector({ onMonthSelect }: MonthSelectorProps) {
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="relative z-10 max-w-6xl w-full"
+        className="relative z-10 w-full max-w-6xl"
       >
         {/* Header */}
-        <motion.div variants={itemVariants} className="text-center mb-16">
-          <div className="flex items-center justify-center gap-4 mb-6">
-            <Calendar className="w-12 h-12 text-purple-400" />
-            <h1 className="text-5xl font-bold text-white">Life Manager</h1>
+        <motion.div variants={itemVariants} className="mb-8 text-center sm:mb-16">
+          <div className="mb-4 flex items-center justify-center gap-3 sm:mb-6 sm:gap-4">
+            <Calendar className="h-9 w-9 text-purple-400 sm:h-12 sm:w-12" />
+            <h1 className="text-3xl font-bold text-white sm:text-5xl">Life Manager</h1>
           </div>
-          <p className="text-white/60 text-lg">Select a month from 2026 to begin your journey</p>
+          <p className="text-sm text-white/60 sm:text-lg">Select a month from 2026 to begin your journey</p>
         </motion.div>
 
         {/* Month Grid */}
         <motion.div
-          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3 xl:grid-cols-4 xl:gap-8"
           variants={containerVariants}
         >
           {monthData.map((monthItem, index) => {
@@ -83,7 +83,7 @@ export default function MonthSelector({ onMonthSelect }: MonthSelectorProps) {
                 variants={itemVariants}
               >
                 <BentoCard3D
-                  className="p-6 h-full min-h-56 flex flex-col"
+                  className="flex h-full min-h-44 flex-col rounded-[24px] p-4 sm:min-h-56 sm:p-6 lg:rounded-[32px]"
                   onClick={() => onMonthSelect(index + 1)}
                   icon={<IconComponent size={24} className="text-white/60" />}
                   title={monthItem.name}
@@ -91,7 +91,7 @@ export default function MonthSelector({ onMonthSelect }: MonthSelectorProps) {
                 >
                   <div className="flex-1 flex flex-col justify-between">
                     {/* Large month number */}
-                    <div className="my-4">
+                    <div className="my-3 sm:my-4">
                       <div className={`text-6xl font-bold bg-gradient-to-br ${monthItem.color} bg-clip-text text-transparent`}>
                         {String(index + 1).padStart(2, '0')}
                       </div>
@@ -111,7 +111,7 @@ export default function MonthSelector({ onMonthSelect }: MonthSelectorProps) {
         {/* Footer */}
         <motion.p
           variants={itemVariants}
-          className="text-center text-white/50 text-sm mt-16"
+          className="mt-8 text-center text-xs text-white/50 sm:mt-16 sm:text-sm"
         >
           Each month is carefully crafted with premium Bento design aesthetic
         </motion.p>

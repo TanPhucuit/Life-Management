@@ -220,9 +220,9 @@ export default function Analytics() {
 
 
   return (
-    <div className="w-full space-y-8">
+    <div className="w-full space-y-4 sm:space-y-6 lg:space-y-8">
       {/* Month Navigation */}
-      <div className="flex items-center justify-between bg-white/10 rounded-xl p-4">
+      <div className="flex items-center justify-between rounded-xl bg-white/10 p-3 sm:p-4">
         <button
           onClick={() => {
             setCurrentMonth(currentMonth === 1 ? 12 : currentMonth - 1);
@@ -233,7 +233,7 @@ export default function Analytics() {
         >
           <ChevronLeft className="w-5 h-5 text-white" />
         </button>
-        <h2 className="text-2xl font-bold text-white">
+        <h2 className="text-center text-xl font-bold text-white sm:text-2xl">
           {monthNames[currentMonth - 1]} {currentYear}
         </h2>
         <button
@@ -249,28 +249,28 @@ export default function Analytics() {
       </div>
 
       {/* Analytics View Selector */}
-      <div className="flex gap-3 bg-white/10 rounded-xl p-4">
+      <div className="grid grid-cols-2 gap-2 rounded-xl bg-white/10 p-3 sm:flex sm:flex-wrap sm:gap-3 sm:p-4">
         <button
           onClick={() => setAnalyticsView('month_overview')}
-          className={`px-4 py-2 rounded-lg font-semibold transition ${analyticsView === 'month_overview' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 sm:text-base ${analyticsView === 'month_overview' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
         >
           Monthly Overview
         </button>
         <button
           onClick={() => setAnalyticsView('week_daily')}
-          className={`px-4 py-2 rounded-lg font-semibold transition ${analyticsView === 'week_daily' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 sm:text-base ${analyticsView === 'week_daily' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
         >
           Weekly Details
         </button>
         <button
           onClick={() => setAnalyticsView('weekly_progress')}
-          className={`px-4 py-2 rounded-lg font-semibold transition ${analyticsView === 'weekly_progress' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 sm:text-base ${analyticsView === 'weekly_progress' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
         >
           Weekly Progress
         </button>
         <button
           onClick={() => setAnalyticsView('key_of_success')}
-          className={`px-4 py-2 rounded-lg font-semibold transition ${analyticsView === 'key_of_success' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
+          className={`rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 sm:text-base ${analyticsView === 'key_of_success' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
         >
           Key of Success
         </button>
@@ -278,10 +278,10 @@ export default function Analytics() {
 
       {/* Monthly Overview: Weekly Study Hours + KOS Pie */}
       {analyticsView === 'month_overview' && (
-        <div className="grid grid-cols-2 gap-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white/10 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-white mb-4">Weekly Study Hours - {monthNames[currentMonth - 1]}</h3>
-            <ResponsiveContainer width="100%" height={300}>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-8">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl bg-white/10 p-4 sm:p-6">
+            <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Weekly Study Hours - {monthNames[currentMonth - 1]}</h3>
+            <ResponsiveContainer width="100%" height={260}>
               <BarChart data={weeklyData} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
@@ -292,9 +292,9 @@ export default function Analytics() {
             </ResponsiveContainer>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white/10 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-white mb-4">Key of Success Distribution</h3>
-            <ResponsiveContainer width="100%" height={300}>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl bg-white/10 p-4 sm:p-6">
+            <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Key of Success Distribution</h3>
+            <ResponsiveContainer width="100%" height={260}>
               <PieChart>
                 <Pie data={kosDistribution} cx="50%" cy="50%" labelLine={false} label={{ fill: 'white' }} outerRadius={80} dataKey="value">
                   {kosDistribution.map((entry, index) => (
@@ -313,9 +313,9 @@ export default function Analytics() {
       {analyticsView === 'week_daily' && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           {/* Week Selector */}
-          <div className="bg-white/10 rounded-xl p-4">
+          <div className="rounded-xl bg-white/10 p-4">
             <p className="text-white/70 text-sm mb-3">Select Week:</p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {Array.from({ length: weeksCount }, (_, i) => i + 1).map((week) => (
                 <button
                   key={week}
@@ -329,9 +329,9 @@ export default function Analytics() {
           </div>
 
           {/* Daily Study Hours Chart */}
-          <div className="bg-white/10 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-white mb-4">Daily Study Hours - Week {selectedWeek}</h3>
-            <ResponsiveContainer width="100%" height={300}>
+          <div className="rounded-xl bg-white/10 p-4 sm:p-6">
+            <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Daily Study Hours - Week {selectedWeek}</h3>
+            <ResponsiveContainer width="100%" height={280}>
               <BarChart data={dailyData} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" angle={-45} textAnchor="end" height={80} />
@@ -348,9 +348,9 @@ export default function Analytics() {
       {analyticsView === 'weekly_progress' && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
           {/* Week Selector */}
-          <div className="bg-white/10 rounded-xl p-4">
+          <div className="rounded-xl bg-white/10 p-4">
             <p className="text-white/70 text-sm mb-3">Select Week Progress:</p>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {Array.from({ length: weeksCount }, (_, i) => i + 1).map((week) => (
                 <button
                   key={week}
@@ -364,9 +364,9 @@ export default function Analytics() {
           </div>
 
           {/* Cumulative Chart */}
-          <div className="bg-white/10 rounded-xl p-6">
-            <h3 className="text-lg font-bold text-white mb-4">Cumulative Study Hours - Week {selectedWeek}</h3>
-            <ResponsiveContainer width="100%" height={400}>
+          <div className="rounded-xl bg-white/10 p-4 sm:p-6">
+            <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Cumulative Study Hours - Week {selectedWeek}</h3>
+            <ResponsiveContainer width="100%" height={320}>
               <LineChart data={getCumulativeDailyStudyHoursForWeek(currentMonth, currentYear, selectedWeek)}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                 <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" angle={-45} textAnchor="end" height={80} />
@@ -383,9 +383,9 @@ export default function Analytics() {
 
       {/* Key of Success Trend */}
       {analyticsView === 'key_of_success' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white/10 rounded-xl p-6">
-          <h3 className="text-lg font-bold text-white mb-4">Key of Success Progress - {monthNames[currentMonth - 1]} {currentYear}</h3>
-          <ResponsiveContainer width="100%" height={350}>
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl bg-white/10 p-4 sm:p-6">
+          <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Key of Success Progress - {monthNames[currentMonth - 1]} {currentYear}</h3>
+          <ResponsiveContainer width="100%" height={300}>
             <LineChart data={kosTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
               <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />

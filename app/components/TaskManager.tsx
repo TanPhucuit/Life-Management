@@ -243,7 +243,7 @@ export default function TaskManager() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-8">
       {/* Topics Sidebar */}
       <motion.div
         initial={{ opacity: 0, x: -20 }}
@@ -251,7 +251,7 @@ export default function TaskManager() {
         className="lg:col-span-1"
       >
         <BentoCard3D
-          className="h-full flex flex-col p-6"
+          className="h-full flex flex-col rounded-[24px] p-4 sm:p-6 lg:rounded-[32px]"
           icon={<BookOpen size={24} />}
           title="Topics"
           description={`${topics.length} topics`}
@@ -333,7 +333,7 @@ export default function TaskManager() {
                           </span>
                         </span>
                       </button>
-                      <div className="absolute right-2 top-3 opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
+                      <div className="absolute right-2 top-3 flex gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -389,7 +389,7 @@ export default function TaskManager() {
       >
         <BentoCard3D
           hover={false}
-          className="h-full flex flex-col p-6"
+          className="h-full flex flex-col rounded-[24px] p-4 sm:p-6 lg:rounded-[32px]"
           glowing
           icon={<ListTodo size={24} />}
           title={topics.find((t) => t.id === selectedTopic)?.name || 'Tasks'}
@@ -417,7 +417,7 @@ export default function TaskManager() {
                 onChange={(e) => setNewTaskData({ ...newTaskData, deadline: e.target.value })}
                 className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-white/30"
               />
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   onClick={handleAddTask}
                   disabled={isLoading}
@@ -440,7 +440,7 @@ export default function TaskManager() {
 
           {/* Tasks List */}
           {selectedTopic && (
-            <div className="space-y-3 max-h-[600px] overflow-y-auto flex-1 mt-4">
+            <div className="mt-4 flex-1 space-y-3 overflow-visible lg:max-h-[600px] lg:overflow-y-auto">
               {tasks.filter((t) => t.topic_id === selectedTopic).length === 0 ? (
                 <p className="text-white/50 text-center py-8 text-sm">
                   No tasks yet. Create one to get started!
@@ -453,7 +453,7 @@ export default function TaskManager() {
                     <motion.div
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className={`p-4 bg-white/5 border rounded-xl flex items-start justify-between group hover:bg-white/10 hover:border-white/20 cursor-pointer transition-all ${
+                      className={`flex cursor-pointer items-start justify-between rounded-xl border bg-white/5 p-3 transition-all hover:border-white/20 hover:bg-white/10 sm:p-4 ${
                         expandedTaskId === task.id ? 'border-purple-500/50 bg-white/10' : 'border-white/10'
                       }`}
                       onClick={() => {
@@ -462,7 +462,7 @@ export default function TaskManager() {
                         setEditingSessionId(null);
                       }}
                     >
-                      <div className="flex items-start gap-3 flex-1">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -494,7 +494,7 @@ export default function TaskManager() {
                               Due: {new Date(task.deadline).toLocaleDateString()}
                             </p>
                           )}
-                          <div className="flex items-center gap-4 mt-2">
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
                             <p className="text-blue-400 text-xs flex items-center gap-1">
                               <Clock className="w-3 h-3" />
                               {getTaskSessions(task.id).length} sessions
@@ -511,7 +511,7 @@ export default function TaskManager() {
                           e.stopPropagation();
                           handleDeleteTask(task.id);
                         }}
-                        className="p-2 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 rounded-lg transition"
+                        className="rounded-lg p-2 opacity-100 transition hover:bg-red-500/20 lg:opacity-0 lg:group-hover:opacity-100"
                       >
                         <Trash2 className="w-4 h-4 text-red-400" />
                       </button>
@@ -523,9 +523,9 @@ export default function TaskManager() {
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: 'auto', opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden bg-white/5 border-x border-b border-white/10 rounded-b-xl -mt-2 mx-1 px-4 pb-4 pt-4 space-y-3"
+                        className="-mt-2 mx-1 space-y-3 overflow-hidden rounded-b-xl border-x border-b border-white/10 bg-white/5 px-3 pb-4 pt-4 sm:px-4"
                       >
-                        <div className="flex justify-between items-center mb-2">
+                        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                           <h5 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Sessions List</h5>
                           {!showNewSessionForm && (
                             <button
@@ -539,7 +539,7 @@ export default function TaskManager() {
 
                         {showNewSessionForm && (
                           <div className="bg-white/5 border border-white/10 rounded-lg p-3 space-y-2">
-                            <div className="grid grid-cols-3 gap-2">
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                               <input
                                 type="date"
                                 value={newSessionData.sessionDate}
@@ -559,7 +559,7 @@ export default function TaskManager() {
                                 className="px-2 py-1 bg-white/10 border border-white/10 rounded text-white text-xs focus:outline-none"
                               />
                             </div>
-                            <div className="flex gap-2">
+                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                               <button
                                 onClick={() => handleAddSession(task.id)}
                                 className="flex-1 py-1 bg-green-500/20 text-green-300 text-xs rounded hover:bg-green-500/30"
@@ -584,7 +584,7 @@ export default function TaskManager() {
                               <div key={session.id} className="bg-white/5 border border-white/5 rounded-lg p-3 group/session">
                                 {editingSessionId === session.id ? (
                                   <div className="space-y-2">
-                                    <div className="grid grid-cols-3 gap-2">
+                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                                       <input
                                         type="date"
                                         value={editSessionData.sessionDate}
@@ -604,7 +604,7 @@ export default function TaskManager() {
                                         className="px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs"
                                       />
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                       <select
                                         value={editSessionData.inTimeStatus}
                                         onChange={(e) => setEditSessionData({ ...editSessionData, inTimeStatus: e.target.value as any })}
@@ -630,14 +630,14 @@ export default function TaskManager() {
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="flex justify-between items-center">
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div className="flex flex-col">
                                       <span className="text-white text-xs font-medium">
                                         {formatTime(session.start_time)} - {formatTime(session.end_time)}
                                       </span>
                                       <span className="text-white/40 text-[10px]">{session.session_date}</span>
                                     </div>
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex flex-wrap items-center gap-3">
                                       <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
                                         session.in_time_status === 'in_time' 
                                           ? 'bg-green-500/20 text-green-400 border border-green-500/20' 
@@ -645,7 +645,7 @@ export default function TaskManager() {
                                       }`}>
                                         {session.in_time_status === 'in_time' ? 'In Time' : 'Out Time'}
                                       </span>
-                                      <div className="flex gap-1 opacity-0 group-hover/session:opacity-100 transition-opacity">
+                                      <div className="flex gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover/session:opacity-100">
                                         <button
                                           onClick={() => startEditingSession(session)}
                                           className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded"

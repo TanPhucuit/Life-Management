@@ -193,32 +193,32 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
   const dayName = dayNames[new Date(year, month - 1, day).getDay()];
 
   return (
-    <div className="w-full h-screen flex flex-col bg-black">
+    <div className="flex min-h-screen w-full flex-col bg-black">
       {/* Header - 8% of viewport */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="h-16 px-6 py-3 flex flex-col justify-center border-b border-white/10"
+        className="border-b border-white/10 px-3 py-3 sm:px-6"
       >
-        <div className="flex items-center gap-3 mb-1">
+        <div className="mb-1 flex items-center gap-2 sm:gap-3">
           <button
             onClick={() => router.back()}
-            className="p-2 hover:bg-white/10 rounded-lg transition"
+            className="rounded-lg p-2 transition hover:bg-white/10"
           >
             <ChevronLeft className="w-5 h-5 text-white/60" />
           </button>
-          <h1 className="text-2xl font-bold text-white">
+          <h1 className="min-w-0 text-lg font-bold leading-tight text-white sm:text-2xl">
             {dayName}, {monthNames[month - 1]} {day}, {year}
           </h1>
         </div>
-        <p className="text-white/60 ml-11 text-xs">
+        <p className="ml-11 text-xs text-white/60">
           {isToday() && '🎯 Today • '}{focusedHours}h / {targetHours}h focused
         </p>
       </motion.div>
 
       {/* Main Container */}
-      <div className="flex-1 overflow-hidden pb-4">
+      <div className="flex-1 overflow-visible pb-4">
         <UnifiedDashboardShell
           visual={
             <div className="h-full w-full flex flex-col items-center justify-center relative">
@@ -333,7 +333,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
             </div>
           }
           sessions={
-            <div className="w-full h-full flex flex-row gap-3 overflow-x-auto overflow-y-hidden items-center pt-2 pb-2 px-1"
+            <div className="flex h-full w-full flex-col gap-3 overflow-y-auto px-1 pb-2 pt-2 sm:flex-row sm:items-center sm:overflow-x-auto sm:overflow-y-hidden"
               style={{ scrollbarWidth: 'none' }}
             >
               {sessions.length === 0 ? (

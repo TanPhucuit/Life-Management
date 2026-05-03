@@ -61,7 +61,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-600 via-blue-500 to-pink-500 p-4 overflow-hidden">
+    <div className="flex min-h-screen items-center justify-center overflow-x-hidden bg-gradient-to-br from-purple-600 via-blue-500 to-pink-500 px-4 py-8">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <motion.div
@@ -100,13 +100,13 @@ export default function Login() {
         {/* Card */}
         <motion.div
           variants={itemVariants}
-          className="glass rounded-3xl p-8 border border-white/20 backdrop-blur-xl shadow-2xl"
+          className="glass rounded-3xl border border-white/20 p-5 shadow-2xl backdrop-blur-xl sm:p-8"
         >
           {/* Header */}
-          <div className="text-center mb-8">
+          <div className="mb-6 text-center sm:mb-8">
             <motion.h1
               variants={itemVariants}
-              className="text-4xl font-bold text-white mb-2"
+              className="mb-2 text-3xl font-bold text-white sm:text-4xl"
             >
               Life Manager
             </motion.h1>
