@@ -323,12 +323,12 @@ export default function TaskManager() {
                       >
                         <span className="block text-sm font-medium">{topic.name}</span>
                         <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                          <span className="inline-flex items-center gap-1 text-green-300/90">
-                            <CheckCircle className="h-3 w-3" />
-                            {stats.completed} done
-                          </span>
-                          <span className="inline-flex items-center gap-1 text-red-300/90">
-                            <X className="h-3 w-3" />
+                          <span className={`inline-flex items-center gap-1 ${stats.notCompleted === 0 ? 'text-green-300/90' : 'text-red-300/90'}`}>
+                            {stats.notCompleted === 0 ? (
+                              <CheckCircle className="h-3 w-3" />
+                            ) : (
+                              <X className="h-3 w-3" />
+                            )}
                             {stats.notCompleted} left
                           </span>
                         </span>
