@@ -3,7 +3,7 @@
 import { DateInfo } from '@/app/lib/calendar';
 import { ApiTask } from '@/app/lib/api';
 import { BentoCard3D } from './BentoCard';
-import { AlertCircle, Calendar, Clock, Sparkles } from 'lucide-react';
+import { Calendar, Clock, Sparkles } from 'lucide-react';
 
 interface DateData {
   id?: string;
@@ -48,7 +48,6 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, dea
   };
 
   const getIcon = () => {
-    if (hasDeadline) return <AlertCircle size={20} className="text-red-500" />;
     if (isToday()) return <Calendar size={20} className="text-yellow-400" />;
     if (sessionCount > 0) return <Clock size={20} className="text-blue-400" />;
     return <Sparkles size={20} className="text-white/40" />;
@@ -81,8 +80,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, dea
           {deadlineTasks.length > 0 && (
             <div className="space-y-1.5">
               {visibleDeadlineTasks.map((task) => (
-                <div key={task.id} className="flex items-center gap-1.5 rounded-md border border-red-500/30 bg-red-950/70 px-2 py-1 text-red-200 shadow-sm shadow-red-950/40">
-                  <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
+                <div key={task.id} className="rounded-md border border-red-500/30 bg-red-950/70 px-2 py-1 text-red-200 shadow-sm shadow-red-950/40">
                   <span className="min-w-0 truncate text-xs font-semibold uppercase">
                     {task.title}
                   </span>
