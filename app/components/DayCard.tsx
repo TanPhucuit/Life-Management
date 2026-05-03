@@ -31,6 +31,23 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
   const extraDeadlineCount = Math.max(deadlineTasks.length - visibleDeadlineTasks.length, 0);
   const extraSessionCount = Math.max(sessions.length - visibleSessions.length, 0);
   const hasDeadline = deadlineTasks.length > 0;
+  const sessionGridClass = sessions.length <= 2 ? 'grid-cols-1' : 'grid-cols-2';
+  const deadlineGridClass = deadlineTasks.length <= 2 ? 'grid-cols-1' : 'grid-cols-2';
+  const sessionItemClass = sessions.length <= 2
+    ? 'px-2 py-1.5'
+    : 'px-1.5 py-1';
+  const deadlineItemClass = deadlineTasks.length <= 2
+    ? 'px-2 py-1.5'
+    : 'px-1.5 py-1';
+  const sessionNameClass = sessions.length <= 2
+    ? 'text-[11px] sm:text-xs leading-snug whitespace-normal break-words'
+    : 'truncate text-[10px] leading-tight';
+  const deadlineNameClass = deadlineTasks.length <= 2
+    ? 'text-[11px] sm:text-xs leading-snug whitespace-normal break-words'
+    : 'truncate text-[10px] leading-tight';
+  const sessionTimeClass = sessions.length <= 2
+    ? 'text-[10px] leading-snug'
+    : 'truncate text-[9px] leading-tight';
   const weekdayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   const cardTitle = `${weekdayLabels[date.date.getDay()]} ${String(date.day).padStart(2, '0')}/${String(date.month).padStart(2, '0')}`;
 
@@ -88,13 +105,13 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
           </div>
 
           {sessions.length > 0 ? (
-            <div className="grid min-h-0 grid-cols-2 gap-1.5 overflow-hidden">
+            <div className={`grid min-h-0 ${sessionGridClass} gap-1.5 overflow-hidden`}>
               {visibleSessions.map((session) => (
-                <div key={session.id} className="min-w-0 rounded border border-yellow-400/35 bg-yellow-950/70 px-1.5 py-1 text-yellow-200 shadow-sm shadow-yellow-950/40">
-                  <span className="block min-w-0 truncate text-[10px] font-semibold normal-case leading-tight">
+                <div key={session.id} className={`min-w-0 rounded border border-yellow-400/35 bg-yellow-950/70 ${sessionItemClass} text-yellow-200 shadow-sm shadow-yellow-950/40`}>
+                  <span className={`block min-w-0 font-semibold normal-case ${sessionNameClass}`}>
                     {session.sessionName}
                   </span>
-                  <span className="block truncate text-[9px] font-medium leading-tight text-yellow-100/65">
+                  <span className={`block font-medium text-yellow-100/65 ${sessionTimeClass}`}>
                     {formatTime(session.startTime)} - {formatTime(session.endTime)}
                   </span>
                 </div>
@@ -106,10 +123,10 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
               )}
             </div>
           ) : deadlineTasks.length > 0 && (
-            <div className="grid min-h-0 grid-cols-2 gap-1.5 overflow-hidden">
+            <div className={`grid min-h-0 ${deadlineGridClass} gap-1.5 overflow-hidden`}>
               {visibleDeadlineTasks.map((task) => (
-                <div key={task.id} className="min-w-0 rounded border border-red-500/30 bg-red-950/70 px-1.5 py-1 text-red-200 shadow-sm shadow-red-950/40">
-                  <span className="block min-w-0 truncate text-[10px] font-semibold normal-case leading-tight">
+                <div key={task.id} className={`min-w-0 rounded border border-red-500/30 bg-red-950/70 ${deadlineItemClass} text-red-200 shadow-sm shadow-red-950/40`}>
+                  <span className={`block min-w-0 font-semibold normal-case ${deadlineNameClass}`}>
                     {task.title}
                   </span>
                 </div>
