@@ -327,8 +327,8 @@ export default function TaskManager() {
                             <CheckCircle className="h-3 w-3" />
                             {stats.completed} done
                           </span>
-                          <span className="inline-flex items-center gap-1 text-white/55">
-                            <Circle className="h-3 w-3" />
+                          <span className="inline-flex items-center gap-1 text-red-300/90">
+                            <X className="h-3 w-3" />
                             {stats.notCompleted} left
                           </span>
                         </span>
