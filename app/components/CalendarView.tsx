@@ -35,7 +35,6 @@ export interface CalendarSessionItem {
 export default function CalendarView({ month, year, onMonthChange, onSelectDay }: CalendarViewProps) {
   const { user } = useAppStore();
   const [dateData, setDateData] = useState<Map<string, DateData>>(new Map());
-  const [sessionCountByDate, setSessionCountByDate] = useState<Map<string, number>>(new Map());
   const [sessionsByDate, setSessionsByDate] = useState<Map<string, CalendarSessionItem[]>>(new Map());
   const [deadlineTasksByDate, setDeadlineTasksByDate] = useState<Map<string, ApiTask[]>>(new Map());
 
@@ -45,7 +44,17 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
     if (!user?.id) return;
 
     void loadDatesData(user.id);
-  }, [month, year]);
+  }, [month, year, user?.id]);
+
+  const getDateKeyFromDateString = (value: string | null | undefined) => {
+    if (!value) return null;
+
+    const [datePart] = value.split('T');
+    const [dateYear, dateMonth, dateDay] = datePart.split('-').map(Number);
+    if (!dateDay || !dateMonth || !dateYear) return null;
+
+    return `${dateDay}-${dateMonth}-${dateYear}`;
+  };
 
   const loadDatesData = async (userId: string) => {
     try {
@@ -69,13 +78,12 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
       });
       setDateData(dataMap);
 
-      const counts = new Map<string, number>();
       const sessionItems = new Map<string, CalendarSessionItem[]>();
 
       sessions.forEach((session: ApiSession) => {
-        const [sessionYear, sessionMonth, sessionDay] = session.session_date.split('-').map(Number);
-        const key = `${sessionDay}-${sessionMonth}-${sessionYear}`;
-        counts.set(key, (counts.get(key) || 0) + 1);
+        const key = getDateKeyFromDateString(session.session_date);
+        if (!key) return;
+
         sessionItems.set(key, [
           ...(sessionItems.get(key) || []),
           {
@@ -86,17 +94,13 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
           },
         ]);
       });
-      setSessionCountByDate(counts);
       setSessionsByDate(sessionItems);
 
       const deadlineTasks = new Map<string, ApiTask[]>();
       tasks.forEach((task: ApiTask) => {
-        if (!task.deadline) return;
+        const key = getDateKeyFromDateString(task.deadline);
+        if (!key) return;
 
-        const [deadlineYear, deadlineMonth, deadlineDay] = task.deadline.split('T')[0].split('-').map(Number);
-        if (!deadlineDay || !deadlineMonth || !deadlineYear) return;
-
-        const key = `${deadlineDay}-${deadlineMonth}-${deadlineYear}`;
         deadlineTasks.set(key, [...(deadlineTasks.get(key) || []), task]);
       });
       setDeadlineTasksByDate(deadlineTasks);
@@ -165,6 +169,7 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
         {calendar_data.allDates.map((dateInfo, index) => {
           const key = `${dateInfo.day}-${dateInfo.month}-${dateInfo.year}`;
           const data = dateData.get(key);
+          const daySessions = sessionsByDate.get(key) || [];
 
           return (
             <motion.div
@@ -177,8 +182,8 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
               <DayCard
                 date={dateInfo}
                 data={data}
-                sessionCount={sessionCountByDate.get(key) || 0}
-                sessions={sessionsByDate.get(key) || []}
+                sessionCount={daySessions.length}
+                sessions={daySessions}
                 deadlineTasks={deadlineTasksByDate.get(key) || []}
                 onSelectDay={() => onSelectDay?.(dateInfo.day, dateInfo.month, dateInfo.year)}
               />
