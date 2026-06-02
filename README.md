@@ -1,159 +1,78 @@
 # Life Management System
 
-A modern web application for managing your life, tasks, and tracking your success across months, weeks, and days.
+Ứng dụng quản lý lịch, nhiệm vụ dạng cây và session làm việc cá nhân.
 
-## Features
+## Tính năng chính
 
-- **User Authentication**: Simple username/password authentication
-- **Calendar Management**: Visual calendar with daily tracking
-- **Task Management**: Organize tasks by topics with deadlines and status tracking
-- **Analytics Dashboard**: Visualize your progress with charts and statistics
-- **Key of Success Tracking**: Rate your days on a 0-3 scale
-- **Study Hours Tracking**: Monitor focused study time
-- **Beautiful UI**: Modern glassmorphic design with 3D effects
+- Đăng nhập và đăng ký bằng username/password.
+- Dashboard tổng quan với điều hướng: Tổng quan, Lịch, Nhiệm vụ, Phân tích, Cài đặt.
+- Calendar kiểu Google Calendar, hiển thị session như event và deadline như task chip.
+- Task là phân hệ độc lập, không còn phụ thuộc tháng.
+- Task hỗ trợ cây nhiều cấp: root task, task con và các cấp nhỏ hơn.
+- Task cha không tick thủ công; trạng thái hoàn thành được tính từ toàn bộ task con.
+- Leaf task có thể tick hoàn thành hoặc chưa hoàn thành.
+- Mỗi task có nhiều session; trạng thái session đúng giờ/trễ giờ độc lập với task.
+- Analytics thống kê task hoàn thành, root task đang chạy, session đúng giờ, tổng thời lượng và task quá hạn.
 
 ## Tech Stack
 
-- **Frontend**: React 18 + Next.js 14
-- **Styling**: Tailwind CSS + Framer Motion
-- **Database**: Supabase (PostgreSQL)
-- **Charts**: Recharts
-- **State Management**: Zustand
+- Next.js 16, React 18, TypeScript
+- Tailwind CSS
+- Supabase PostgreSQL
+- Zustand
+- Recharts
+- Lucide React
 
-## Setup Instructions
+## Cài đặt
 
-### 1. Database Setup
-
-1. Create a Supabase project at https://supabase.com
-2. Run the SQL schema from `database_schema.sql` in your Supabase SQL editor
-3. Note your Supabase URL and Anon Key
-
-### 2. Environment Configuration
-
-1. Copy `.env.example` to `.env.local`
-2. Fill in your Supabase credentials:
-   ```
-   NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-   ```
-
-### 3. Installation & Running
+1. Cài dependencies:
 
 ```bash
-# Install dependencies
 npm install
-
-# Run development server
-npm run dev
-
-# Open http://localhost:3000 in your browser
 ```
 
-### 4. Deployment
+2. Tạo `.env.local`:
 
-Deploy to Vercel:
 ```bash
-vercel
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
-## Database Schema
+3. Chạy schema trong `database_schema.sql` bằng Supabase SQL Editor.
 
-### Users
-- id (UUID)
-- username (VARCHAR)
-- password (VARCHAR)
+Với database cũ, chỉ chạy phần migration non-destructive ở cuối file nếu các bảng đã tồn tại.
 
-### Topics
-- id (UUID)
-- user_id (FK)
-- name (VARCHAR)
+4. Chạy dev server:
 
-### Months
-- id (UUID)
-- user_id (FK)
-- month (INTEGER 1-12)
-- year (INTEGER)
-- total_hours (DECIMAL)
-- days_in_month (INTEGER)
+```bash
+npm run dev
+```
 
-### Weeks
-- id (UUID)
-- month_id (FK)
-- week_order (INTEGER 1-5)
-- total_hours (DECIMAL)
+Mở `http://localhost:3000`.
 
-### Dates
-- id (UUID)
-- user_id (FK)
-- month_id (FK)
-- day (INTEGER)
-- month (INTEGER)
-- year (INTEGER)
-- focused_minutes (INTEGER)
-- focused_hours (DECIMAL - auto calculated)
-- key_of_success (INTEGER 0-3)
+## Schema chính
 
 ### Tasks
-- id (UUID)
-- user_id (FK)
-- topic_id (FK)
-- title (VARCHAR)
-- description (TEXT)
-- deadline (TIMESTAMP)
-- status (VARCHAR: completed/not_completed)
+
+- `parent_task_id`: task cha, null nghĩa là root task.
+- `sort_order`: thứ tự hiển thị trong cùng một cấp.
+- `archived_at`: dùng để lưu trữ thay vì xóa cứng.
+- `status`: chỉ dùng trực tiếp cho leaf task.
+- `effective_status`: được API tính toán cho task cha.
 
 ### Sessions
-- id (UUID)
-- user_id (FK)
-- task_id (FK)
-- start_time (TIMESTAMP)
-- end_time (TIMESTAMP)
-- session_date (DATE)
-- in_time_status (VARCHAR: in_time/out_time)
 
-### Notes
-- id (UUID)
-- month_id (FK)
-- user_id (FK)
-- content (TEXT)
+- `task_id`: session thuộc về một task bất kỳ trong cây.
+- `session_name`: tên session.
+- `start_time`, `end_time`, `session_date`: thời gian session.
+- `in_time_status`: `in_time` hoặc `out_time`.
+- `focused_minutes`, `key_of_success`: dữ liệu bổ sung cho thống kê.
 
-## Usage
+## Kiểm tra
 
-### Getting Started
-1. Sign up with a username and password
-2. Create topics for your different areas (e.g., "Study", "Exercise", "Work")
-3. Create tasks within each topic
-4. Use the calendar to track daily metrics:
-   - Key of Success (0-3 scale)
-   - Focused study minutes
-5. View analytics to track your progress
+```bash
+npm run build
+```
 
-### Calendar
-- Click on any date to edit:
-  - Focused study minutes (converted to hours)
-  - Key of Success rating
-- Color coding indicates your success rate
-
-### Tasks
-- Organize by topic
-- Set deadlines
-- Mark as completed
-- Track task status
-
-### Analytics
-- **This Month**: View current month statistics
-- **Weekly**: Compare performance across weeks
-- **Comparison**: Compare hours studied across months
-
-## Future Enhancements
-
-- Session tracking with in-time/out-time monitoring
-- Notes per month
-- Automatic data aggregation
-- Mobile app version
-- Advanced reporting
-
-## License
-
-MIT
+Không dùng thao tác destructive trên Supabase/Coolify/VPS khi migrate dữ liệu thật.

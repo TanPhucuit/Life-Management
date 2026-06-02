@@ -156,8 +156,8 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
       await api.updateSession({
         id,
         sessionName: updates.session_name,
-        focusedMinutes: updates.focused_minutes,
-        keyOfSuccess: updates.key_of_success,
+        focusedMinutes: updates.focused_minutes ?? undefined,
+        keyOfSuccess: updates.key_of_success ?? undefined,
         startTime: updates.start_time,
         endTime: updates.end_time,
         sessionDate: updates.session_date,

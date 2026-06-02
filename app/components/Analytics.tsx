@@ -1,479 +1,182 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import {
-  PieChart,
-  Pie,
-  Cell,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts';
-import { api, ApiDate } from '@/app/lib/api';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { AlertCircle, CheckCircle2, Clock3, FolderTree, Timer } from 'lucide-react';
+import { api, ApiSession, ApiTask, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { getTopicColorByName } from '@/app/lib/topicColors';
 
-type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success';
-type ChartPoint = { name: string; value: number | null };
+const getDurationMinutes = (session: ApiSession) => {
+  if (session.focused_minutes !== null && session.focused_minutes !== undefined) return session.focused_minutes;
+  return Math.max(0, Math.round((new Date(session.end_time).getTime() - new Date(session.start_time).getTime()) / 60000));
+};
+
+const isLeaf = (task: ApiTask) => (task.child_count || 0) === 0;
 
 export default function Analytics() {
-  const { selectedMonth, selectedYear, user } = useAppStore();
-  const [currentMonth, setCurrentMonth] = useState(selectedMonth || 4);
-  const [currentYear, setCurrentYear] = useState(selectedYear || 2026);
-  const [analyticsView, setAnalyticsView] = useState<AnalyticsView>('month_overview');
-  const [selectedWeek, setSelectedWeek] = useState(1);
-  const [allDates, setAllDates] = useState<ApiDate[]>([]);
+  const { user } = useAppStore();
+  const [tasks, setTasks] = useState<ApiTask[]>([]);
+  const [sessions, setSessions] = useState<ApiSession[]>([]);
+  const [topics, setTopics] = useState<ApiTopic[]>([]);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     if (!user?.id) return;
 
-    const loadDates = async () => {
+    const loadAnalytics = async () => {
       try {
-        const dates = await api.getDates(user.id);
-        setAllDates(dates);
+        setErrorMessage('');
+        const [taskRows, sessionRows, topicRows] = await Promise.all([
+          api.getTasks(user.id, { view: 'tree' }),
+          api.getSessions(user.id),
+          api.getTopics(user.id),
+        ]);
+        setTasks(taskRows);
+        setSessions(sessionRows);
+        setTopics(topicRows);
       } catch (error) {
-        console.error('Error loading analytics dates:', error);
+        setErrorMessage(error instanceof Error ? error.message : 'Không tải được phân tích.');
       }
     };
 
-    void loadDates();
-  }, [user?.id, analyticsView, currentMonth, currentYear]);
+    void loadAnalytics();
+  }, [user?.id]);
 
-  // Calculate study hours by date
-  const getStudyHoursByDate = () => {
-    const hoursByDate: { [key: string]: number } = {};
-    allDates.forEach((date) => {
-      const dateStr = `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
-      const minutes = Number(date.focused_minutes) || 0;
-      hoursByDate[dateStr] = (hoursByDate[dateStr] || 0) + minutes / 60;
+  const data = useMemo(() => {
+    const leafTasks = tasks.filter(isLeaf);
+    const completedLeaves = leafTasks.filter((task) => task.status === 'completed' || task.effective_status === 'completed');
+    const activeRoots = tasks.filter((task) => !task.parent_task_id && task.effective_status !== 'completed');
+    const overdueLeaves = leafTasks.filter((task) => task.deadline && task.status !== 'completed' && new Date(task.deadline) < new Date());
+    const onTimeSessions = sessions.filter((session) => session.in_time_status === 'in_time');
+    const outTimeSessions = sessions.filter((session) => session.in_time_status === 'out_time');
+    const totalMinutes = sessions.reduce((sum, session) => sum + getDurationMinutes(session), 0);
+
+    const sessionsByDate = new Map<string, number>();
+    sessions.forEach((session) => {
+      sessionsByDate.set(session.session_date, (sessionsByDate.get(session.session_date) || 0) + 1);
     });
-    return hoursByDate;
-  };
+    const sessionTrend = Array.from(sessionsByDate.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-30)
+      .map(([date, count]) => ({ date: date.slice(5), sessions: count }));
 
-  const hasDateRecord = (day: number, month: number, year: number) => {
-    return allDates.some((d) => d.year === year && d.month === month && d.day === day);
-  };
-
-  const isFutureDate = (day: number, month: number, year: number) => {
-    const today = new Date();
-    const date = new Date(year, month - 1, day);
-    const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    return date > currentDate;
-  };
-
-  // Get weeks in month (Monday start)
-  const getWeeksInMonth = (month: number, year: number) => {
-    const firstDay = new Date(year, month - 1, 1);
-    const lastDay = new Date(year, month, 0);
-    const adjustedFirstDay = (firstDay.getDay() + 6) % 7; // Monday = 0, Sunday = 6
-    return Math.ceil((lastDay.getDate() + adjustedFirstDay) / 7);
-  };
-
-  // Get days in specific week (Monday start)
-  const getDaysInWeek = (month: number, year: number, weekNum: number) => {
-    const firstDay = new Date(year, month - 1, 1);
-    const daysInMonth = new Date(year, month, 0).getDate();
-    
-    const adjustedFirstDay = (firstDay.getDay() + 6) % 7; // Monday = 0, Sunday = 6
-    let dayCounter = 1 - adjustedFirstDay;
-    let currentWeek = 1;
-    const weekDays: Array<{ day: number; date: string; month: number; year: number }> = [];
-
-    for (let i = 0; i < 42; i++) {
-      const d = dayCounter + i;
-      if (d >= 1 && d <= daysInMonth && currentWeek === weekNum) {
-        const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        weekDays.push({ day: d, date, month, year });
-      }
-      if ((i + 1) % 7 === 0) currentWeek++;
-    }
-    return weekDays;
-  };
-
-  // Get weekly study hours for month
-  const getWeeklyStudyHours = (month: number, year: number) => {
-    const studyByDate = getStudyHoursByDate();
-    const weeksCount = getWeeksInMonth(month, year);
-    const weekData = [];
-
-    for (let week = 1; week <= weeksCount; week++) {
-      const days = getDaysInWeek(month, year, week);
-      let weekHours = 0;
-      days.forEach((d) => {
-        weekHours += studyByDate[d.date] || 0;
-      });
-      if (days.length > 0) {
-        weekData.push({ name: `W${week}`, hours: Math.round(weekHours * 10) / 10 });
-      }
-    }
-    return weekData;
-  };
-
-  // Get daily study hours for specific week
-  const getDailyStudyHours = (month: number, year: number, weekNum: number) => {
-    const studyByDate = getStudyHoursByDate();
-    const days = getDaysInWeek(month, year, weekNum);
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-    return days.map((d) => {
-      const dayOfWeek = new Date(d.year, d.month - 1, d.day).getDay();
+    const completionByTopic = topics.map((topic, index) => {
+      const topicTasks = leafTasks.filter((task) => task.topic_id === topic.id);
+      const completed = topicTasks.filter((task) => task.status === 'completed' || task.effective_status === 'completed').length;
+      const topicColor = getTopicColorByName(topic.topic_color, index);
       return {
-        name: `${dayNames[dayOfWeek]} ${d.day}`,
-        hours: studyByDate[d.date] || 0,
+        name: topic.name,
+        completed,
+        total: topicTasks.length,
+        percent: topicTasks.length ? Math.round((completed / topicTasks.length) * 100) : 0,
+        color: topicColor.text,
       };
     });
-  };
 
-  // Get key of success distribution
-  const getKeyOfSuccessDistribution = (month: number, year: number) => {
-    const data = allDates.filter((d) => d.year === year && d.month === month);
+    return {
+      completedLeaves,
+      activeRoots,
+      overdueLeaves,
+      onTimeSessions,
+      outTimeSessions,
+      totalMinutes,
+      sessionTrend,
+      completionByTopic,
+    };
+  }, [sessions, tasks, topics]);
 
-    const successDays = data.filter((d) => d.key_of_success > 0).length;
-    const failDays = data.filter((d) => d.key_of_success === 0).length;
-
-    return [
-      { name: 'Success (KOS > 0)', value: successDays, color: '#ef4444' },
-      { name: 'No Success (KOS = 0)', value: failDays, color: '#22c55e' },
-    ];
-  };
-
-  const getMaxDayWithData = (month: number, year: number) => {
-    const monthData = allDates.filter((d) => d.year === year && d.month === month);
-    if (monthData.length === 0) return 0;
-    return Math.max(...monthData.map((d) => d.day));
-  };
-
-  // Get key of success trend for current month (cumulative over days)
-  const getKeyOfSuccessTrend = () => {
-    return getKeyOfSuccessTrendWithNulls();
-
-    const monthData = allDates.filter((d) => d.year === currentYear && d.month === currentMonth);
-    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-    const limitDay = getMaxDayWithData(currentMonth, currentYear);
-
-    const trendData = [];
-    let cumulativeSum = 0;
-    
-    // Start from 0 before Day 1
-    trendData.push({ name: 'Start', value: 0 });
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      if (day > limitDay) break; // Không vẽ trước nếu chưa tới ngày hoặc chưa có data
-
-      const dayData = monthData.find((d) => d.day === day);
-      if (dayData) {
-        cumulativeSum += dayData!.key_of_success;
-      }
-      trendData.push({
-        name: `Day ${day}`,
-        value: cumulativeSum
-      });
-    }
-
-    return trendData;
-  };
-
-
-
-  // Get cumulative daily study hours for a specific week
-  const getCumulativeDailyStudyHoursForWeek = (month: number, year: number, weekNum: number) => {
-    return getWeeklyProgressDataWithNulls(month, year, weekNum);
-
-    const studyByDate = getStudyHoursByDate();
-    const days = getDaysInWeek(month, year, weekNum);
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    
-    // Find all days in THIS week that have a data record
-    const weekDaysWithData = allDates.filter(d => 
-      d.year === year && 
-      d.month === month && 
-      days.some(wd => wd.day === d.day)
-    );
-
-    if (weekDaysWithData.length === 0) return [];
-
-    const firstDayInWeekWithData = Math.min(...weekDaysWithData.map(d => d.day));
-    const lastDayInWeekWithData = Math.max(...weekDaysWithData.map(d => d.day));
-
-    const trendData = [];
-    let cumulativeSum = 0;
-    
-    for (const d of days) {
-      // Skip days before the first day with data
-      if (d.day < firstDayInWeekWithData) continue;
-      
-      // Stop drawing if we've passed the last day with data in this week
-      if (d.month === month && d.day > lastDayInWeekWithData) break;
-      
-      cumulativeSum += studyByDate[d.date] || 0;
-      const dayOfWeek = new Date(d.year, d.month - 1, d.day).getDay();
-      trendData.push({
-        name: `${dayNames[dayOfWeek]} ${d.day}`,
-        value: Math.round(cumulativeSum * 10) / 10
-      });
-    }
-
-    return trendData;
-  };
-
-  const getKeyOfSuccessTrendWithNulls = () => {
-    const monthData = allDates.filter((d) => d.year === currentYear && d.month === currentMonth);
-    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-    const trendData: ChartPoint[] = [];
-    let cumulativeSum = 0;
-
-    for (let day = 1; day <= daysInMonth; day++) {
-      const dayData = monthData.find((d) => d.day === day);
-      if (dayData) cumulativeSum += dayData.key_of_success;
-
-      trendData.push({
-        name: `Day ${day}`,
-        value: dayData && !isFutureDate(day, currentMonth, currentYear) ? cumulativeSum : null,
-      });
-    }
-
-    return trendData;
-  };
-
-  const getWeeklyProgressDataWithNulls = (month: number, year: number, weekNum: number) => {
-    const studyByDate = getStudyHoursByDate();
-    const days = getDaysInWeek(month, year, weekNum);
-    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const trendData: ChartPoint[] = [];
-    let cumulativeSum = 0;
-
-    for (const d of days) {
-      cumulativeSum += studyByDate[d.date] || 0;
-      const dayOfWeek = new Date(d.year, d.month - 1, d.day).getDay();
-      const hasRecord = hasDateRecord(d.day, d.month, d.year);
-
-      trendData.push({
-        name: `${dayNames[dayOfWeek]} ${d.day}`,
-        value: hasRecord && !isFutureDate(d.day, d.month, d.year) ? Math.round(cumulativeSum * 10) / 10 : null,
-      });
-    }
-
-    return trendData;
-  };
-
-  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-  const weeksCount = getWeeksInMonth(currentMonth, currentYear);
-  const weeklyData = getWeeklyStudyHours(currentMonth, currentYear);
-  const kosDistribution = getKeyOfSuccessDistribution(currentMonth, currentYear);
-  const kosTrend = getKeyOfSuccessTrend();
-  const dailyData = getDailyStudyHours(currentMonth, currentYear, selectedWeek);
-  const weeklyProgressData = getCumulativeDailyStudyHoursForWeek(currentMonth, currentYear, selectedWeek);
-  const maxConcentrationValue = Math.max(0, ...weeklyProgressData.map((point) => point.value || 0));
-  const isExceeding = maxConcentrationValue > 50;
-  const weeklyProgressDomain: [number, number] = isExceeding ? [0, 90] : [0, 45];
-
-
+  const sessionPie = [
+    { name: 'Đúng giờ', value: data.onTimeSessions.length, color: '#22c55e' },
+    { name: 'Trễ giờ', value: data.outTimeSessions.length, color: '#f97316' },
+  ];
 
   return (
-    <div className="w-full space-y-4 sm:space-y-6 lg:space-y-8">
-      {/* Month Navigation */}
-      <div className="flex items-center justify-between rounded-xl bg-white/10 p-3 sm:p-4">
-        <button
-          onClick={() => {
-            setCurrentMonth(currentMonth === 1 ? 12 : currentMonth - 1);
-            setCurrentYear(currentMonth === 1 ? currentYear - 1 : currentYear);
-            setSelectedWeek(1);
-          }}
-          className="p-2 hover:bg-white/20 rounded-lg transition"
-        >
-          <ChevronLeft className="w-5 h-5 text-white" />
-        </button>
-        <h2 className="text-center text-xl font-bold text-white sm:text-2xl">
-          {monthNames[currentMonth - 1]} {currentYear}
-        </h2>
-        <button
-          onClick={() => {
-            setCurrentMonth(currentMonth === 12 ? 1 : currentMonth + 1);
-            setCurrentYear(currentMonth === 12 ? currentYear + 1 : currentYear);
-            setSelectedWeek(1);
-          }}
-          className="p-2 hover:bg-white/20 rounded-lg transition"
-        >
-          <ChevronRight className="w-5 h-5 text-white" />
-        </button>
+    <div className="space-y-4 pb-16 lg:pb-0">
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <h2 className="text-xl font-semibold">Productivity Analytics</h2>
+        <p className="mt-1 text-sm text-slate-500">Thống kê task tree, session đúng giờ và tiến độ theo topic.</p>
+        {errorMessage && (
+          <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</div>
+        )}
       </div>
 
-      {/* Analytics View Selector */}
-      <div className="grid grid-cols-2 gap-2 rounded-xl bg-white/10 p-3 sm:flex sm:flex-wrap sm:gap-3 sm:p-4">
-        <button
-          onClick={() => setAnalyticsView('month_overview')}
-          className={`rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 sm:text-base ${analyticsView === 'month_overview' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
-        >
-          Monthly Overview
-        </button>
-        <button
-          onClick={() => setAnalyticsView('week_daily')}
-          className={`rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 sm:text-base ${analyticsView === 'week_daily' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
-        >
-          Weekly Details
-        </button>
-        <button
-          onClick={() => setAnalyticsView('weekly_progress')}
-          className={`rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 sm:text-base ${analyticsView === 'weekly_progress' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
-        >
-          Weekly Progress
-        </button>
-        <button
-          onClick={() => setAnalyticsView('key_of_success')}
-          className={`rounded-lg px-3 py-2 text-sm font-semibold transition sm:px-4 sm:text-base ${analyticsView === 'key_of_success' ? 'bg-white text-purple-600' : 'text-white/70 hover:text-white'}`}
-        >
-          Key of Success
-        </button>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <MetricCard label="Completed Tasks" value={data.completedLeaves.length} hint="Leaf task hoàn thành" icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} />
+        <MetricCard label="Active Root Tasks" value={data.activeRoots.length} hint="Nhiệm vụ lớn đang chạy" icon={<FolderTree className="h-5 w-5 text-blue-600" />} />
+        <MetricCard label="On-time Sessions" value={data.onTimeSessions.length} hint={`${sessions.length} session tổng`} icon={<Clock3 className="h-5 w-5 text-emerald-600" />} />
+        <MetricCard label="Total Duration" value={`${Math.round((data.totalMinutes / 60) * 10) / 10}h`} hint="Tổng thời lượng" icon={<Timer className="h-5 w-5 text-violet-600" />} />
+        <MetricCard label="Overdue Leaf Tasks" value={data.overdueLeaves.length} hint="Task nhỏ quá hạn" icon={<AlertCircle className="h-5 w-5 text-orange-600" />} />
       </div>
 
-      {/* Monthly Overview: Weekly Study Hours + KOS Pie */}
-      {analyticsView === 'month_overview' && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-8">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl bg-white/10 p-4 sm:p-6">
-            <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Weekly Study Hours - {monthNames[currentMonth - 1]}</h3>
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={weeklyData} barCategoryGap="20%">
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
-                <YAxis stroke="rgba(255,255,255,0.6)" />
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-                <Bar dataKey="hours" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={50} />
-              </BarChart>
-            </ResponsiveContainer>
-          </motion.div>
-
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl bg-white/10 p-4 sm:p-6">
-            <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Key of Success Distribution</h3>
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={kosDistribution} cx="50%" cy="50%" labelLine={false} label={{ fill: 'white' }} outerRadius={80} dataKey="value">
-                  {kosDistribution.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </motion.div>
-
-        </div>
-      )}
-
-      {/* Weekly Details: Daily Study Hours for Selected Week */}
-      {analyticsView === 'week_daily' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-          {/* Week Selector */}
-          <div className="rounded-xl bg-white/10 p-4">
-            <p className="text-white/70 text-sm mb-3">Select Week:</p>
-            <div className="flex flex-wrap gap-2">
-              {Array.from({ length: weeksCount }, (_, i) => i + 1).map((week) => (
-                <button
-                  key={week}
-                  onClick={() => setSelectedWeek(week)}
-                  className={`px-4 py-2 rounded-lg font-semibold transition ${selectedWeek === week ? 'bg-white text-purple-600' : 'bg-white/20 text-white hover:bg-white/30'}`}
-                >
-                  W{week}
-                </button>
-              ))}
-            </div>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <h3 className="mb-3 font-semibold">On-time vs Out-time Sessions</h3>
+          <ResponsiveContainer width="100%" height={260}>
+            <PieChart>
+              <Pie data={sessionPie} dataKey="value" nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={4}>
+                {sessionPie.map((entry) => (
+                  <Cell key={entry.name} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-md bg-emerald-50 p-2 text-emerald-700">Đúng giờ: {data.onTimeSessions.length}</div>
+            <div className="rounded-md bg-orange-50 p-2 text-orange-700">Trễ giờ: {data.outTimeSessions.length}</div>
           </div>
+        </section>
 
-          {/* Daily Study Hours Chart */}
-          <div className="rounded-xl bg-white/10 p-4 sm:p-6">
-            <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Daily Study Hours - Week {selectedWeek}</h3>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={dailyData} barCategoryGap="20%">
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" angle={-45} textAnchor="end" height={80} />
-                <YAxis stroke="rgba(255,255,255,0.6)" />
-                <Tooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }} />
-                <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} maxBarSize={40} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Weekly Progress: Cumulative Study Hours Chart for Selected Week */}
-      {analyticsView === 'weekly_progress' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-          {/* Week Selector */}
-          <div className="rounded-xl bg-white/10 p-4">
-            <p className="text-white/70 text-sm mb-3">Select Week Progress:</p>
-            <div className="flex flex-wrap gap-2">
-              {Array.from({ length: weeksCount }, (_, i) => i + 1).map((week) => (
-                <button
-                  key={week}
-                  onClick={() => setSelectedWeek(week)}
-                  className={`px-4 py-2 rounded-lg font-semibold transition ${selectedWeek === week ? 'bg-white text-blue-600' : 'bg-white/20 text-white hover:bg-white/30'}`}
-                >
-                  W{week}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Cumulative Chart */}
-          <div className="rounded-xl bg-white/10 p-4 sm:p-6">
-            <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Cumulative Study Hours - Week {selectedWeek}</h3>
-            <ResponsiveContainer width="100%" height={320}>
-              <AreaChart data={weeklyProgressData}>
-                <defs>
-                  <linearGradient id="weeklyProgressGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.26} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" angle={-45} textAnchor="end" height={80} />
-                <YAxis stroke="rgba(255,255,255,0.6)" domain={weeklyProgressDomain} allowDataOverflow={false} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }}
-                  formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])}
-                />
-                <ReferenceLine y={40} label={{ value: '40h', fill: '#facc15', fontSize: 12 }} stroke="#facc15" strokeDasharray="4 4" />
-                {isExceeding && (
-                  <ReferenceLine y={80} label={{ value: '80h', fill: '#ef4444', fontSize: 12 }} stroke="#ef4444" strokeDasharray="4 4" />
-                )}
-                <Area type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={3} fill="url(#weeklyProgressGradient)" dot={{ fill: '#3b82f6', r: 4 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Key of Success Trend */}
-      {analyticsView === 'key_of_success' && (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl bg-white/10 p-4 sm:p-6">
-          <h3 className="mb-4 text-base font-bold text-white sm:text-lg">Key of Success Progress - {monthNames[currentMonth - 1]} {currentYear}</h3>
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <h3 className="mb-3 font-semibold">Session Volume Trend</h3>
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={kosTrend}>
+            <AreaChart data={data.sessionTrend}>
               <defs>
-                <linearGradient id="kosGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#ec4899" stopOpacity={0.24} />
-                  <stop offset="95%" stopColor="#ec4899" stopOpacity={0} />
+                <linearGradient id="sessionTrend" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.24} />
+                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-              <XAxis dataKey="name" stroke="rgba(255,255,255,0.6)" />
-              <YAxis stroke="rgba(255,255,255,0.6)" domain={[0, 'dataMax + 5']} />
-              <Tooltip
-                contentStyle={{ backgroundColor: 'rgba(0,0,0,0.7)', border: 'none' }}
-                formatter={(value) => (value == null ? [] : [value, 'Key of Success'])}
-              />
-              <Area type="monotone" dataKey="value" stroke="#ec4899" strokeWidth={3} fill="url(#kosGradient)" dot={{ fill: '#ec4899', r: 3 }} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive />
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+              <XAxis dataKey="date" stroke="#64748b" />
+              <YAxis stroke="#64748b" allowDecimals={false} />
+              <Tooltip />
+              <Area type="monotone" dataKey="sessions" stroke="#2563eb" strokeWidth={2} fill="url(#sessionTrend)" />
             </AreaChart>
           </ResponsiveContainer>
-        </motion.div>
-      )}
+        </section>
+      </div>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <h3 className="mb-3 font-semibold">Completion by Topic</h3>
+        <ResponsiveContainer width="100%" height={320}>
+          <BarChart data={data.completionByTopic}>
+            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+            <XAxis dataKey="name" stroke="#64748b" />
+            <YAxis stroke="#64748b" domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+            <Tooltip formatter={(value) => [`${value}%`, 'Hoàn thành']} />
+            <Bar dataKey="percent" radius={[6, 6, 0, 0]}>
+              {data.completionByTopic.map((entry) => (
+                <Cell key={entry.name} fill={entry.color} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </section>
+    </div>
+  );
+}
+
+function MetricCard({ label, value, hint, icon }: { label: string; value: number | string; hint: string; icon: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm text-slate-500">{label}</p>
+        {icon}
+      </div>
+      <p className="text-3xl font-semibold">{value}</p>
+      <p className="mt-1 text-xs text-slate-500">{hint}</p>
     </div>
   );
 }

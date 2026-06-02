@@ -1,200 +1,277 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
-import { api, ApiSession, ApiTask, ApiTopic } from '@/app/lib/api';
-import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  BarChart3,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
+  Clock3,
+  Folder,
+  LayoutGrid,
+  ListTree,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { api, ApiSession, ApiTask, ApiTopic, ApiTaskStatus } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
-import { Plus, Trash2, CheckCircle, Circle, Clock, X, ListTodo, BookOpen, Pencil } from 'lucide-react';
-import { BentoCard3D } from './BentoCard';
+import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
+
+type TaskDraft = {
+  title: string;
+  description: string;
+  deadline: string;
+  parentTaskId: string | null;
+};
+
+type SessionDraft = {
+  sessionName: string;
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  inTimeStatus: 'in_time' | 'out_time';
+};
+
+const emptyTaskDraft: TaskDraft = {
+  title: '',
+  description: '',
+  deadline: '',
+  parentTaskId: null,
+};
+
+const today = new Date().toISOString().slice(0, 10);
+
+const emptySessionDraft: SessionDraft = {
+  sessionName: '',
+  sessionDate: today,
+  startTime: '09:00',
+  endTime: '10:00',
+  inTimeStatus: 'in_time',
+};
+
+const formatDate = (value?: string | null) => {
+  if (!value) return 'Chưa có hạn';
+  return new Date(value).toLocaleDateString('vi-VN');
+};
+
+const formatTime = (value: string) => {
+  return new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+};
+
+const getDurationMinutes = (session: ApiSession) => {
+  if (session.focused_minutes !== null && session.focused_minutes !== undefined) return session.focused_minutes;
+  return Math.max(0, Math.round((new Date(session.end_time).getTime() - new Date(session.start_time).getTime()) / 60000));
+};
 
 export default function TaskManager() {
   const { user } = useAppStore();
   const [topics, setTopics] = useState<ApiTopic[]>([]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [sessions, setSessions] = useState<ApiSession[]>([]);
-  const [selectedTopic, setSelectedTopic] = useState<string>('');
-  const [showNewTopicForm, setShowNewTopicForm] = useState(false);
-  const [showNewTaskForm, setShowNewTaskForm] = useState(false);
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
-  const [showNewSessionForm, setShowNewSessionForm] = useState(false);
+  const [selectedTopicId, setSelectedTopicId] = useState<string>('all');
+  const [selectedPath, setSelectedPath] = useState<string[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [newTopicName, setNewTopicName] = useState('');
-  const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
-  const [editTopicName, setEditTopicName] = useState('');
-  const [newTaskData, setNewTaskData] = useState({
-    title: '',
-    description: '',
-    deadline: '',
-  });
-  const [newSessionData, setNewSessionData] = useState({
-    sessionName: '',
-    sessionDate: '',
-    startTime: '',
-    endTime: '',
-  });
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
-  const [editSessionData, setEditSessionData] = useState({
-    sessionName: '',
-    sessionDate: '',
-    startTime: '',
-    endTime: '',
-    inTimeStatus: 'in_time' as 'in_time' | 'out_time',
-  });
+  const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyTaskDraft);
+  const [sessionDraft, setSessionDraft] = useState<SessionDraft>(emptySessionDraft);
+  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const loadData = async () => {
+    if (!user?.id) return;
+
+    try {
+      setIsLoading(true);
+      setErrorMessage('');
+      const [topicRows, taskRows, sessionRows] = await Promise.all([
+        api.getTopics(user.id),
+        api.getTasks(user.id, { view: 'tree' }),
+        api.getSessions(user.id),
+      ]);
+
+      setTopics(topicRows);
+      setTasks(taskRows);
+      setSessions(sessionRows);
+      if (selectedPath.length === 0) {
+        const firstRoot = taskRows.find((task) => !task.parent_task_id);
+        if (firstRoot) setSelectedPath([firstRoot.id]);
+      }
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu nhiệm vụ.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    if (!user?.id) return;
-
-    const loadData = async () => {
-      try {
-        const [topicsData, tasksData, sessionsData] = await Promise.all([
-          api.getTopics(user.id),
-          api.getTasks(user.id),
-          api.getSessions(user.id),
-        ]);
-
-        setTopics(topicsData);
-        setTasks(tasksData);
-        setSessions(sessionsData);
-        setSelectedTopic((current) => current || topicsData[0]?.id || '');
-      } catch (error) {
-        console.error('Error loading task manager data:', error);
-      }
-    };
-
     void loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  const handleAddTopic = async () => {
-    if (!newTopicName.trim()) return;
-    if (!user?.id) return;
+  const visibleTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const topicMatch = selectedTopicId === 'all' || task.topic_id === selectedTopicId;
+      const searchMatch = !searchTerm.trim()
+        || task.title.toLowerCase().includes(searchTerm.toLowerCase())
+        || task.description?.toLowerCase().includes(searchTerm.toLowerCase());
+      return topicMatch && searchMatch;
+    });
+  }, [searchTerm, selectedTopicId, tasks]);
 
-    try {
-      setIsLoading(true);
-      const defaultColor = topicColorPalette[topics.length % topicColorPalette.length].name;
-      const newTopic = await api.createTopic(user.id, newTopicName.trim(), defaultColor);
-      setTopics((current) => [newTopic, ...current]);
-      setSelectedTopic(newTopic.id);
-      setNewTopicName('');
-      setShowNewTopicForm(false);
-    } catch (error) {
-      console.error('Error adding topic:', error);
-    } finally {
-      setIsLoading(false);
-    }
+  const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
+
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string | null, ApiTask[]>();
+    visibleTasks.forEach((task) => {
+      const parentId = task.parent_task_id || null;
+      map.set(parentId, [...(map.get(parentId) || []), task]);
+    });
+    map.forEach((items) => {
+      items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    });
+    return map;
+  }, [visibleTasks]);
+
+  const selectedTask = selectedPath.length > 0 ? taskById.get(selectedPath[selectedPath.length - 1]) || null : null;
+  const selectedTaskSessions = selectedTask ? sessions.filter((session) => session.task_id === selectedTask.id) : [];
+  const selectedTaskChildren = selectedTask ? childrenByParent.get(selectedTask.id) || [] : [];
+
+  const rootTasks = childrenByParent.get(null) || [];
+  const columns = useMemo(() => {
+    const output: Array<{ parent: ApiTask | null; tasks: ApiTask[] }> = [{ parent: null, tasks: rootTasks }];
+    selectedPath.forEach((taskId) => {
+      output.push({ parent: taskById.get(taskId) || null, tasks: childrenByParent.get(taskId) || [] });
+    });
+    return output.filter((column, index) => index === 0 || column.parent);
+  }, [childrenByParent, rootTasks, selectedPath, taskById]);
+
+  const stats = useMemo(() => {
+    const leafTasks = tasks.filter((task) => (task.child_count || 0) === 0);
+    const completedLeafTasks = leafTasks.filter((task) => task.effective_status === 'completed' || task.status === 'completed');
+    const activeRootTasks = tasks.filter((task) => !task.parent_task_id && task.effective_status !== 'completed');
+    const overdueLeafTasks = leafTasks.filter((task) => task.deadline && task.status !== 'completed' && new Date(task.deadline) < new Date());
+    const onTimeSessions = sessions.filter((session) => session.in_time_status === 'in_time');
+    const totalMinutes = sessions.reduce((sum, session) => sum + getDurationMinutes(session), 0);
+
+    return {
+      completedLeafTasks: completedLeafTasks.length,
+      activeRootTasks: activeRootTasks.length,
+      overdueLeafTasks: overdueLeafTasks.length,
+      onTimeSessions: onTimeSessions.length,
+      totalSessionHours: Math.round((totalMinutes / 60) * 10) / 10,
+    };
+  }, [sessions, tasks]);
+
+  const selectTask = (task: ApiTask, columnIndex: number) => {
+    setSelectedPath([...selectedPath.slice(0, columnIndex), task.id]);
   };
 
-  const handleUpdateTopic = async (id: string) => {
-    if (!editTopicName.trim()) return;
-    try {
-      setIsLoading(true);
-      await api.updateTopic(id, { name: editTopicName.trim() });
-      setTopics((current) => current.map((t) => (t.id === id ? { ...t, name: editTopicName.trim() } : t)));
-      setEditingTopicId(null);
-    } catch (error) {
-      console.error('Error updating topic:', error);
-    } finally {
-      setIsLoading(false);
-    }
+  const openTaskModal = (parentTaskId: string | null) => {
+    setTaskDraft({ ...emptyTaskDraft, parentTaskId });
+    setIsTaskModalOpen(true);
   };
 
-  const handleDeleteTopic = async (id: string) => {
-    if (!window.confirm('Bạn có chắc chắn muốn xóa topic này và toàn bộ tasks bên trong?')) return;
-    try {
-      setIsLoading(true);
-      await api.deleteTopic(id);
-      setTopics((current) => current.filter((t) => t.id !== id));
-      if (selectedTopic === id) {
-        setSelectedTopic(topics.find((t) => t.id !== id)?.id || '');
-      }
-    } catch (error) {
-      console.error('Error deleting topic:', error);
-    } finally {
-      setIsLoading(false);
+  const handleCreateTask = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user?.id || !taskDraft.title.trim()) return;
+
+    const parentTask = taskDraft.parentTaskId ? taskById.get(taskDraft.parentTaskId) : null;
+    const topicId = parentTask?.topic_id || (selectedTopicId !== 'all' ? selectedTopicId : topics[0]?.id);
+    if (!topicId) {
+      setErrorMessage('Hãy tạo ít nhất một topic trước khi thêm nhiệm vụ.');
+      return;
     }
-  };
-
-  const handleAddTask = async () => {
-    if (!selectedTopic || !newTaskData.title.trim()) return;
-    if (!user?.id) return;
 
     try {
       setIsLoading(true);
-      const newTask = await api.createTask({
+      const created = await api.createTask({
         userId: user.id,
-        topicId: selectedTopic,
-        title: newTaskData.title.trim(),
-        description: newTaskData.description.trim() || undefined,
-        deadline: newTaskData.deadline || undefined,
+        topicId,
+        parentTaskId: taskDraft.parentTaskId,
+        title: taskDraft.title,
+        description: taskDraft.description || undefined,
+        deadline: taskDraft.deadline || undefined,
       });
-      setTasks((current) => [newTask, ...current]);
-      setNewTaskData({ title: '', description: '', deadline: '' });
-      setShowNewTaskForm(false);
+      setIsTaskModalOpen(false);
+      setTaskDraft(emptyTaskDraft);
+      await loadData();
+      if (taskDraft.parentTaskId) setSelectedPath((current) => [...current, created.id]);
+      else setSelectedPath([created.id]);
     } catch (error) {
-      console.error('Error adding task:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Không tạo được nhiệm vụ.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleToggleTaskStatus = async (taskId: string, currentStatus: ApiTask['status']) => {
+  const handleCreateTopic = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user?.id || !newTopicName.trim()) return;
+
     try {
-      const newStatus: ApiTask['status'] = currentStatus === 'completed' ? 'not_completed' : 'completed';
-      await api.updateTask({ id: taskId, status: newStatus });
-      setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: newStatus } : task)));
+      setIsLoading(true);
+      const colorName = topicColorPaletteName(topics.length);
+      const topic = await api.createTopic(user.id, newTopicName.trim(), colorName);
+      setTopics((current) => [topic, ...current]);
+      setSelectedTopicId(topic.id);
+      setNewTopicName('');
     } catch (error) {
-      console.error('Error updating task:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Không tạo được topic.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleDeleteTask = async (taskId: string) => {
+  const handleToggleLeaf = async (task: ApiTask) => {
+    const hasChildren = (childrenByParent.get(task.id) || []).length > 0;
+    if (hasChildren) return;
+
+    const nextStatus: ApiTaskStatus = task.status === 'completed' ? 'not_completed' : 'completed';
+    try {
+      await api.updateTask({ id: task.id, status: nextStatus });
+      await loadData();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Không cập nhật được trạng thái.');
+    }
+  };
+
+  const handleArchiveTask = async (taskId: string) => {
+    if (!window.confirm('Lưu trữ nhiệm vụ này? Dữ liệu session sẽ được giữ lại.')) return;
+
     try {
       await api.deleteTask(taskId);
-      setTasks((current) => current.filter((task) => task.id !== taskId));
+      setSelectedPath((current) => current.filter((id) => id !== taskId));
+      await loadData();
     } catch (error) {
-      console.error('Error deleting task:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Không lưu trữ được nhiệm vụ.');
     }
   };
 
-  const handleAddSession = async (taskId: string) => {
-    if (!newSessionData.sessionDate || !newSessionData.startTime || !newSessionData.endTime) return;
-    if (!user?.id) return;
+  const handleCreateSession = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user?.id || !selectedTask) return;
 
     try {
       setIsLoading(true);
-      const newSession = await api.createSession({
+      await api.createSession({
         userId: user.id,
-        taskId: taskId,
-        sessionName: newSessionData.sessionName.trim() || undefined,
-        startTime: `${newSessionData.sessionDate}T${newSessionData.startTime}:00`,
-        endTime: `${newSessionData.sessionDate}T${newSessionData.endTime}:00`,
-        sessionDate: newSessionData.sessionDate,
+        taskId: selectedTask.id,
+        sessionName: sessionDraft.sessionName || null,
+        startTime: `${sessionDraft.sessionDate}T${sessionDraft.startTime}:00`,
+        endTime: `${sessionDraft.sessionDate}T${sessionDraft.endTime}:00`,
+        sessionDate: sessionDraft.sessionDate,
+        inTimeStatus: sessionDraft.inTimeStatus,
       });
-      setSessions((current) => [newSession, ...current]);
-      setNewSessionData({ sessionName: '', sessionDate: '', startTime: '', endTime: '' });
-      setShowNewSessionForm(false);
+      setIsSessionModalOpen(false);
+      setSessionDraft(emptySessionDraft);
+      await loadData();
     } catch (error) {
-      console.error('Error adding session:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleUpdateSession = async (sessionId: string) => {
-    try {
-      setIsLoading(true);
-      const updatedSession = await api.updateSession({
-        id: sessionId,
-        sessionName: editSessionData.sessionName,
-        startTime: `${editSessionData.sessionDate}T${editSessionData.startTime}:00`,
-        endTime: `${editSessionData.sessionDate}T${editSessionData.endTime}:00`,
-        sessionDate: editSessionData.sessionDate,
-        inTimeStatus: editSessionData.inTimeStatus,
-      });
-      setSessions((current) => current.map((s) => (s.id === sessionId ? updatedSession : s)));
-      setEditingSessionId(null);
-    } catch (error) {
-      console.error('Error updating session:', error);
+      setErrorMessage(error instanceof Error ? error.message : 'Không tạo được session.');
     } finally {
       setIsLoading(false);
     }
@@ -202,580 +279,372 @@ export default function TaskManager() {
 
   const handleDeleteSession = async (sessionId: string) => {
     if (!window.confirm('Xóa session này?')) return;
+
     try {
-      setIsLoading(true);
       await api.deleteSession(sessionId);
-      setSessions((current) => current.filter((s) => s.id !== sessionId));
+      await loadData();
     } catch (error) {
-      console.error('Error deleting session:', error);
-    } finally {
-      setIsLoading(false);
+      setErrorMessage(error instanceof Error ? error.message : 'Không xóa được session.');
     }
   };
 
-  const startEditingSession = (session: ApiSession) => {
-    setEditingSessionId(session.id);
-    const start = new Date(session.start_time);
-    const end = new Date(session.end_time);
-    setEditSessionData({
-      sessionName: session.session_name || '',
-      sessionDate: session.session_date,
-      startTime: `${String(start.getHours()).padStart(2, '0')}:${String(start.getMinutes()).padStart(2, '0')}`,
-      endTime: `${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`,
-      inTimeStatus: session.in_time_status,
-    });
-  };
-
-  const getTaskSessions = (taskId: string) => {
-    return sessions.filter((s) => s.task_id === taskId);
-  };
-
-  const getInTimeSessionsCount = (taskId: string) => {
-    return sessions.filter((s) => s.task_id === taskId && s.in_time_status === 'in_time').length;
-  };
-
-  const handleUpdateTopicColor = async (id: string, topicColor: string) => {
-    try {
-      await api.updateTopic(id, { topicColor });
-      setTopics((current) => current.map((t) => (t.id === id ? { ...t, topic_color: topicColor } : t)));
-    } catch (error) {
-      console.error('Error updating topic color:', error);
+  const getCompletionPercent = (task: ApiTask) => {
+    if ((task.leaf_count || 0) > 0) {
+      return Math.round(((task.completed_leaf_count || 0) / (task.leaf_count || 1)) * 100);
     }
-  };
-
-  const getTopicTaskStats = (topicId: string) => {
-    const topicTasks = tasks.filter((task) => task.topic_id === topicId);
-    const completed = topicTasks.filter((task) => task.status === 'completed').length;
-
-    return {
-      completed,
-      notCompleted: topicTasks.length - completed,
-    };
-  };
-
-  const formatTime = (timeStr: string) => {
-    const date = new Date(timeStr);
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  };
-
-  const getTopicColorForTask = (topicId: string) => {
-    const topicIndex = topics.findIndex((topic) => topic.id === topicId);
-    const topic = topics[topicIndex];
-    return getTopicColorByName(topic?.topic_color, topicIndex >= 0 ? topicIndex : 0);
+    return task.status === 'completed' ? 100 : 0;
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-8">
-      {/* Topics Sidebar */}
-      <motion.div
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        className="lg:col-span-1"
-      >
-        <BentoCard3D
-          className="h-full flex flex-col rounded-[24px] p-4 sm:p-6 lg:rounded-[32px]"
-          icon={<BookOpen size={24} />}
-          title="Topics"
-          description={`${topics.length} topics`}
-        >
-          {/* New Topic Form */}
-          {showNewTopicForm && (
-            <div className="mb-4 space-y-3 mt-4">
-              <input
-                type="text"
-                value={newTopicName}
-                onChange={(e) => setNewTopicName(e.target.value)}
-                placeholder="Topic name"
-                className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-white text-sm placeholder-white/40 focus:outline-none focus:border-white/30"
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={handleAddTopic}
-                  disabled={isLoading}
-                  className="flex-1 px-3 py-2 bg-gradient-to-r from-purple-600 to-purple-500 hover:from-purple-700 hover:to-purple-600 text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50"
-                >
-                  Add
-                </button>
-                <button
-                  onClick={() => {
-                    setShowNewTopicForm(false);
-                    setNewTopicName('');
-                  }}
-                  className="flex-1 px-3 py-2 bg-white/10 hover:bg-white/15 text-white text-sm rounded-lg transition-all"
-                >
-                  Cancel
-                </button>
-              </div>
+    <div className="min-h-[calc(100vh-120px)] overflow-hidden rounded-lg border border-slate-200 bg-slate-50 text-slate-950 shadow-sm">
+      <div className="grid min-h-[calc(100vh-120px)] grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)_300px]">
+        <aside className="border-b border-slate-200 bg-white p-4 lg:border-b-0 lg:border-r">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold">Dự án</h2>
+              <p className="text-xs text-slate-500">Topic và task tree</p>
             </div>
-          )}
-
-          {/* Topics List */}
-          <div className="space-y-2 flex-1 mt-4">
-            {topics.map((topic) => {
-              const stats = getTopicTaskStats(topic.id);
-              const topicIndex = topics.findIndex((item) => item.id === topic.id);
-              const topicColor = getTopicColorByName(topic.topic_color, topicIndex);
-
-              return (
-                <div key={topic.id} className="relative group">
-                  {editingTopicId === topic.id ? (
-                    <div className="space-y-3 rounded-lg border border-white/20 bg-white/5 p-3">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={editTopicName}
-                          onChange={(e) => setEditTopicName(e.target.value)}
-                          className="min-w-0 flex-1 bg-transparent border-none outline-none text-sm text-white px-2"
-                          autoFocus
-                          onKeyDown={(e) => e.key === 'Enter' && handleUpdateTopic(topic.id)}
-                        />
-                        <button onClick={() => handleUpdateTopic(topic.id)} className="p-1.5 bg-green-500/20 text-green-400 rounded-md hover:bg-green-500/30">
-                          <CheckCircle size={14} />
-                        </button>
-                        <button onClick={() => setEditingTopicId(null)} className="p-1.5 bg-white/10 text-white/50 rounded-md hover:bg-white/20">
-                          <X size={14} />
-                        </button>
-                      </div>
-                      <div>
-                        <div className="mb-2 flex items-center justify-between">
-                          <span className="text-[10px] font-semibold uppercase tracking-wide text-white/45">Topic Color</span>
-                          <span className="text-[10px] font-semibold" style={{ color: topicColor.text }}>
-                            {topicColor.label}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-5 gap-2">
-                          {topicColorPalette.map((color) => {
-                            const isActive = topicColor.name === color.name;
-
-                            return (
-                              <button
-                                key={color.name}
-                                onClick={() => void handleUpdateTopicColor(topic.id, color.name)}
-                                className="h-8 rounded-lg border transition hover:scale-105"
-                                style={{
-                                  background: color.backgroundStrong,
-                                  borderColor: isActive ? '#ffffff' : color.border,
-                                  boxShadow: isActive ? `0 0 12px ${color.shadow}` : undefined,
-                                }}
-                                title={color.label}
-                              />
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <button
-                        onClick={() => setSelectedTopic(topic.id)}
-                        className={`w-full text-left px-4 py-3 rounded-lg transition-all pr-16 ${
-                          selectedTopic === topic.id
-                            ? 'text-white'
-                            : 'bg-white/5 text-white/70 hover:bg-white/10 border border-transparent'
-                        }`}
-                        style={selectedTopic === topic.id ? {
-                          border: `1px solid ${topicColor.border}`,
-                          background: `linear-gradient(135deg, ${topicColor.backgroundStrong}, ${topicColor.background})`,
-                          boxShadow: `0 0 18px ${topicColor.shadow}`,
-                        } : undefined}
-                      >
-                        <span className="flex items-center gap-2 text-sm font-medium">
-                          <span
-                            className="h-2.5 w-2.5 rounded-full"
-                            style={{ background: topicColor.text, boxShadow: `0 0 10px ${topicColor.shadow}` }}
-                          />
-                          {topic.name}
-                        </span>
-                        <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                          <span className={`inline-flex items-center gap-1 ${stats.notCompleted === 0 ? 'text-green-300/90' : 'text-red-300/90'}`}>
-                            {stats.notCompleted === 0 ? (
-                              <CheckCircle className="h-3 w-3" />
-                            ) : (
-                              <X className="h-3 w-3" />
-                            )}
-                            {stats.notCompleted} left
-                          </span>
-                        </span>
-                      </button>
-                      <div className="absolute right-2 top-3 flex gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover:opacity-100">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditingTopicId(topic.id);
-                            setEditTopicName(topic.name);
-                          }}
-                          className="p-1.5 text-white/50 hover:text-white hover:bg-white/10 rounded-md transition"
-                          title="Edit Topic"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteTopic(topic.id);
-                          }}
-                          className="p-1.5 text-red-400/50 hover:text-red-400 hover:bg-red-500/10 rounded-md transition"
-                          title="Delete Topic"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
+            <ListTree className="h-4 w-4 text-slate-400" />
           </div>
 
-          {topics.length === 0 && !showNewTopicForm && (
-            <p className="text-white/50 text-xs text-center py-4 mt-4">
-              No topics yet
-            </p>
-          )}
+          <button
+            onClick={() => openTaskModal(null)}
+            className="mb-4 flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            <Plus className="h-4 w-4" />
+            Tạo nhiệm vụ
+          </button>
 
-          {!showNewTopicForm && (
+          <nav className="space-y-1">
             <button
-              onClick={() => setShowNewTopicForm(true)}
-              className="w-full mt-4 px-3 py-2 bg-white/10 hover:bg-white/15 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-all border border-white/10"
+              onClick={() => setSelectedTopicId('all')}
+              className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm ${selectedTopicId === 'all' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}
             >
-              <Plus size={16} />
-              New Topic
+              <span className="flex items-center gap-2"><LayoutGrid className="h-4 w-4" /> Tất cả</span>
+              <span>{tasks.length}</span>
             </button>
-          )}
-        </BentoCard3D>
-      </motion.div>
+            {topics.map((topic, index) => {
+              const topicColor = getTopicColorByName(topic.topic_color, index);
+              const topicTasks = tasks.filter((task) => task.topic_id === topic.id);
 
-      {/* Tasks List */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="lg:col-span-3"
-      >
-        <BentoCard3D
-          hover={false}
-          className="h-full flex flex-col rounded-[24px] p-4 sm:p-6 lg:rounded-[32px]"
-          glowing
-          icon={<ListTodo size={24} />}
-          title={topics.find((t) => t.id === selectedTopic)?.name || 'Tasks'}
-          description={`${tasks.filter((t) => t.topic_id === selectedTopic).length} tasks`}
-        >
-          {/* New Task Form */}
-          {showNewTaskForm && selectedTopic && (
-            <div className="mb-6 p-4 bg-white/5 border border-white/10 rounded-lg space-y-3 mt-4">
-              <input
-                type="text"
-                value={newTaskData.title}
-                onChange={(e) => setNewTaskData({ ...newTaskData, title: e.target.value })}
-                placeholder="Task title"
-                className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-white text-sm placeholder-white/40 focus:outline-none focus:border-white/30"
-              />
-              <textarea
-                value={newTaskData.description}
-                onChange={(e) => setNewTaskData({ ...newTaskData, description: e.target.value })}
-                placeholder="Description (optional)"
-                className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-white text-sm placeholder-white/40 focus:outline-none focus:border-white/30 resize-none h-20"
-              />
-              <input
-                type="datetime-local"
-                value={newTaskData.deadline}
-                onChange={(e) => setNewTaskData({ ...newTaskData, deadline: e.target.value })}
-                className="w-full px-3 py-2 bg-white/10 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:border-white/30"
-              />
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              return (
                 <button
-                  onClick={handleAddTask}
-                  disabled={isLoading}
-                  className="flex-1 px-3 py-2 bg-gradient-to-r from-green-600 to-green-500 hover:from-green-700 hover:to-green-600 text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50"
-                >
-                  Create Task
-                </button>
-                <button
+                  key={topic.id}
                   onClick={() => {
-                    setShowNewTaskForm(false);
-                    setNewTaskData({ title: '', description: '', deadline: '' });
+                    setSelectedTopicId(topic.id);
+                    const firstRoot = topicTasks.find((task) => !task.parent_task_id);
+                    setSelectedPath(firstRoot ? [firstRoot.id] : []);
                   }}
-                  className="flex-1 px-3 py-2 bg-white/10 hover:bg-white/15 text-white text-sm rounded-lg transition-all"
+                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm ${selectedTopicId === topic.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'}`}
                 >
-                  Cancel
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: topicColor.text }} />
+                    <span className="truncate">{topic.name}</span>
+                  </span>
+                  <span>{topicTasks.length}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <form onSubmit={handleCreateTopic} className="mt-4 rounded-md border border-slate-200 p-2">
+            <label className="mb-1 block text-xs font-medium text-slate-500">Topic mới</label>
+            <div className="flex gap-2">
+              <input
+                value={newTopicName}
+                onChange={(event) => setNewTopicName(event.target.value)}
+                placeholder="Ví dụ: Công việc"
+                className="min-w-0 flex-1 rounded-md border border-slate-200 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+              />
+              <button className="rounded-md bg-slate-950 px-2 text-white" title="Tạo topic">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          </form>
+        </aside>
+
+        <main className="flex min-w-0 flex-col">
+          <header className="border-b border-slate-200 bg-white px-4 py-3">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h1 className="text-xl font-semibold">Nhiệm vụ</h1>
+                <p className="text-sm text-slate-500">Task là một phân hệ độc lập, hiển thị theo cây ngang.</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  <input
+                    value={searchTerm}
+                    onChange={(event) => setSearchTerm(event.target.value)}
+                    placeholder="Tìm nhiệm vụ, mô tả..."
+                    className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500 sm:w-64"
+                  />
+                </div>
+                <button onClick={() => openTaskModal(selectedTask?.id || null)} className="flex h-9 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium hover:bg-slate-50">
+                  <Plus className="h-4 w-4" />
+                  Thêm task con
                 </button>
               </div>
             </div>
-          )}
 
-          {/* Tasks List */}
-          {selectedTopic && (
-            <div className="mt-4 flex-1 space-y-3 overflow-visible lg:max-h-[600px] lg:overflow-y-auto">
-              {tasks.filter((t) => t.topic_id === selectedTopic).length === 0 ? (
-                <p className="text-white/50 text-center py-8 text-sm">
-                  No tasks yet. Create one to get started!
-                </p>
-              ) : (
-                tasks
-                  .filter((t) => t.topic_id === selectedTopic)
-                  .map((task) => {
-                    const taskTopicColor = getTopicColorForTask(task.topic_id);
+            {errorMessage && (
+              <div className="mt-3 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <AlertCircle className="h-4 w-4" />
+                {errorMessage}
+              </div>
+            )}
 
-                    return (
-                  <div key={task.id} className="flex flex-col">
-                    <motion.div
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="flex cursor-pointer items-start justify-between rounded-xl border p-3 transition-all hover:border-white/20 sm:p-4"
-                      style={{
-                        borderColor: expandedTaskId === task.id ? taskTopicColor.border : 'rgba(255,255,255,0.10)',
-                        background: expandedTaskId === task.id
-                          ? `linear-gradient(135deg, ${taskTopicColor.backgroundSoft}, rgba(255,255,255,0.08))`
-                          : `linear-gradient(135deg, ${taskTopicColor.backgroundSoft}, rgba(255,255,255,0.04))`,
-                        boxShadow: expandedTaskId === task.id ? `0 0 18px ${taskTopicColor.shadow}` : undefined,
-                      }}
-                      onClick={() => {
-                        setExpandedTaskId(expandedTaskId === task.id ? null : task.id);
-                        setShowNewSessionForm(false);
-                        setEditingSessionId(null);
-                      }}
-                    >
-                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleTaskStatus(task.id, task.status);
-                          }}
-                          className="mt-1 text-white transition"
-                        >
-                          {task.status === 'completed' ? (
-                            <CheckCircle className="w-5 h-5 text-green-400" />
-                          ) : (
-                            <Circle className="w-5 h-5 text-white/40" />
-                          )}
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <h4
-                            className={`font-medium text-sm ${
-                              task.status === 'completed'
-                                ? 'text-white/50 line-through'
-                                : 'text-white'
-                            }`}
-                          >
-                            {task.title}
-                          </h4>
-                          {task.description && (
-                            <p className="text-white/60 text-xs mt-1">{task.description}</p>
-                          )}
-                          {task.deadline && (
-                            <p className="text-white/50 text-xs mt-2">
-                              Due: {new Date(task.deadline).toLocaleDateString()}
-                            </p>
-                          )}
-                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
-                            <p className="text-blue-400 text-xs flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {getTaskSessions(task.id).length} sessions
-                            </p>
-                            <p className="text-green-400 text-xs flex items-center gap-1 font-medium">
-                              <CheckCircle className="w-3 h-3" />
-                              {getInTimeSessionsCount(task.id)} in-time
-                            </p>
-                          </div>
-                        </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-5">
+              <StatCard label="Task hoàn thành" value={stats.completedLeafTasks} icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} />
+              <StatCard label="Root đang chạy" value={stats.activeRootTasks} icon={<ListTree className="h-4 w-4 text-blue-600" />} />
+              <StatCard label="Session đúng giờ" value={stats.onTimeSessions} icon={<Clock3 className="h-4 w-4 text-emerald-600" />} />
+              <StatCard label="Tổng giờ session" value={`${stats.totalSessionHours}h`} icon={<BarChart3 className="h-4 w-4 text-violet-600" />} />
+              <StatCard label="Leaf quá hạn" value={stats.overdueLeafTasks} icon={<AlertCircle className="h-4 w-4 text-orange-600" />} />
+            </div>
+          </header>
+
+          <section className="min-h-0 flex-1 overflow-x-auto p-4">
+            <div className="flex min-h-[560px] gap-4">
+              {columns.map((column, columnIndex) => (
+                <div key={column.parent?.id || 'root'} className="w-[280px] shrink-0">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold">{column.parent ? 'Task con' : 'Root task'}</h3>
+                      <p className="text-xs text-slate-500">{column.parent?.title || 'Nhiệm vụ lớn'}</p>
+                    </div>
+                    <button onClick={() => openTaskModal(column.parent?.id || null)} className="rounded-md border border-slate-200 bg-white p-1.5 hover:bg-slate-50" title="Thêm task">
+                      <Plus className="h-4 w-4" />
+                    </button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {column.tasks.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-center text-sm text-slate-500">
+                        Chưa có task ở cấp này
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTask(task.id);
-                        }}
-                        className="rounded-lg p-2 opacity-100 transition hover:bg-red-500/20 lg:opacity-0 lg:group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-4 h-4 text-red-400" />
-                      </button>
-                    </motion.div>
+                    ) : (
+                      column.tasks.map((task) => {
+                        const isSelected = selectedPath[columnIndex] === task.id;
+                        const hasChildren = (childrenByParent.get(task.id) || []).length > 0;
+                        const completion = getCompletionPercent(task);
 
-                    {/* Sessions Accordion */}
-                    {expandedTaskId === task.id && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="-mt-2 mx-1 space-y-3 overflow-hidden rounded-b-xl border-x border-b border-white/10 bg-white/5 px-3 pb-4 pt-4 sm:px-4"
-                      >
-                        <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <h5 className="text-xs font-semibold text-white/50 uppercase tracking-wider">Sessions List</h5>
-                          {!showNewSessionForm && (
-                            <button
-                              onClick={() => setShowNewSessionForm(true)}
-                              className="text-xs py-1 px-2 bg-purple-500/20 text-purple-300 rounded hover:bg-purple-500/30 transition flex items-center gap-1"
-                            >
-                              <Plus size={12} /> Add Session
-                            </button>
-                          )}
-                        </div>
-
-                        {showNewSessionForm && (
-                          <div className="bg-white/5 border border-white/10 rounded-lg p-3 space-y-2">
-                            <input
-                              type="text"
-                              value={newSessionData.sessionName}
-                              onChange={(e) => setNewSessionData({ ...newSessionData, sessionName: e.target.value })}
-                              placeholder="Session name"
-                              className="w-full rounded border border-white/10 bg-white/10 px-2 py-1 text-xs text-white placeholder-white/40 focus:outline-none"
-                            />
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                              <input
-                                type="date"
-                                value={newSessionData.sessionDate}
-                                onChange={(e) => setNewSessionData({ ...newSessionData, sessionDate: e.target.value })}
-                                className="px-2 py-1 bg-white/10 border border-white/10 rounded text-white text-xs focus:outline-none"
-                              />
-                              <input
-                                type="time"
-                                value={newSessionData.startTime}
-                                onChange={(e) => setNewSessionData({ ...newSessionData, startTime: e.target.value })}
-                                className="px-2 py-1 bg-white/10 border border-white/10 rounded text-white text-xs focus:outline-none"
-                              />
-                              <input
-                                type="time"
-                                value={newSessionData.endTime}
-                                onChange={(e) => setNewSessionData({ ...newSessionData, endTime: e.target.value })}
-                                className="px-2 py-1 bg-white/10 border border-white/10 rounded text-white text-xs focus:outline-none"
-                              />
-                            </div>
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              <button
-                                onClick={() => handleAddSession(task.id)}
-                                className="flex-1 py-1 bg-green-500/20 text-green-300 text-xs rounded hover:bg-green-500/30"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setShowNewSessionForm(false)}
-                                className="flex-1 py-1 bg-white/10 text-white text-xs rounded hover:bg-white/15"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {getTaskSessions(task.id).length === 0 && !showNewSessionForm ? (
-                          <p className="text-white/30 text-center py-2 text-xs">No sessions yet</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {getTaskSessions(task.id).map((session) => (
-                              <div key={session.id} className="bg-white/5 border border-white/5 rounded-lg p-3 group/session">
-                                {editingSessionId === session.id ? (
-                                  <div className="space-y-2">
-                                    <input
-                                      type="text"
-                                      value={editSessionData.sessionName}
-                                      onChange={(e) => setEditSessionData({ ...editSessionData, sessionName: e.target.value })}
-                                      placeholder="Session name"
-                                      className="w-full rounded border border-white/20 bg-white/10 px-2 py-1 text-xs text-white placeholder-white/40"
-                                    />
-                                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                                      <input
-                                        type="date"
-                                        value={editSessionData.sessionDate}
-                                        onChange={(e) => setEditSessionData({ ...editSessionData, sessionDate: e.target.value })}
-                                        className="px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs"
-                                      />
-                                      <input
-                                        type="time"
-                                        value={editSessionData.startTime}
-                                        onChange={(e) => setEditSessionData({ ...editSessionData, startTime: e.target.value })}
-                                        className="px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs"
-                                      />
-                                      <input
-                                        type="time"
-                                        value={editSessionData.endTime}
-                                        onChange={(e) => setEditSessionData({ ...editSessionData, endTime: e.target.value })}
-                                        className="px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs"
-                                      />
-                                    </div>
-                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                      <select
-                                        value={editSessionData.inTimeStatus}
-                                        onChange={(e) => setEditSessionData({ ...editSessionData, inTimeStatus: e.target.value as any })}
-                                        className="flex-1 px-2 py-1 bg-white/10 border border-white/20 rounded text-white text-xs focus:outline-none"
-                                      >
-                                        <option value="in_time" className="bg-gray-900">In Time</option>
-                                        <option value="out_time" className="bg-gray-900">Out Time</option>
-                                      </select>
-                                      <div className="flex gap-2">
-                                        <button
-                                          onClick={() => handleUpdateSession(session.id)}
-                                          className="px-3 py-1 bg-green-500/20 text-green-400 text-xs font-medium rounded hover:bg-green-500/30 transition-all border border-green-500/30"
-                                        >
-                                          Lưu
-                                        </button>
-                                        <button
-                                          onClick={() => setEditingSessionId(null)}
-                                          className="px-3 py-1 bg-white/10 text-white/50 text-xs font-medium rounded hover:bg-white/20 transition-all border border-white/10"
-                                        >
-                                          Hủy
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                    <div className="flex flex-col">
-                                      <span className="text-white text-xs font-semibold">
-                                        {session.session_name || 'Untitled session'}
-                                      </span>
-                                      <span className="text-white text-xs font-medium">
-                                        {formatTime(session.start_time)} - {formatTime(session.end_time)}
-                                      </span>
-                                      <span className="text-white/40 text-[10px]">{session.session_date}</span>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-3">
-                                      <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
-                                        session.in_time_status === 'in_time' 
-                                          ? 'bg-green-500/20 text-green-400 border border-green-500/20' 
-                                          : 'bg-orange-500/20 text-orange-400 border border-orange-500/20'
-                                      }`}>
-                                        {session.in_time_status === 'in_time' ? 'In Time' : 'Out Time'}
-                                      </span>
-                                      <div className="flex gap-1 opacity-100 transition-opacity lg:opacity-0 lg:group-hover/session:opacity-100">
-                                        <button
-                                          onClick={() => startEditingSession(session)}
-                                          className="p-1 text-white/40 hover:text-white hover:bg-white/10 rounded"
-                                        >
-                                          <Pencil size={12} />
-                                        </button>
-                                        <button
-                                          onClick={() => handleDeleteSession(session.id)}
-                                          className="p-1 text-red-400/40 hover:text-red-400 hover:bg-red-500/10 rounded"
-                                        >
-                                          <Trash2 size={12} />
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
+                        return (
+                          <button
+                            key={task.id}
+                            onClick={() => selectTask(task, columnIndex)}
+                            className={`w-full rounded-md border bg-white p-3 text-left shadow-sm transition hover:border-blue-300 ${isSelected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}
+                          >
+                            <div className="mb-2 flex items-start justify-between gap-2">
+                              <div className="flex min-w-0 items-start gap-2">
+                                <span
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleToggleLeaf(task);
+                                  }}
+                                  className={`mt-0.5 ${hasChildren ? 'text-slate-300' : 'text-slate-500 hover:text-blue-600'}`}
+                                  title={hasChildren ? 'Task cha tự tính trạng thái' : 'Đổi trạng thái'}
+                                >
+                                  {task.effective_status === 'completed' || task.status === 'completed' ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Circle className="h-4 w-4" />}
+                                </span>
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium">{task.title}</p>
+                                  <p className="mt-1 text-xs text-slate-500">{formatDate(task.deadline)}</p>
+                                </div>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </motion.div>
+                              {hasChildren && <ChevronRight className="mt-0.5 h-4 w-4 text-slate-400" />}
+                            </div>
+                            <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                              <div className="h-full rounded-full bg-blue-500" style={{ width: `${completion}%` }} />
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-slate-500">
+                              <span>{completion}% hoàn thành</span>
+                              <span>{task.child_count || 0} con</span>
+                            </div>
+                          </button>
+                        );
+                      })
                     )}
                   </div>
-                    );
-                  })
-              )}
+                </div>
+              ))}
+            </div>
+          </section>
+        </main>
+
+        <aside className="border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0">
+          {selectedTask ? (
+            <div className="flex h-full flex-col">
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Inspector</p>
+                  <h2 className="text-lg font-semibold">{selectedTask.title}</h2>
+                  <p className="mt-1 text-sm text-slate-500">{selectedTask.description || 'Chưa có mô tả.'}</p>
+                </div>
+                <button onClick={() => handleArchiveTask(selectedTask.id)} className="rounded-md border border-red-200 p-2 text-red-600 hover:bg-red-50" title="Lưu trữ">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="mb-4 space-y-2 rounded-md border border-slate-200 p-3 text-sm">
+                <InfoRow label="Deadline" value={formatDate(selectedTask.deadline)} />
+                <InfoRow label="Trạng thái" value={selectedTask.effective_status === 'completed' ? 'Hoàn thành' : 'Đang làm'} />
+                <InfoRow label="Task con" value={`${selectedTaskChildren.length}`} />
+                <InfoRow label="Session" value={`${selectedTaskSessions.length}`} />
+              </div>
+
+              <div className="mb-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">Tiến độ cây</h3>
+                  <span className="text-sm font-medium text-blue-600">{getCompletionPercent(selectedTask)}%</span>
+                </div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className="h-full rounded-full bg-blue-600" style={{ width: `${getCompletionPercent(selectedTask)}%` }} />
+                </div>
+              </div>
+
+              <div className="mb-4 grid grid-cols-2 gap-2">
+                <button onClick={() => openTaskModal(selectedTask.id)} className="rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
+                  Thêm task con
+                </button>
+                <button onClick={() => setIsSessionModalOpen(true)} className="rounded-md border border-slate-200 px-3 py-2 text-sm font-medium hover:bg-slate-50">
+                  Thêm session
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <h3 className="mb-2 text-sm font-semibold">Sessions</h3>
+                <div className="space-y-2">
+                  {selectedTaskSessions.length === 0 ? (
+                    <div className="rounded-md border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500">Chưa có session</div>
+                  ) : (
+                    selectedTaskSessions.map((session) => (
+                      <div key={session.id} className="rounded-md border border-slate-200 p-3">
+                        <div className="mb-2 flex items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-medium">{session.session_name || 'Session không tên'}</p>
+                            <p className="text-xs text-slate-500">{session.session_date} · {formatTime(session.start_time)} - {formatTime(session.end_time)}</p>
+                          </div>
+                          <button onClick={() => handleDeleteSession(session.id)} className="text-slate-400 hover:text-red-600">
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className={`rounded-full px-2 py-1 font-medium ${session.in_time_status === 'in_time' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'}`}>
+                            {session.in_time_status === 'in_time' ? 'Đúng giờ' : 'Trễ giờ'}
+                          </span>
+                          <span className="text-slate-500">{getDurationMinutes(session)} phút</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed border-slate-300 p-6 text-center text-slate-500">
+              <Folder className="mb-3 h-8 w-8" />
+              <p className="text-sm font-medium">Chọn một task để xem chi tiết</p>
+              <p className="mt-1 text-xs">Inspector sẽ hiển thị task con, session và tiến độ.</p>
             </div>
           )}
+        </aside>
+      </div>
 
-          {selectedTopic && !showNewTaskForm && (
-            <button
-              onClick={() => setShowNewTaskForm(true)}
-              className="w-full mt-4 px-3 py-2 bg-white/10 hover:bg-white/15 text-white text-sm rounded-lg flex items-center justify-center gap-2 transition-all border border-white/10"
-            >
-              <Plus size={16} />
-              New Task
-            </button>
-          )}
-        </BentoCard3D>
-      </motion.div>
+      {isTaskModalOpen && (
+        <Modal title={taskDraft.parentTaskId ? 'Tạo task con' : 'Tạo root task'} onClose={() => setIsTaskModalOpen(false)}>
+          <form onSubmit={handleCreateTask} className="space-y-3">
+            <Field label="Tiêu đề">
+              <input value={taskDraft.title} onChange={(event) => setTaskDraft({ ...taskDraft, title: event.target.value })} className="input-light" required />
+            </Field>
+            <Field label="Mô tả">
+              <textarea value={taskDraft.description} onChange={(event) => setTaskDraft({ ...taskDraft, description: event.target.value })} className="input-light min-h-20 resize-none" />
+            </Field>
+            <Field label="Deadline">
+              <input type="datetime-local" value={taskDraft.deadline} onChange={(event) => setTaskDraft({ ...taskDraft, deadline: event.target.value })} className="input-light" />
+            </Field>
+            {taskDraft.parentTaskId && <p className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700">Task con sẽ nằm dưới: {taskById.get(taskDraft.parentTaskId)?.title}</p>}
+            <button disabled={isLoading} className="w-full rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Lưu task</button>
+          </form>
+        </Modal>
+      )}
 
+      {isSessionModalOpen && selectedTask && (
+        <Modal title="Thêm session" onClose={() => setIsSessionModalOpen(false)}>
+          <form onSubmit={handleCreateSession} className="space-y-3">
+            <Field label="Tên session">
+              <input value={sessionDraft.sessionName} onChange={(event) => setSessionDraft({ ...sessionDraft, sessionName: event.target.value })} className="input-light" />
+            </Field>
+            <Field label="Ngày">
+              <input type="date" value={sessionDraft.sessionDate} onChange={(event) => setSessionDraft({ ...sessionDraft, sessionDate: event.target.value })} className="input-light" required />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Bắt đầu">
+                <input type="time" value={sessionDraft.startTime} onChange={(event) => setSessionDraft({ ...sessionDraft, startTime: event.target.value })} className="input-light" required />
+              </Field>
+              <Field label="Kết thúc">
+                <input type="time" value={sessionDraft.endTime} onChange={(event) => setSessionDraft({ ...sessionDraft, endTime: event.target.value })} className="input-light" required />
+              </Field>
+            </div>
+            <Field label="Trạng thái session">
+              <select value={sessionDraft.inTimeStatus} onChange={(event) => setSessionDraft({ ...sessionDraft, inTimeStatus: event.target.value as SessionDraft['inTimeStatus'] })} className="input-light">
+                <option value="in_time">Đúng giờ</option>
+                <option value="out_time">Trễ giờ</option>
+              </select>
+            </Field>
+            <button disabled={isLoading} className="w-full rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Lưu session</button>
+          </form>
+        </Modal>
+      )}
     </div>
   );
+}
+
+function StatCard({ label, value, icon }: { label: string; value: number | string; icon: ReactNode }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs text-slate-500">{label}</span>
+        {icon}
+      </div>
+      <div className="text-xl font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <span className="text-slate-500">{label}</span>
+      <span className="text-right font-medium">{value}</span>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+      <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">{title}</h2>
+          <button onClick={onClose} className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function topicColorPaletteName(index: number) {
+  return topicColorPalette[index % topicColorPalette.length].name;
 }

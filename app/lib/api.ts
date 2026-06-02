@@ -7,14 +7,26 @@ export interface ApiTopic {
   updated_at?: string;
 }
 
+export type ApiTaskStatus = 'completed' | 'not_completed';
+
 export interface ApiTask {
   id: string;
   user_id: string;
   topic_id: string;
+  parent_task_id?: string | null;
+  root_task_id?: string | null;
   title: string;
   description?: string | null;
   deadline?: string | null;
-  status: 'completed' | 'not_completed';
+  status: ApiTaskStatus;
+  effective_status?: ApiTaskStatus;
+  sort_order?: number;
+  depth?: number;
+  child_count?: number;
+  descendant_count?: number;
+  completed_leaf_count?: number;
+  leaf_count?: number;
+  archived_at?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -28,8 +40,8 @@ export interface ApiSession {
   end_time: string;
   session_date: string;
   in_time_status: 'in_time' | 'out_time';
-  focused_minutes?: number;
-  key_of_success?: number;
+  focused_minutes?: number | null;
+  key_of_success?: number | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -47,21 +59,31 @@ export interface ApiDate {
   updated_at?: string;
 }
 
-const API_URL = typeof process !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : '';
+export interface TaskTreeStats {
+  completedTasks: number;
+  activeRootTasks: number;
+  overdueLeafTasks: number;
+  totalTasks: number;
+  totalSessions: number;
+  onTimeSessions: number;
+  outTimeSessions: number;
+  totalSessionMinutes: number;
+}
+
+const API_URL = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_API_URL || '' : '';
 
 const getApiUrl = (endpoint: string): string => {
   const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
   if (!API_URL) return normalizedEndpoint.startsWith('/api') ? normalizedEndpoint : `/api${normalizedEndpoint}`;
-  let baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+
+  const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
   let path = normalizedEndpoint;
-  if (baseUrl.endsWith('/api')) return `${baseUrl}${path}`;
-  if (!path.startsWith('/api')) path = `/api${path}`;
+  if (!path.startsWith('/api') && !baseUrl.endsWith('/api')) path = `/api${path}`;
   return `${baseUrl}${path}`;
 };
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const url = getApiUrl(path);
-  const response = await fetch(url, {
+  const response = await fetch(getApiUrl(path), {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -82,13 +104,13 @@ export const api = {
     return requestJson<ApiTopic[]>(`/api/topics?userId=${encodeURIComponent(userId)}`);
   },
   createTopic(userId: string, name: string, topicColor?: string) {
-    return requestJson<ApiTopic>(`/api/topics`, {
+    return requestJson<ApiTopic>('/api/topics', {
       method: 'POST',
       body: JSON.stringify({ userId, name, topicColor }),
     });
   },
-  updateTopic(id: string, input: { name?: string; topicColor?: string }) {
-    return requestJson<ApiTopic>(`/api/topics`, {
+  updateTopic(id: string, input: { name?: string; topicColor?: string | null }) {
+    return requestJson<ApiTopic>('/api/topics', {
       method: 'PUT',
       body: JSON.stringify({ id, ...input }),
     });
@@ -98,37 +120,43 @@ export const api = {
       method: 'DELETE',
     });
   },
-  getTasks(userId: string, topicId?: string) {
+  getTasks(userId: string, filters?: { topicId?: string; parentTaskId?: string | null; rootId?: string; view?: 'flat' | 'tree'; includeArchived?: boolean }) {
     const params = new URLSearchParams({ userId });
-    if (topicId) params.set('topicId', topicId);
+    if (filters?.topicId) params.set('topicId', filters.topicId);
+    if (filters?.parentTaskId !== undefined) params.set('parentTaskId', filters.parentTaskId || 'root');
+    if (filters?.rootId) params.set('rootId', filters.rootId);
+    if (filters?.view) params.set('view', filters.view);
+    if (filters?.includeArchived) params.set('includeArchived', 'true');
     return requestJson<ApiTask[]>(`/api/tasks?${params.toString()}`);
   },
   createTask(input: {
     userId: string;
     topicId: string;
+    parentTaskId?: string | null;
     title: string;
     description?: string;
     deadline?: string;
   }) {
-    return requestJson<ApiTask>(`/api/tasks`, {
+    return requestJson<ApiTask>('/api/tasks', {
       method: 'POST',
       body: JSON.stringify(input),
     });
   },
   updateTask(input: {
     id: string;
-    status?: ApiTask['status'];
+    status?: ApiTaskStatus;
     title?: string;
-    description?: string;
-    deadline?: string;
+    description?: string | null;
+    deadline?: string | null;
+    sortOrder?: number;
   }) {
-    return requestJson<ApiTask>(`/api/tasks`, {
+    return requestJson<ApiTask>('/api/tasks', {
       method: 'PUT',
       body: JSON.stringify(input),
     });
   },
   deleteTask(id: string) {
-    return requestJson<{ success: boolean }>(`/api/tasks?id=${encodeURIComponent(id)}`, {
+    return requestJson<{ success: boolean; archived: boolean }>(`/api/tasks?id=${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   },
@@ -149,7 +177,7 @@ export const api = {
     focusedMinutes?: number;
     keyOfSuccess?: number;
   }) {
-    return requestJson<ApiDate>(`/api/dates`, {
+    return requestJson<ApiDate>('/api/dates', {
       method: 'POST',
       body: JSON.stringify(input),
     });
@@ -159,14 +187,16 @@ export const api = {
     focusedMinutes?: number;
     keyOfSuccess?: number;
   }) {
-    return requestJson<ApiDate>(`/api/dates`, {
+    return requestJson<ApiDate>('/api/dates', {
       method: 'PUT',
       body: JSON.stringify(input),
     });
   },
-  getSessions(userId: string, filters?: { taskId?: string; date?: string; month?: number; year?: number }) {
+  getSessions(userId: string, filters?: { taskId?: string; rootId?: string; topicId?: string; date?: string; month?: number; year?: number }) {
     const params = new URLSearchParams({ userId });
     if (filters?.taskId) params.set('taskId', filters.taskId);
+    if (filters?.rootId) params.set('rootId', filters.rootId);
+    if (filters?.topicId) params.set('topicId', filters.topicId);
     if (filters?.date) params.set('date', filters.date);
     if (filters?.month !== undefined && filters?.year !== undefined) {
       params.set('month', String(filters.month));
@@ -181,8 +211,9 @@ export const api = {
     startTime: string;
     endTime: string;
     sessionDate: string;
+    inTimeStatus?: ApiSession['in_time_status'];
   }) {
-    return requestJson<ApiSession>(`/api/sessions`, {
+    return requestJson<ApiSession>('/api/sessions', {
       method: 'POST',
       body: JSON.stringify(input),
     });
@@ -197,7 +228,7 @@ export const api = {
     focusedMinutes?: number;
     keyOfSuccess?: number;
   }) {
-    return requestJson<ApiSession>(`/api/sessions`, {
+    return requestJson<ApiSession>('/api/sessions', {
       method: 'PUT',
       body: JSON.stringify(input),
     });

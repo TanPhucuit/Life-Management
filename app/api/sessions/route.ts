@@ -17,12 +17,52 @@ export async function GET(request: NextRequest) {
   try {
     const userId = request.nextUrl.searchParams.get('userId');
     const taskId = request.nextUrl.searchParams.get('taskId');
+    const rootId = request.nextUrl.searchParams.get('rootId');
+    const topicId = request.nextUrl.searchParams.get('topicId');
     const date = request.nextUrl.searchParams.get('date');
     const month = request.nextUrl.searchParams.get('month');
     const year = request.nextUrl.searchParams.get('year');
 
     if (!userId) {
       return NextResponse.json({ error: 'userId is required' }, { status: 400, headers: corsHeaders });
+    }
+
+    let taskIds: string[] | null = null;
+
+    if (rootId || topicId) {
+      let taskQuery = supabase
+        .from('tasks')
+        .select('id, parent_task_id')
+        .eq('user_id', userId)
+        .is('archived_at', null);
+
+      if (topicId) taskQuery = taskQuery.eq('topic_id', topicId);
+
+      const { data: taskRows, error: taskError } = await taskQuery;
+      if (taskError) {
+        return NextResponse.json({ error: taskError.message }, { status: 400, headers: corsHeaders });
+      }
+
+      if (rootId) {
+        const childrenByParent = new Map<string | null, Array<{ id: string; parent_task_id?: string | null }>>();
+        (taskRows || []).forEach((task) => {
+          const parentId = task.parent_task_id || null;
+          childrenByParent.set(parentId, [...(childrenByParent.get(parentId) || []), task]);
+        });
+
+        const collected = new Set<string>([rootId]);
+        const queue = [rootId];
+        while (queue.length > 0) {
+          const currentId = queue.shift()!;
+          (childrenByParent.get(currentId) || []).forEach((child) => {
+            collected.add(child.id);
+            queue.push(child.id);
+          });
+        }
+        taskIds = Array.from(collected);
+      } else {
+        taskIds = (taskRows || []).map((task) => task.id);
+      }
     }
 
     let query = supabase
@@ -33,6 +73,11 @@ export async function GET(request: NextRequest) {
 
     if (taskId) {
       query = query.eq('task_id', taskId);
+    }
+
+    if (taskIds) {
+      if (taskIds.length === 0) return NextResponse.json([], { headers: corsHeaders });
+      query = query.in('task_id', taskIds);
     }
 
     if (date) {
@@ -72,6 +117,7 @@ export async function POST(request: NextRequest) {
       startTime,
       endTime,
       sessionDate,
+      inTimeStatus,
     } = body;
 
     if (!userId || !taskId || !startTime || !endTime || !sessionDate) {
@@ -88,7 +134,7 @@ export async function POST(request: NextRequest) {
           start_time: startTime,
           end_time: endTime,
           session_date: sessionDate,
-          in_time_status: 'in_time',
+          in_time_status: inTimeStatus || 'in_time',
         },
       ])
       .select()
