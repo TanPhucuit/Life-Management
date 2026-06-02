@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { Pencil, Trash2, Timer, Trophy, X } from 'lucide-react';
 import { ApiSession } from '@/app/lib/api';
 
@@ -9,41 +9,35 @@ interface SessionItemProps {
   onDelete: (id: string) => Promise<void>;
 }
 
+const inputClass =
+  'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
+
 export function SessionItem({ session, onUpdate, onDelete }: SessionItemProps) {
-  const [isHovered, setIsHovered] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteAlertOpen, setIsDeleteAlertOpen] = useState(false);
-  
-  const defaultMinutes = session.focused_minutes ?? Math.round((new Date(session.end_time).getTime() - new Date(session.start_time).getTime()) / 60000);
-  
-  // Edit State
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const defaultMinutes =
+    session.focused_minutes ?? Math.round((new Date(session.end_time).getTime() - new Date(session.start_time).getTime()) / 60000);
+
   const [editSessionName, setEditSessionName] = useState(session.session_name || '');
   const [editDate, setEditDate] = useState(session.session_date);
   const [editStartTime, setEditStartTime] = useState(new Date(session.start_time).toTimeString().slice(0, 5));
   const [editEndTime, setEditEndTime] = useState(new Date(session.end_time).toTimeString().slice(0, 5));
-  const [editStatus, setEditStatus] = useState<'in_time'|'out_time'>(session.in_time_status);
-
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  const kosColors = {
-    0: 'text-gray-400',
-    1: 'text-[#CD7F32]', // Bronze
-    2: 'text-[#C0C0C0]', // Silver
-    3: 'text-[#FFD700]', // Gold
-  };
+  const [editStatus, setEditStatus] = useState<'in_time' | 'out_time'>(session.in_time_status);
 
   const handleUpdate = async () => {
     setIsUpdating(true);
     const newStart = `${editDate}T${editStartTime}:00`;
     const newEnd = `${editDate}T${editEndTime}:00`;
-    
-    await onUpdate(session.id, { 
+
+    await onUpdate(session.id, {
       session_name: editSessionName.trim() || null,
       session_date: editDate,
       start_time: newStart,
       end_time: newEnd,
-      in_time_status: editStatus 
+      in_time_status: editStatus,
     });
     setIsUpdating(false);
     setIsEditModalOpen(false);
@@ -57,220 +51,209 @@ export function SessionItem({ session, onUpdate, onDelete }: SessionItemProps) {
   };
 
   const startTime = new Date(session.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const endTime = new Date(session.end_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const statusLabel = session.in_time_status === 'in_time' ? 'Đúng giờ' : 'Trễ giờ';
 
   return (
     <>
       <motion.div
         layout
-        initial={{ opacity: 0, x: -20, scale: 0.9 }}
-        animate={{ opacity: 1, x: 0, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.2 } }}
-        whileHover={{ scale: 0.98 }}
-        whileTap={{ scale: 0.95 }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        className="relative flex w-full flex-col overflow-hidden rounded-[16px] border border-[#222] bg-[#161616] p-3 sm:min-w-[140px] sm:w-auto sm:shrink-0 cursor-pointer"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.18 } }}
+        className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition hover:border-blue-200 hover:shadow-md"
       >
-        <div className="absolute inset-0 bg-white/5 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-        
-        <div className="mb-1 truncate text-xs font-bold text-white">
-          {session.session_name || 'Untitled session'}
-        </div>
-        <div className="mb-2 text-[10px] font-medium text-white/40">{startTime}</div>
-        
-        <div className="flex items-center gap-1.5 text-xs text-white/70 mb-1.5 font-medium">
-          <Timer size={14} className="text-blue-400" />
-          <span>{defaultMinutes} min</span>
-        </div>
-        
-        <div className="flex items-center gap-1.5 text-xs text-white/70 font-medium">
-          <Trophy size={14} className={kosColors[(session.key_of_success || 0) as keyof typeof kosColors]} />
-          <span>Level {session.key_of_success || 0}</span>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-950">{session.session_name || 'Session chưa đặt tên'}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              {startTime} - {endTime}
+            </p>
+          </div>
+          <span
+            className={`shrink-0 rounded-md px-2 py-1 text-xs font-semibold ${
+              session.in_time_status === 'in_time' ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-50 text-orange-700'
+            }`}
+          >
+            {statusLabel}
+          </span>
         </div>
 
-        <AnimatePresence>
-          {isHovered && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center gap-3 z-10"
-            >
-              <button
-                onClick={(e) => { e.stopPropagation(); setIsEditModalOpen(true); }}
-                className="p-2 rounded-full bg-blue-500/20 text-blue-400 hover:bg-blue-500/40 transition-colors"
-                title="Sửa"
-              >
-                <Pencil size={16} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setIsDeleteAlertOpen(true); }}
-                className="p-2 rounded-full bg-red-500/20 text-red-400 hover:bg-red-500/40 transition-colors"
-                title="Xóa"
-              >
-                <Trash2 size={16} />
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="rounded-md bg-slate-50 px-2.5 py-2">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <Timer className="h-3.5 w-3.5 text-blue-600" />
+              Thời lượng
+            </div>
+            <p className="mt-1 text-sm font-semibold text-slate-950">{defaultMinutes} phút</p>
+          </div>
+          <div className="rounded-md bg-slate-50 px-2.5 py-2">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              <Trophy className="h-3.5 w-3.5 text-orange-500" />
+              Chất lượng
+            </div>
+            <p className="mt-1 text-sm font-semibold text-slate-950">Level {session.key_of_success || 0}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setIsEditModalOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Sửa
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsDeleteAlertOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-red-200 bg-white px-2.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Xóa
+          </button>
+        </div>
       </motion.div>
 
-      {/* Edit Modal */}
       <AnimatePresence>
         {isEditModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-              onClick={() => setIsEditModalOpen(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative bg-[#161616] border border-[#333] p-6 rounded-[16px] w-full max-w-xs z-10 shadow-2xl"
-            >
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-lg font-bold text-white">Edit Session</h3>
-                <button onClick={() => setIsEditModalOpen(false)} className="text-white/50 hover:text-white transition-colors">
-                  <X size={20} />
-                </button>
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1.5">Session Name</label>
-                  <input
-                    type="text"
-                    value={editSessionName}
-                    onChange={(e) => setEditSessionName(e.target.value)}
-                    placeholder="Session name"
-                    className="w-full bg-[#222] border border-[#333] rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-white/30 transition-colors"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1.5">Date</label>
-                  <input
-                    type="date"
-                    value={editDate}
-                    onChange={(e) => setEditDate(e.target.value)}
-                    className="w-full bg-[#222] border border-[#333] rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-white/30 transition-colors"
-                  />
-                </div>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1.5">Start Time</label>
-                    <input
-                      type="time"
-                      value={editStartTime}
-                      onChange={(e) => setEditStartTime(e.target.value)}
-                      className="w-full bg-[#222] border border-[#333] rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-white/30 transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1.5">End Time</label>
-                    <input
-                      type="time"
-                      value={editEndTime}
-                      onChange={(e) => setEditEndTime(e.target.value)}
-                      className="w-full bg-[#222] border border-[#333] rounded-lg px-3 py-2 text-white text-sm outline-none focus:border-white/30 transition-colors"
-                    />
-                  </div>
-                </div>
+          <ModalShell onClose={() => setIsEditModalOpen(false)}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <h3 className="text-lg font-semibold text-slate-950">Sửa session</h3>
+              <button type="button" onClick={() => setIsEditModalOpen(false)} className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
 
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1.5">Status</label>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setEditStatus('in_time')}
-                      className={`flex-1 py-2 rounded-lg border text-xs font-bold transition-all ${
-                        editStatus === 'in_time'
-                          ? 'bg-green-500/20 border-green-500/50 text-green-400'
-                          : 'bg-[#222] border-[#333] text-white/50 hover:bg-[#2a2a2a]'
-                      }`}
-                    >
-                      On Time
-                    </button>
-                    <button
-                      onClick={() => setEditStatus('out_time')}
-                      className={`flex-1 py-2 rounded-lg border text-xs font-bold transition-all ${
-                        editStatus === 'out_time'
-                          ? 'bg-orange-500/20 border-orange-500/50 text-orange-400'
-                          : 'bg-[#222] border-[#333] text-white/50 hover:bg-[#2a2a2a]'
-                      }`}
-                    >
-                      Out Time
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Disabled reference fields */}
-                <div className="grid grid-cols-2 gap-3 opacity-50 pointer-events-none mt-2 pt-4 border-t border-[#333]">
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1">Minutes</label>
-                    <div className="text-sm font-medium text-white">{defaultMinutes}m</div>
-                  </div>
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wider font-semibold text-white/50 mb-1">Quality</label>
-                    <div className="text-sm font-medium text-white">Level {session.key_of_success || 0}</div>
-                  </div>
-                </div>
-                
-                <button
-                  onClick={handleUpdate}
-                  disabled={isUpdating}
-                  className="w-full mt-4 bg-white text-black py-2.5 rounded-lg font-bold hover:bg-white/90 transition-all disabled:opacity-50 text-sm"
-                >
-                  {isUpdating ? 'Saving...' : 'Save Changes'}
-                </button>
+            <div className="space-y-4 p-5">
+              <Field label="Tên session">
+                <input
+                  type="text"
+                  value={editSessionName}
+                  onChange={(event) => setEditSessionName(event.target.value)}
+                  placeholder="Tên session"
+                  className={inputClass}
+                />
+              </Field>
+
+              <Field label="Ngày">
+                <input type="date" value={editDate} onChange={(event) => setEditDate(event.target.value)} className={inputClass} />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Bắt đầu">
+                  <input type="time" value={editStartTime} onChange={(event) => setEditStartTime(event.target.value)} className={inputClass} />
+                </Field>
+                <Field label="Kết thúc">
+                  <input type="time" value={editEndTime} onChange={(event) => setEditEndTime(event.target.value)} className={inputClass} />
+                </Field>
               </div>
-            </motion.div>
-          </div>
+
+              <Field label="Trạng thái">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditStatus('in_time')}
+                    className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
+                      editStatus === 'in_time'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Đúng giờ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditStatus('out_time')}
+                    className={`rounded-md border px-3 py-2 text-sm font-semibold transition ${
+                      editStatus === 'out_time'
+                        ? 'border-orange-500 bg-orange-50 text-orange-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Trễ giờ
+                  </button>
+                </div>
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div>
+                  <p className="text-xs text-slate-500">Phút</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-950">{defaultMinutes}m</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Chất lượng</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-950">Level {session.key_of_success || 0}</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleUpdate}
+                disabled={isUpdating}
+                className="w-full rounded-md bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isUpdating ? 'Đang lưu...' : 'Lưu thay đổi'}
+              </button>
+            </div>
+          </ModalShell>
         )}
       </AnimatePresence>
 
-      {/* Delete Alert Dialog */}
       <AnimatePresence>
         {isDeleteAlertOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-              onClick={() => setIsDeleteAlertOpen(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="relative bg-[#161616] border border-white/10 p-6 rounded-[16px] w-full max-w-sm z-10 shadow-2xl"
-            >
-              <h3 className="text-lg font-bold text-white mb-2">Delete Session</h3>
-              <p className="text-sm text-white/60 mb-6 font-medium">Bạn có chắc chắn muốn xóa session này? Hành động này không thể hoàn tác.</p>
-              
-              <div className="flex gap-3 justify-end">
+          <ModalShell onClose={() => setIsDeleteAlertOpen(false)} size="sm">
+            <div className="p-5">
+              <h3 className="text-lg font-semibold text-slate-950">Xóa session</h3>
+              <p className="mt-2 text-sm text-slate-500">Bạn có chắc chắn muốn xóa session này? Hành động này không thể hoàn tác.</p>
+
+              <div className="mt-6 flex justify-end gap-2">
                 <button
+                  type="button"
                   onClick={() => setIsDeleteAlertOpen(false)}
-                  className="px-4 py-2 rounded-lg border border-white/10 text-white hover:bg-white/10 font-medium transition-colors text-sm"
+                  className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                 >
-                  Cancel
+                  Hủy
                 </button>
                 <button
+                  type="button"
                   onClick={handleDelete}
                   disabled={isDeleting}
-                  className="px-4 py-2 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 transition-colors disabled:opacity-50 text-sm"
+                  className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isDeleting ? 'Deleting...' : 'Delete'}
+                  {isDeleting ? 'Đang xóa...' : 'Xóa'}
                 </button>
               </div>
-            </motion.div>
-          </div>
+            </div>
+          </ModalShell>
         )}
       </AnimatePresence>
     </>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-semibold text-slate-500">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function ModalShell({ children, onClose, size = 'md' }: { children: React.ReactNode; onClose: () => void; size?: 'sm' | 'md' }) {
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-slate-950/40" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, y: 10, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10, scale: 0.98 }}
+        className={`relative z-10 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl ${size === 'sm' ? 'max-w-sm' : 'max-w-md'}`}
+      >
+        {children}
+      </motion.div>
+    </div>
   );
 }

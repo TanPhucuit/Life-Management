@@ -1,182 +1,462 @@
 'use client';
 
-import { ReactNode, useEffect, useMemo, useState } from 'react';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { AlertCircle, CheckCircle2, Clock3, FolderTree, Timer } from 'lucide-react';
-import { api, ApiSession, ApiTask, ApiTopic } from '@/app/lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import { motion } from 'framer-motion';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { api, ApiDate } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
-import { getTopicColorByName } from '@/app/lib/topicColors';
 
-const getDurationMinutes = (session: ApiSession) => {
-  if (session.focused_minutes !== null && session.focused_minutes !== undefined) return session.focused_minutes;
-  return Math.max(0, Math.round((new Date(session.end_time).getTime() - new Date(session.start_time).getTime()) / 60000));
-};
+type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success';
+type ChartPoint = { name: string; value: number | null };
 
-const isLeaf = (task: ApiTask) => (task.child_count || 0) === 0;
+const monthNames = [
+  'Tháng 1',
+  'Tháng 2',
+  'Tháng 3',
+  'Tháng 4',
+  'Tháng 5',
+  'Tháng 6',
+  'Tháng 7',
+  'Tháng 8',
+  'Tháng 9',
+  'Tháng 10',
+  'Tháng 11',
+  'Tháng 12',
+];
+
+const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 
 export default function Analytics() {
-  const { user } = useAppStore();
-  const [tasks, setTasks] = useState<ApiTask[]>([]);
-  const [sessions, setSessions] = useState<ApiSession[]>([]);
-  const [topics, setTopics] = useState<ApiTopic[]>([]);
+  const { selectedMonth, selectedYear, currentMonth: storeMonth, currentYear: storeYear, user } = useAppStore();
+  const [currentMonth, setCurrentMonth] = useState(selectedMonth || storeMonth || new Date().getMonth() + 1);
+  const [currentYear, setCurrentYear] = useState(selectedYear || storeYear || new Date().getFullYear());
+  const [analyticsView, setAnalyticsView] = useState<AnalyticsView>('month_overview');
+  const [selectedWeek, setSelectedWeek] = useState(1);
+  const [allDates, setAllDates] = useState<ApiDate[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     if (!user?.id) return;
 
-    const loadAnalytics = async () => {
+    const loadDates = async () => {
       try {
         setErrorMessage('');
-        const [taskRows, sessionRows, topicRows] = await Promise.all([
-          api.getTasks(user.id, { view: 'tree' }),
-          api.getSessions(user.id),
-          api.getTopics(user.id),
-        ]);
-        setTasks(taskRows);
-        setSessions(sessionRows);
-        setTopics(topicRows);
+        const dates = await api.getDates(user.id);
+        setAllDates(dates);
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Không tải được phân tích.');
+        setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu phân tích.');
       }
     };
 
-    void loadAnalytics();
+    void loadDates();
   }, [user?.id]);
 
-  const data = useMemo(() => {
-    const leafTasks = tasks.filter(isLeaf);
-    const completedLeaves = leafTasks.filter((task) => task.status === 'completed' || task.effective_status === 'completed');
-    const activeRoots = tasks.filter((task) => !task.parent_task_id && task.effective_status !== 'completed');
-    const overdueLeaves = leafTasks.filter((task) => task.deadline && task.status !== 'completed' && new Date(task.deadline) < new Date());
-    const onTimeSessions = sessions.filter((session) => session.in_time_status === 'in_time');
-    const outTimeSessions = sessions.filter((session) => session.in_time_status === 'out_time');
-    const totalMinutes = sessions.reduce((sum, session) => sum + getDurationMinutes(session), 0);
-
-    const sessionsByDate = new Map<string, number>();
-    sessions.forEach((session) => {
-      sessionsByDate.set(session.session_date, (sessionsByDate.get(session.session_date) || 0) + 1);
+  const studyHoursByDate = useMemo(() => {
+    const hoursByDate: Record<string, number> = {};
+    allDates.forEach((date) => {
+      const dateKey = formatDateKey(date.year, date.month, date.day);
+      const minutes = Number(date.focused_minutes) || 0;
+      hoursByDate[dateKey] = (hoursByDate[dateKey] || 0) + minutes / 60;
     });
-    const sessionTrend = Array.from(sessionsByDate.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-30)
-      .map(([date, count]) => ({ date: date.slice(5), sessions: count }));
+    return hoursByDate;
+  }, [allDates]);
 
-    const completionByTopic = topics.map((topic, index) => {
-      const topicTasks = leafTasks.filter((task) => task.topic_id === topic.id);
-      const completed = topicTasks.filter((task) => task.status === 'completed' || task.effective_status === 'completed').length;
-      const topicColor = getTopicColorByName(topic.topic_color, index);
+  const weeksCount = getWeeksInMonth(currentMonth, currentYear);
+
+  useEffect(() => {
+    if (selectedWeek > weeksCount) setSelectedWeek(1);
+  }, [selectedWeek, weeksCount]);
+
+  const hasDateRecord = (day: number, month: number, year: number) => {
+    return allDates.some((date) => date.year === year && date.month === month && date.day === day);
+  };
+
+  const weeklyData = useMemo(() => {
+    return Array.from({ length: weeksCount }, (_, index) => {
+      const week = index + 1;
+      const days = getDaysInWeek(currentMonth, currentYear, week);
+      const hours = days.reduce((sum, day) => sum + (studyHoursByDate[day.date] || 0), 0);
+      return { name: `Tuần ${week}`, hours: roundOneDecimal(hours) };
+    });
+  }, [currentMonth, currentYear, studyHoursByDate, weeksCount]);
+
+  const dailyData = useMemo(() => {
+    return getDaysInWeek(currentMonth, currentYear, selectedWeek).map((day) => {
+      const dayOfWeek = new Date(day.year, day.month - 1, day.day).getDay();
       return {
-        name: topic.name,
-        completed,
-        total: topicTasks.length,
-        percent: topicTasks.length ? Math.round((completed / topicTasks.length) * 100) : 0,
-        color: topicColor.text,
+        name: `${dayNames[dayOfWeek]} ${day.day}`,
+        hours: roundOneDecimal(studyHoursByDate[day.date] || 0),
       };
     });
+  }, [currentMonth, currentYear, selectedWeek, studyHoursByDate]);
 
-    return {
-      completedLeaves,
-      activeRoots,
-      overdueLeaves,
-      onTimeSessions,
-      outTimeSessions,
-      totalMinutes,
-      sessionTrend,
-      completionByTopic,
-    };
-  }, [sessions, tasks, topics]);
+  const kosDistribution = useMemo(() => {
+    const monthData = allDates.filter((date) => date.year === currentYear && date.month === currentMonth);
+    const successDays = monthData.filter((date) => Number(date.key_of_success) > 0).length;
+    const noSuccessDays = monthData.filter((date) => Number(date.key_of_success) === 0).length;
 
-  const sessionPie = [
-    { name: 'Đúng giờ', value: data.onTimeSessions.length, color: '#22c55e' },
-    { name: 'Trễ giờ', value: data.outTimeSessions.length, color: '#f97316' },
-  ];
+    return [
+      { name: 'Có Key of Success', value: successDays, color: '#2563eb' },
+      { name: 'Chưa có Key of Success', value: noSuccessDays, color: '#f97316' },
+    ];
+  }, [allDates, currentMonth, currentYear]);
+
+  const weeklyProgressData = useMemo(() => {
+    const days = getDaysInWeek(currentMonth, currentYear, selectedWeek);
+    let cumulativeSum = 0;
+
+    return days.map((day) => {
+      cumulativeSum += studyHoursByDate[day.date] || 0;
+      const dayOfWeek = new Date(day.year, day.month - 1, day.day).getDay();
+      const shouldShowValue = hasDateRecord(day.day, day.month, day.year) && !isFutureDate(day.day, day.month, day.year);
+
+      return {
+        name: `${dayNames[dayOfWeek]} ${day.day}`,
+        value: shouldShowValue ? roundOneDecimal(cumulativeSum) : null,
+      };
+    });
+  }, [allDates, currentMonth, currentYear, selectedWeek, studyHoursByDate]);
+
+  const kosTrend = useMemo(() => {
+    const monthData = allDates.filter((date) => date.year === currentYear && date.month === currentMonth);
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    const trendData: ChartPoint[] = [];
+    let cumulativeSum = 0;
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dayData = monthData.find((date) => date.day === day);
+      if (dayData) cumulativeSum += Number(dayData.key_of_success) || 0;
+
+      trendData.push({
+        name: `${day}`,
+        value: dayData && !isFutureDate(day, currentMonth, currentYear) ? cumulativeSum : null,
+      });
+    }
+
+    return trendData;
+  }, [allDates, currentMonth, currentYear]);
+
+  const monthlyTotalHours = weeklyData.reduce((sum, week) => sum + week.hours, 0);
+  const monthlyRecordCount = allDates.filter((date) => date.year === currentYear && date.month === currentMonth).length;
+  const monthlyKosTotal = allDates
+    .filter((date) => date.year === currentYear && date.month === currentMonth)
+    .reduce((sum, date) => sum + (Number(date.key_of_success) || 0), 0);
+  const weeklyProgressMax = Math.max(0, ...weeklyProgressData.map((point) => point.value || 0));
+  const weeklyProgressDomain: [number, number] = weeklyProgressMax > 50 ? [0, 90] : [0, 45];
+
+  const moveMonth = (direction: -1 | 1) => {
+    setCurrentMonth((month) => {
+      if (direction === -1 && month === 1) {
+        setCurrentYear((year) => year - 1);
+        return 12;
+      }
+      if (direction === 1 && month === 12) {
+        setCurrentYear((year) => year + 1);
+        return 1;
+      }
+      return month + direction;
+    });
+    setSelectedWeek(1);
+  };
 
   return (
     <div className="space-y-4 pb-16 lg:pb-0">
-      <div className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="text-xl font-semibold">Productivity Analytics</h2>
-        <p className="mt-1 text-sm text-slate-500">Thống kê task tree, session đúng giờ và tiến độ theo topic.</p>
+      <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-950">Phân tích</h2>
+            <p className="mt-1 text-sm text-slate-500">Khôi phục biểu đồ cũ theo giờ học, tuần và Key of Success.</p>
+          </div>
+          <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
+            <button
+              type="button"
+              onClick={() => moveMonth(-1)}
+              className="grid h-9 w-9 place-items-center rounded-md text-slate-600 transition hover:bg-white hover:text-slate-950"
+              aria-label="Tháng trước"
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <div className="min-w-[140px] text-center text-sm font-semibold text-slate-900">
+              {monthNames[currentMonth - 1]} {currentYear}
+            </div>
+            <button
+              type="button"
+              onClick={() => moveMonth(1)}
+              className="grid h-9 w-9 place-items-center rounded-md text-slate-600 transition hover:bg-white hover:text-slate-950"
+              aria-label="Tháng sau"
+            >
+              <ChevronRight className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
         {errorMessage && (
           <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</div>
         )}
-      </div>
+      </section>
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <MetricCard label="Completed Tasks" value={data.completedLeaves.length} hint="Leaf task hoàn thành" icon={<CheckCircle2 className="h-5 w-5 text-emerald-600" />} />
-        <MetricCard label="Active Root Tasks" value={data.activeRoots.length} hint="Nhiệm vụ lớn đang chạy" icon={<FolderTree className="h-5 w-5 text-blue-600" />} />
-        <MetricCard label="On-time Sessions" value={data.onTimeSessions.length} hint={`${sessions.length} session tổng`} icon={<Clock3 className="h-5 w-5 text-emerald-600" />} />
-        <MetricCard label="Total Duration" value={`${Math.round((data.totalMinutes / 60) * 10) / 10}h`} hint="Tổng thời lượng" icon={<Timer className="h-5 w-5 text-violet-600" />} />
-        <MetricCard label="Overdue Leaf Tasks" value={data.overdueLeaves.length} hint="Task nhỏ quá hạn" icon={<AlertCircle className="h-5 w-5 text-orange-600" />} />
-      </div>
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <MetricCard label="Tổng giờ học" value={`${roundOneDecimal(monthlyTotalHours)}h`} />
+        <MetricCard label="Ngày có dữ liệu" value={monthlyRecordCount} />
+        <MetricCard label="Tổng Key of Success" value={monthlyKosTotal} />
+      </section>
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h3 className="mb-3 font-semibold">On-time vs Out-time Sessions</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie data={sessionPie} dataKey="value" nameKey="name" innerRadius={58} outerRadius={92} paddingAngle={4}>
-                {sessionPie.map((entry) => (
-                  <Cell key={entry.name} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div className="rounded-md bg-emerald-50 p-2 text-emerald-700">Đúng giờ: {data.onTimeSessions.length}</div>
-            <div className="rounded-md bg-orange-50 p-2 text-orange-700">Trễ giờ: {data.outTimeSessions.length}</div>
-          </div>
-        </section>
+      <section className="rounded-lg border border-slate-200 bg-white p-2">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          <ViewButton active={analyticsView === 'month_overview'} onClick={() => setAnalyticsView('month_overview')}>
+            Tổng quan tháng
+          </ViewButton>
+          <ViewButton active={analyticsView === 'week_daily'} onClick={() => setAnalyticsView('week_daily')}>
+            Chi tiết tuần
+          </ViewButton>
+          <ViewButton active={analyticsView === 'weekly_progress'} onClick={() => setAnalyticsView('weekly_progress')}>
+            Tiến độ tuần
+          </ViewButton>
+          <ViewButton active={analyticsView === 'key_of_success'} onClick={() => setAnalyticsView('key_of_success')}>
+            Key of Success
+          </ViewButton>
+        </div>
+      </section>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <h3 className="mb-3 font-semibold">Session Volume Trend</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={data.sessionTrend}>
+      {analyticsView === 'month_overview' && (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <ChartPanel title={`Giờ học theo tuần - ${monthNames[currentMonth - 1]}`}>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={weeklyData} barCategoryGap="22%">
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <XAxis dataKey="name" stroke="#64748b" />
+                <YAxis stroke="#64748b" />
+                <Tooltip formatter={(value) => [`${value}h`, 'Giờ học']} />
+                <Bar dataKey="hours" fill="#2563eb" maxBarSize={52} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartPanel>
+
+          <ChartPanel title="Phân bổ Key of Success">
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie data={kosDistribution} dataKey="value" nameKey="name" outerRadius={92} labelLine={false}>
+                  {kosDistribution.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
+              {kosDistribution.map((entry) => (
+                <div key={entry.name} className="rounded-md bg-slate-50 px-3 py-2 text-slate-600">
+                  <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                  {entry.name}: <span className="font-semibold text-slate-900">{entry.value}</span>
+                </div>
+              ))}
+            </div>
+          </ChartPanel>
+        </div>
+      )}
+
+      {analyticsView === 'week_daily' && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+          <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Chọn tuần" />
+          <ChartPanel title={`Giờ học từng ngày - Tuần ${selectedWeek}`}>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={dailyData} barCategoryGap="22%">
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <XAxis dataKey="name" stroke="#64748b" angle={-35} textAnchor="end" height={70} />
+                <YAxis stroke="#64748b" />
+                <Tooltip formatter={(value) => [`${value}h`, 'Giờ học']} />
+                <Bar dataKey="hours" fill="#7c3aed" maxBarSize={46} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartPanel>
+        </motion.div>
+      )}
+
+      {analyticsView === 'weekly_progress' && (
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+          <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Chọn tuần để xem tiến độ" />
+          <ChartPanel title={`Tích lũy giờ học - Tuần ${selectedWeek}`}>
+            <ResponsiveContainer width="100%" height={340}>
+              <AreaChart data={weeklyProgressData}>
+                <defs>
+                  <linearGradient id="weeklyProgressGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.24} />
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <XAxis dataKey="name" stroke="#64748b" angle={-35} textAnchor="end" height={70} />
+                <YAxis stroke="#64748b" domain={weeklyProgressDomain} allowDataOverflow={false} />
+                <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Tích lũy'])} />
+                <ReferenceLine y={40} label={{ value: '40h', fill: '#d97706', fontSize: 12 }} stroke="#d97706" strokeDasharray="4 4" />
+                {weeklyProgressMax > 50 && (
+                  <ReferenceLine y={80} label={{ value: '80h', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeDasharray="4 4" />
+                )}
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke="#2563eb"
+                  strokeWidth={3}
+                  fill="url(#weeklyProgressGradient)"
+                  dot={{ fill: '#2563eb', r: 4 }}
+                  activeDot={{ r: 6 }}
+                  connectNulls={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </ChartPanel>
+        </motion.div>
+      )}
+
+      {analyticsView === 'key_of_success' && (
+        <ChartPanel title={`Tiến độ Key of Success - ${monthNames[currentMonth - 1]} ${currentYear}`}>
+          <ResponsiveContainer width="100%" height={340}>
+            <AreaChart data={kosTrend}>
               <defs>
-                <linearGradient id="sessionTrend" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.24} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                <linearGradient id="kosGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.24} />
+                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-              <XAxis dataKey="date" stroke="#64748b" />
-              <YAxis stroke="#64748b" allowDecimals={false} />
-              <Tooltip />
-              <Area type="monotone" dataKey="sessions" stroke="#2563eb" strokeWidth={2} fill="url(#sessionTrend)" />
+              <XAxis dataKey="name" stroke="#64748b" />
+              <YAxis stroke="#64748b" domain={[0, 'dataMax + 5']} />
+              <Tooltip formatter={(value) => (value == null ? [] : [value, 'Key of Success'])} />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke="#f97316"
+                strokeWidth={3}
+                fill="url(#kosGradient)"
+                dot={{ fill: '#f97316', r: 3 }}
+                activeDot={{ r: 5 }}
+                connectNulls={false}
+              />
             </AreaChart>
           </ResponsiveContainer>
-        </section>
-      </div>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <h3 className="mb-3 font-semibold">Completion by Topic</h3>
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={data.completionByTopic}>
-            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-            <XAxis dataKey="name" stroke="#64748b" />
-            <YAxis stroke="#64748b" domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-            <Tooltip formatter={(value) => [`${value}%`, 'Hoàn thành']} />
-            <Bar dataKey="percent" radius={[6, 6, 0, 0]}>
-              {data.completionByTopic.map((entry) => (
-                <Cell key={entry.name} fill={entry.color} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </section>
+        </ChartPanel>
+      )}
     </div>
   );
 }
 
-function MetricCard({ label, value, hint, icon }: { label: string; value: number | string; hint: string; icon: ReactNode }) {
+function formatDateKey(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function roundOneDecimal(value: number) {
+  return Math.round(value * 10) / 10;
+}
+
+function isFutureDate(day: number, month: number, year: number) {
+  const today = new Date();
+  const date = new Date(year, month - 1, day);
+  const currentDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return date > currentDate;
+}
+
+function getWeeksInMonth(month: number, year: number) {
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+  const adjustedFirstDay = (firstDay.getDay() + 6) % 7;
+  return Math.ceil((lastDay.getDate() + adjustedFirstDay) / 7);
+}
+
+function getDaysInWeek(month: number, year: number, weekNumber: number) {
+  const firstDay = new Date(year, month - 1, 1);
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const adjustedFirstDay = (firstDay.getDay() + 6) % 7;
+  let dayCounter = 1 - adjustedFirstDay;
+  let currentWeek = 1;
+  const weekDays: Array<{ day: number; date: string; month: number; year: number }> = [];
+
+  for (let index = 0; index < 42; index++) {
+    const day = dayCounter + index;
+    if (day >= 1 && day <= daysInMonth && currentWeek === weekNumber) {
+      weekDays.push({ day, date: formatDateKey(year, month, day), month, year });
+    }
+    if ((index + 1) % 7 === 0) currentWeek++;
+  }
+
+  return weekDays;
+}
+
+function MetricCard({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm text-slate-500">{label}</p>
-        {icon}
-      </div>
-      <p className="text-3xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
     </div>
+  );
+}
+
+function ViewButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md px-3 py-2 text-sm font-medium transition ${
+        active ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function WeekSelector({
+  weeksCount,
+  selectedWeek,
+  onSelect,
+  label,
+}: {
+  weeksCount: number;
+  selectedWeek: number;
+  onSelect: (week: number) => void;
+  label: string;
+}) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <p className="mb-3 text-sm text-slate-500">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {Array.from({ length: weeksCount }, (_, index) => index + 1).map((week) => (
+          <button
+            key={week}
+            type="button"
+            onClick={() => onSelect(week)}
+            className={`rounded-md border px-4 py-2 text-sm font-semibold transition ${
+              selectedWeek === week
+                ? 'border-blue-600 bg-blue-50 text-blue-700'
+                : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50'
+            }`}
+          >
+            Tuần {week}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ChartPanel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-lg border border-slate-200 bg-white p-4">
+      <h3 className="mb-4 text-base font-semibold text-slate-950">{title}</h3>
+      {children}
+    </motion.section>
   );
 }

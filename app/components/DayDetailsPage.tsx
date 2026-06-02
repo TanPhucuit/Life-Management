@@ -1,22 +1,35 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ChevronLeft, Clock3, Pause, Play, RotateCcw, Save, SlidersHorizontal, Target, Trophy } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { api, ApiDate, ApiSession } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
-import { Play, Pause, RotateCcw, Save, ChevronLeft } from 'lucide-react';
-import { UnifiedDashboardShell } from './UnifiedDashboardShell';
-import { StudyTubeVisual } from './StudyTubeVisual';
-import { RainbowCelebration } from './RainbowCelebration';
-import { useRouter } from 'next/navigation';
 import { SessionItem } from './SessionItem';
-import { AnimatePresence } from 'framer-motion';
 
 interface DayDetailsPageProps {
   day: number;
   month: number;
   year: number;
 }
+
+const monthNames = [
+  'Tháng 1',
+  'Tháng 2',
+  'Tháng 3',
+  'Tháng 4',
+  'Tháng 5',
+  'Tháng 6',
+  'Tháng 7',
+  'Tháng 8',
+  'Tháng 9',
+  'Tháng 10',
+  'Tháng 11',
+  'Tháng 12',
+];
+
+const dayNames = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
 
 export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps) {
   const router = useRouter();
@@ -27,12 +40,10 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
   const [stopwatchTime, setStopwatchTime] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [targetHours, setTargetHours] = useState(8);
-  const [showStopwatch, setShowStopwatch] = useState(false);
   const [dateRecordId, setDateRecordId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load sessions for this date
   useEffect(() => {
     if (!user?.id) return;
 
@@ -45,7 +56,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
         ]);
 
         const matchedDate = dateRows.find((item: ApiDate) => item.day === day && item.month === month && item.year === year);
-
         setDateRecordId(matchedDate?.id || null);
         setFocusedMinutes(matchedDate?.focused_minutes || 0);
         setKeyOfSuccess(matchedDate?.key_of_success || 0);
@@ -58,15 +68,15 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     void loadDateData();
   }, [day, month, year, user?.id]);
 
-  // Stopwatch interval
   useEffect(() => {
     if (isRunning) {
       intervalRef.current = setInterval(() => {
         setStopwatchTime((prev) => prev + 1);
       }, 1000);
-    } else {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+    } else if (intervalRef.current) {
+      clearInterval(intervalRef.current);
     }
+
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
@@ -79,13 +89,27 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  const handlePlayPause = () => {
-    setIsRunning(!isRunning);
-  };
+  const saveDateRecord = async (nextFocusedMinutes = focusedMinutes, nextKeyOfSuccess = keyOfSuccess) => {
+    if (!user?.id) return;
 
-  const handleReset = () => {
-    setStopwatchTime(0);
-    setIsRunning(false);
+    if (dateRecordId) {
+      await api.updateDate({
+        id: dateRecordId,
+        focusedMinutes: nextFocusedMinutes,
+        keyOfSuccess: nextKeyOfSuccess,
+      });
+      return;
+    }
+
+    const created = await api.createDate({
+      userId: user.id,
+      day,
+      month,
+      year,
+      focusedMinutes: nextFocusedMinutes,
+      keyOfSuccess: nextKeyOfSuccess,
+    });
+    setDateRecordId(created.id);
   };
 
   const handleSaveStopwatch = async () => {
@@ -94,56 +118,18 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     setFocusedMinutes(updatedMinutes);
     setStopwatchTime(0);
     setIsRunning(false);
-    setShowStopwatch(false);
-
-    if (!user?.id) return;
-
-    if (dateRecordId) {
-      await api.updateDate({
-        id: dateRecordId,
-        focusedMinutes: updatedMinutes,
-        keyOfSuccess,
-      });
-      return;
-    }
 
     try {
-      const created = await api.createDate({
-        userId: user.id,
-        day,
-        month,
-        year,
-        focusedMinutes: updatedMinutes,
-        keyOfSuccess,
-      });
-      setDateRecordId(created.id);
+      await saveDateRecord(updatedMinutes, keyOfSuccess);
     } catch (error) {
-      console.error('Error creating date record:', error);
+      console.error('Error saving stopwatch:', error);
     }
   };
 
   const handleSaveDayDetails = async () => {
-    if (!user?.id) return;
     setIsSaving(true);
-
     try {
-      if (dateRecordId) {
-        await api.updateDate({
-          id: dateRecordId,
-          focusedMinutes,
-          keyOfSuccess,
-        });
-      } else {
-        const created = await api.createDate({
-          userId: user.id,
-          day,
-          month,
-          year,
-          focusedMinutes,
-          keyOfSuccess,
-        });
-        setDateRecordId(created.id);
-      }
+      await saveDateRecord(focusedMinutes, keyOfSuccess);
     } catch (error) {
       console.error('Error saving day details:', error);
     } finally {
@@ -163,204 +149,274 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
         sessionDate: updates.session_date,
         inTimeStatus: updates.in_time_status,
       });
-      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
-    } catch (e) {
-      console.error(e);
+      setSessions((prev) => prev.map((session) => (session.id === id ? { ...session, ...updates } : session)));
+    } catch (error) {
+      console.error(error);
     }
   };
 
   const handleDeleteSession = async (id: string) => {
     try {
       await api.deleteSession(id);
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-    } catch (e) {
-      console.error(e);
+      setSessions((prev) => prev.filter((session) => session.id !== id));
+    } catch (error) {
+      console.error(error);
     }
   };
 
-  const isToday = (): boolean => {
+  const isToday = () => {
     const today = new Date();
-    return (
-      day === today.getDate() &&
-      month === today.getMonth() + 1 &&
-      year === today.getFullYear()
-    );
+    return day === today.getDate() && month === today.getMonth() + 1 && year === today.getFullYear();
   };
 
-  const focusedHours = (focusedMinutes / 60).toFixed(1);
-  const progressPercent = (focusedMinutes / (targetHours * 60)) * 100;
-  const isCelebrating = progressPercent >= 100;
-  const sunMood = progressPercent > 50 ? 'happy' : 'sad';
-
-  // Format date display
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const focusedHoursNumber = focusedMinutes / 60;
+  const focusedHours = focusedHoursNumber.toFixed(1);
+  const progressPercent = Math.min((focusedMinutes / (targetHours * 60)) * 100, 100);
+  const remainingHours = Math.max(0, targetHours - focusedHoursNumber).toFixed(1);
   const dayName = dayNames[new Date(year, month - 1, day).getDay()];
 
   return (
-    <div className="flex min-h-screen w-full flex-col bg-black">
-      {/* Header - 8% of viewport */}
-      <motion.div
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        className="border-b border-white/10 px-3 py-3 sm:px-6"
-      >
-        <div className="mb-1 flex items-center gap-2 sm:gap-3">
-          <button
-            onClick={() => router.back()}
-            className="rounded-lg p-2 transition hover:bg-white/10"
-          >
-            <ChevronLeft className="w-5 h-5 text-white/60" />
-          </button>
-          <h1 className="min-w-0 text-lg font-bold leading-tight text-white sm:text-2xl">
-            {dayName}, {monthNames[month - 1]} {day}, {year}
-          </h1>
-        </div>
-        <p className="ml-11 text-xs text-white/60">
-          {isToday() && '🎯 Today • '}{focusedHours}h / {targetHours}h focused
-        </p>
-      </motion.div>
-
-      {/* Main Container */}
-      <div className="flex-1 overflow-visible pb-4">
-        <UnifiedDashboardShell
-          visual={
-            <div className="h-full w-full flex flex-col items-center justify-center relative">
-              <RainbowCelebration isActive={isCelebrating} />
-              <StudyTubeVisual
-                currentHours={parseFloat(focusedHours)}
-                targetHours={targetHours}
-                isRunning={isRunning}
-                sunMood={isCelebrating ? 'celebrate' : sunMood}
-              />
-            </div>
-          }
-          stopwatch={
-            !showStopwatch ? (
-                <button onClick={() => setShowStopwatch(true)} className="w-full h-full min-h-[80px] rounded-xl bg-gradient-to-r from-blue-600/10 to-blue-500/10 hover:from-blue-600/20 hover:to-blue-500/20 text-blue-400 font-bold transition-all border border-blue-500/20 flex flex-col items-center justify-center gap-2">
-                  <Play className="w-6 h-6" />
-                  <span className="text-[10px] uppercase tracking-wider">Start Stopwatch</span>
-                </button>
-            ) : (
-                <div className="flex flex-col h-full justify-between">
-                  <div className="text-center my-auto">
-                    <div className="text-4xl font-mono font-bold text-blue-400 tracking-tighter drop-shadow-[0_0_15px_rgba(96,165,250,0.3)]">
-                      {formatTime(stopwatchTime)}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 grid-rows-2 gap-2 mt-4">
-                    <button onClick={handlePlayPause} className="py-2.5 rounded-xl bg-[#161616] hover:bg-[#222] text-white font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition border border-[#333]">
-                      {isRunning ? <Pause size={14} /> : <Play size={14} />}
-                      {isRunning ? 'Pause' : 'Play'}
-                    </button>
-                    <button onClick={handleReset} className="py-2.5 rounded-xl bg-[#161616] hover:bg-[#222] text-white font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition border border-[#333]">
-                      <RotateCcw size={14} />
-                      Reset
-                    </button>
-                    <button onClick={handleSaveStopwatch} className="py-2.5 rounded-xl bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 font-bold text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 transition border border-blue-500/30">
-                      <Save size={14} />
-                      Save
-                    </button>
-                    <button onClick={() => { setShowStopwatch(false); setStopwatchTime(0); setIsRunning(false); }} className="py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 font-bold text-[10px] uppercase tracking-wider transition border border-red-500/20">
-                      Close
-                    </button>
-                  </div>
-                </div>
-            )
-          }
-          target={
-            <div className="flex flex-col h-full justify-center gap-5">
-              <div className="flex justify-between items-end px-2">
-                <div className="text-4xl font-bold text-cyan-400 tracking-tighter drop-shadow-[0_0_15px_rgba(34,211,238,0.2)]">{targetHours}h</div>
-                <div className="text-right">
-                  <div className="text-[9px] text-white/40 uppercase tracking-wider font-bold mb-1">Status</div>
-                  <div className="text-xs font-bold text-white">
-                    {focusedHours}h / <span className="text-orange-400">{Math.max(0, (targetHours - parseFloat(focusedHours))).toFixed(1)}h left</span>
-                  </div>
-                </div>
-              </div>
-              <input
-                type="range" min="1" max="12" step="0.5"
-                value={targetHours}
-                onChange={(e) => setTargetHours(Number(e.target.value))}
-                className="w-full h-1.5 bg-[#222] rounded-full appearance-none cursor-pointer accent-cyan-400 outline-none"
-              />
-            </div>
-          }
-          quality={
-            <div className="flex flex-col h-full justify-center items-center gap-5">
-              <div className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-br from-purple-400 to-pink-500 drop-shadow-[0_0_15px_rgba(192,132,252,0.3)]">
-                {keyOfSuccess}
-              </div>
-              <div className="flex gap-3 justify-center">
-                {[0, 1, 2, 3].map((num) => (
-                  <button
-                    key={num}
-                    onClick={() => setKeyOfSuccess(num)}
-                    className={`w-10 h-10 rounded-[12px] font-bold transition-all flex items-center justify-center border text-sm ${
-                      keyOfSuccess === num
-                        ? 'bg-gradient-to-br from-purple-600/80 to-pink-600/80 text-white border-white/20 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
-                        : 'bg-[#161616] text-white/50 hover:bg-[#222] hover:text-white/80 border-[#333]'
-                    }`}
-                  >
-                    {num === 0 ? 'X' : num === 1 ? '😔' : num === 2 ? '😐' : '😊'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          }
-          input={
-            <div className="flex flex-col h-full justify-center gap-4">
-              <div className="flex justify-between items-center px-1">
-                <label className="text-white/80 font-bold text-sm">
-                  {focusedMinutes}m <span className="text-white/40 text-xs font-medium ml-1">({focusedHours}h)</span>
-                </label>
-                <input
-                  type="number" min="0"
-                  value={focusedMinutes}
-                  onChange={(e) => setFocusedMinutes(Math.max(0, Number(e.target.value)))}
-                  className="w-16 px-2 py-1.5 bg-[#161616] border border-[#333] rounded-[8px] text-white text-xs font-mono font-bold text-center focus:outline-none focus:border-white/50 transition-colors"
-                />
-              </div>
-              <input
-                type="range" min="0" max="720" step="15"
-                value={focusedMinutes}
-                onChange={(e) => setFocusedMinutes(Number(e.target.value))}
-                className="w-full h-1.5 bg-[#222] rounded-full appearance-none cursor-pointer accent-blue-500 outline-none"
-              />
+    <div className="min-h-screen bg-slate-100 text-slate-950">
+      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+        <motion.header
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+          className="rounded-lg border border-slate-200 bg-white px-4 py-4"
+        >
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
               <button
-                onClick={handleSaveDayDetails} disabled={isSaving}
-                className="w-full mt-2 py-3 rounded-xl bg-white hover:bg-gray-200 text-black text-[10px] uppercase tracking-wider font-bold transition-all disabled:opacity-50"
+                type="button"
+                onClick={() => router.back()}
+                className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
+                aria-label="Quay lại"
               >
-                {isSaving ? 'Saving...' : 'Save Day Details'}
+                <ChevronLeft className="h-5 w-5" />
               </button>
-            </div>
-          }
-          sessions={
-            <div className="flex h-full w-full flex-col gap-3 overflow-y-auto px-1 pb-2 pt-2 sm:flex-row sm:items-center sm:overflow-x-auto sm:overflow-y-hidden"
-              style={{ scrollbarWidth: 'none' }}
-            >
-              {sessions.length === 0 ? (
-                <div className="flex items-center justify-center w-full h-full text-white/30 text-xs font-medium">
-                  Chưa có dữ liệu học tập cho ngày này
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="truncate text-xl font-semibold text-slate-950 sm:text-2xl">
+                    {dayName}, {day} {monthNames[month - 1]} {year}
+                  </h1>
+                  {isToday() && (
+                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">Hôm nay</span>
+                  )}
                 </div>
-              ) : (
-                <AnimatePresence>
-                  {sessions.map((session) => (
-                    <SessionItem
-                      key={session.id}
-                      session={session}
-                      onUpdate={handleUpdateSession}
-                      onDelete={handleDeleteSession}
-                    />
-                  ))}
-                </AnimatePresence>
-              )}
+                <p className="mt-1 text-sm text-slate-500">
+                  {focusedHours}h / {targetHours}h tập trung
+                </p>
+              </div>
             </div>
-          }
-        />
+
+            <div className="grid grid-cols-3 gap-2 md:w-[420px]">
+              <SummaryTile label="Hoàn thành" value={`${progressPercent.toFixed(0)}%`} />
+              <SummaryTile label="Còn lại" value={`${remainingHours}h`} />
+              <SummaryTile label="Sessions" value={sessions.length} />
+            </div>
+          </div>
+        </motion.header>
+
+        <main className="grid gap-4 xl:grid-cols-[1fr_1.15fr]">
+          <section className="rounded-lg border border-slate-200 bg-white p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold text-slate-950">Tiến độ ngày</h2>
+                <p className="text-sm text-slate-500">Mục tiêu tập trung và chất lượng trong ngày.</p>
+              </div>
+              <div className="grid h-10 w-10 place-items-center rounded-md bg-blue-50 text-blue-600">
+                <Target className="h-5 w-5" />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-sm text-slate-500">Đã tập trung</p>
+                  <p className="text-4xl font-semibold tracking-tight text-slate-950">{focusedHours}h</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-slate-500">Mục tiêu</p>
+                  <p className="text-2xl font-semibold text-blue-600">{targetHours}h</p>
+                </div>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full bg-slate-200">
+                <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${progressPercent}%` }} />
+              </div>
+              <div className="mt-2 flex justify-between text-xs text-slate-500">
+                <span>{focusedMinutes} phút</span>
+                <span>{remainingHours}h còn lại</span>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <ControlPanel title="Mục tiêu ngày" icon={<Target className="h-4 w-4" />}>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-500">Target</span>
+                    <span className="text-lg font-semibold text-blue-600">{targetHours}h</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="12"
+                    step="0.5"
+                    value={targetHours}
+                    onChange={(event) => setTargetHours(Number(event.target.value))}
+                    className="w-full accent-blue-600"
+                  />
+                </div>
+              </ControlPanel>
+
+              <ControlPanel title="Key of Success" icon={<Trophy className="h-4 w-4" />}>
+                <div className="space-y-3">
+                  <div className="text-center text-3xl font-semibold text-slate-950">{keyOfSuccess}</div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[0, 1, 2, 3].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => setKeyOfSuccess(num)}
+                        className={`h-10 rounded-md border text-sm font-semibold transition ${
+                          keyOfSuccess === num
+                            ? 'border-blue-600 bg-blue-600 text-white'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50'
+                        }`}
+                      >
+                        {num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </ControlPanel>
+            </div>
+          </section>
+
+          <section className="grid gap-4 lg:grid-cols-2">
+            <ControlPanel title="Stopwatch" icon={<Clock3 className="h-4 w-4" />}>
+              <div className="flex min-h-[220px] flex-col justify-between rounded-lg border border-blue-100 bg-blue-50 p-4">
+                <div className="text-center">
+                  <p className="text-sm font-medium text-blue-700">Thời gian đang đo</p>
+                  <p className="mt-4 font-mono text-5xl font-semibold tracking-tight text-blue-700">{formatTime(stopwatchTime)}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2 2xl:grid-cols-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsRunning((value) => !value)}
+                    className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
+                  >
+                    {isRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                    {isRunning ? 'Tạm dừng' : 'Bắt đầu'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStopwatchTime(0);
+                      setIsRunning(false);
+                    }}
+                    className="inline-flex items-center justify-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveStopwatch}
+                    className="col-span-2 inline-flex items-center justify-center gap-2 rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 sm:col-span-2 lg:col-span-2 2xl:col-span-2"
+                  >
+                    <Save className="h-4 w-4" />
+                    Lưu stopwatch
+                  </button>
+                </div>
+              </div>
+            </ControlPanel>
+
+            <ControlPanel title="Điều chỉnh thủ công" icon={<SlidersHorizontal className="h-4 w-4" />}>
+              <div className="flex min-h-[220px] flex-col justify-between gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-sm font-medium text-slate-700">Phút tập trung</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={focusedMinutes}
+                      onChange={(event) => setFocusedMinutes(Math.max(0, Number(event.target.value)))}
+                      className="h-9 w-24 rounded-md border border-slate-200 bg-white px-3 text-right text-sm font-semibold text-slate-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="720"
+                    step="15"
+                    value={focusedMinutes}
+                    onChange={(event) => setFocusedMinutes(Number(event.target.value))}
+                    className="w-full accent-blue-600"
+                  />
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>0m</span>
+                    <span>720m</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveDayDetails}
+                  disabled={isSaving}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Save className="h-4 w-4" />
+                  {isSaving ? 'Đang lưu...' : 'Lưu chi tiết ngày'}
+                </button>
+              </div>
+            </ControlPanel>
+          </section>
+        </main>
+
+        <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold text-slate-950">Session trong ngày</h2>
+              <p className="text-sm text-slate-500">Các session được ghi nhận cho ngày này.</p>
+            </div>
+            <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{sessions.length} session</span>
+          </div>
+
+          {sessions.length === 0 ? (
+            <div className="flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+              Chưa có dữ liệu học tập cho ngày này
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <AnimatePresence>
+                {sessions.map((session) => (
+                  <SessionItem key={session.id} session={session} onUpdate={handleUpdateSession} onDelete={handleDeleteSession} />
+                ))}
+              </AnimatePresence>
+            </div>
+          )}
+        </section>
       </div>
     </div>
+  );
+}
+
+function SummaryTile({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
+    </div>
+  );
+}
+
+function ControlPanel({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="mb-4 flex items-center gap-2">
+        <div className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 text-slate-600">{icon}</div>
+        <h3 className="font-semibold text-slate-950">{title}</h3>
+      </div>
+      {children}
+    </section>
   );
 }
