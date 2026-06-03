@@ -2,9 +2,8 @@
 
 import { DateInfo } from '@/app/lib/calendar';
 import { ApiTask } from '@/app/lib/api';
-import type { CalendarSessionItem } from './CalendarView';
 import { BentoCard3D } from './BentoCard';
-import { Calendar, Clock, Sparkles } from 'lucide-react';
+import { Calendar, Sparkles } from 'lucide-react';
 
 interface DateData {
   id?: string;
@@ -19,36 +18,21 @@ interface DayCardProps {
   date: DateInfo;
   data?: DateData;
   onSelectDay?: () => void;
-  sessionCount?: number;
-  sessions?: CalendarSessionItem[];
   deadlineTasks?: ApiTask[];
 }
 
-export default function DayCard({ date, data, onSelectDay, sessionCount = 0, sessions = [], deadlineTasks = [] }: DayCardProps) {
+export default function DayCard({ date, data, onSelectDay, deadlineTasks = [] }: DayCardProps) {
   const focusedMinutes = data?.focused_minutes || 0;
   const visibleDeadlineTasks = deadlineTasks.slice(0, 6);
-  const visibleSessions = sessions.slice(0, 6);
-  const extraSessionColor = visibleSessions[0]?.topicColor;
   const extraDeadlineCount = Math.max(deadlineTasks.length - visibleDeadlineTasks.length, 0);
-  const extraSessionCount = Math.max(sessions.length - visibleSessions.length, 0);
   const hasDeadline = deadlineTasks.length > 0;
-  const sessionGridClass = sessions.length <= 2 ? 'grid-cols-1' : 'grid-cols-2';
   const deadlineGridClass = deadlineTasks.length <= 2 ? 'grid-cols-1' : 'grid-cols-2';
-  const sessionItemClass = sessions.length <= 2
-    ? 'px-2 py-1.5'
-    : 'px-1.5 py-1';
   const deadlineItemClass = deadlineTasks.length <= 2
     ? 'px-2 py-1.5'
     : 'px-1.5 py-1';
-  const sessionNameClass = sessions.length <= 2
-    ? 'text-[11px] sm:text-xs leading-snug whitespace-normal break-words'
-    : 'truncate text-[10px] leading-tight';
   const deadlineNameClass = deadlineTasks.length <= 2
     ? 'text-[11px] sm:text-xs leading-snug whitespace-normal break-words'
     : 'truncate text-[10px] leading-tight';
-  const sessionTimeClass = sessions.length <= 2
-    ? 'text-[10px] leading-snug'
-    : 'truncate text-[9px] leading-tight';
   const weekdayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   const cardTitle = `${weekdayLabels[date.date.getDay()]} ${String(date.day).padStart(2, '0')}/${String(date.month).padStart(2, '0')}`;
 
@@ -63,11 +47,6 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
 
   const focusedHours = (focusedMinutes / 60).toFixed(1);
 
-  const formatTime = (timeStr: string) => {
-    const time = new Date(timeStr);
-    return time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-  };
-
   const handleClick = () => {
     if (date.isCurrentMonth && onSelectDay) {
       onSelectDay();
@@ -76,7 +55,6 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
 
   const getIcon = () => {
     if (isToday()) return <Calendar size={20} className="text-yellow-400" />;
-    if (sessionCount > 0) return <Clock size={20} className="text-blue-400" />;
     return <Sparkles size={20} className="text-white/40" />;
   };
 
@@ -88,7 +66,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
       onClick={handleClick}
       icon={getIcon()}
       title={cardTitle}
-      description={sessionCount > 0 ? `${sessionCount} session${sessionCount !== 1 ? 's' : ''}` : 'No sessions'}
+      description={deadlineTasks.length > 0 ? `${deadlineTasks.length} deadline` : 'No deadlines'}
       style={hasDeadline ? {
         border: '1px solid rgba(248, 113, 113, 0.38)',
         background: 'linear-gradient(135deg, rgba(127, 29, 29, 0.34) 0%, rgba(69, 10, 10, 0.24) 55%, rgba(10, 10, 10, 0.96) 100%)',
@@ -105,41 +83,7 @@ export default function DayCard({ date, data, onSelectDay, sessionCount = 0, ses
             </span>
           </div>
 
-          {sessions.length > 0 ? (
-            <div className={`grid min-h-0 ${sessionGridClass} gap-1.5 overflow-hidden`}>
-              {visibleSessions.map((session) => (
-                <div
-                  key={session.id}
-                  className={`min-w-0 rounded ${sessionItemClass} shadow-sm`}
-                  style={{
-                    border: `1px solid ${session.topicColor.border}`,
-                    background: session.topicColor.background,
-                    color: session.topicColor.text,
-                    boxShadow: `0 0 12px ${session.topicColor.shadow}`,
-                  }}
-                >
-                  <span className={`block min-w-0 font-semibold normal-case ${sessionNameClass}`}>
-                    {session.sessionName}
-                  </span>
-                  <span className={`block font-medium opacity-70 ${sessionTimeClass}`}>
-                    {formatTime(session.startTime)} - {formatTime(session.endTime)}
-                  </span>
-                </div>
-              ))}
-              {extraSessionCount > 0 && (
-                <div
-                  className="min-w-0 rounded px-1.5 py-1 text-[10px] font-semibold leading-tight"
-                  style={extraSessionColor ? {
-                    border: `1px solid ${extraSessionColor.border}`,
-                    background: extraSessionColor.background,
-                    color: extraSessionColor.text,
-                  } : undefined}
-                >
-                  +{extraSessionCount} more session
-                </div>
-              )}
-            </div>
-          ) : deadlineTasks.length > 0 && (
+          {deadlineTasks.length > 0 && (
             <div className={`grid min-h-0 ${deadlineGridClass} gap-1.5 overflow-hidden`}>
               {visibleDeadlineTasks.map((task) => (
                 <div key={task.id} className={`min-w-0 rounded border border-red-500/30 bg-red-950/70 ${deadlineItemClass} text-red-200 shadow-sm shadow-red-950/40`}>

@@ -159,8 +159,8 @@ function Overview({ onOpenTasks, onOpenCalendar }: { onOpenTasks: () => void; on
       <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <OverviewCard label="Task hôm nay" value="12" hint="4 task cần xử lý" />
         <OverviewCard label="Root task đang chạy" value="15" hint="5 topic đang hoạt động" />
-        <OverviewCard label="Session đúng giờ" value="75%" hint="30 ngày gần nhất" />
-        <OverviewCard label="Tổng thời lượng" value="45h 30m" hint="Tất cả session" />
+        <OverviewCard label="Task hoàn thành" value="84%" hint="Theo cây hiện tại" />
+        <OverviewCard label="Leaf quá hạn" value="3" hint="Cần xử lý sớm" />
       </div>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -173,7 +173,7 @@ function Overview({ onOpenTasks, onOpenCalendar }: { onOpenTasks: () => void; on
             <button onClick={onOpenTasks} className="rounded-md bg-slate-950 px-3 py-2 text-sm text-white">Mở task</button>
           </div>
           <div className="space-y-2">
-            {['Xây dựng hệ thống task tree', 'Hoàn thiện giao diện calendar', 'Tổng hợp session đúng giờ'].map((item, index) => (
+            {['Xây dựng hệ thống task tree', 'Hoàn thiện giao diện calendar', 'Chuẩn hóa analytics task'].map((item, index) => (
               <div key={item} className="flex items-center justify-between rounded-md border border-slate-200 p-3">
                 <div>
                   <p className="text-sm font-medium">{item}</p>
@@ -189,12 +189,12 @@ function Overview({ onOpenTasks, onOpenCalendar }: { onOpenTasks: () => void; on
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h3 className="font-semibold">Lịch hôm nay</h3>
-              <p className="text-sm text-slate-500">Session và deadline gần nhất.</p>
+              <p className="text-sm text-slate-500">Deadline gần nhất.</p>
             </div>
             <button onClick={onOpenCalendar} className="rounded-md border border-slate-200 px-3 py-2 text-sm">Mở lịch</button>
           </div>
           <div className="space-y-2">
-            {['09:00 Thiết kế UI task', '14:00 Review schema', '20:00 Tổng kết ngày'].map((item) => (
+            {['Hạn: Thiết kế UI task', 'Hạn: Review schema', 'Hạn: Tổng kết ngày'].map((item) => (
               <div key={item} className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">{item}</div>
             ))}
           </div>

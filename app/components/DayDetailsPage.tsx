@@ -1,12 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { ChevronLeft, Clock3, Pause, Play, RotateCcw, Save, SlidersHorizontal, Target, Trophy } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { api, ApiDate, ApiSession } from '@/app/lib/api';
+import { api, ApiDate } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
-import { SessionItem } from './SessionItem';
 
 interface DayDetailsPageProps {
   day: number;
@@ -36,7 +35,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
   const { user } = useAppStore();
   const [focusedMinutes, setFocusedMinutes] = useState(0);
   const [keyOfSuccess, setKeyOfSuccess] = useState(0);
-  const [sessions, setSessions] = useState<ApiSession[]>([]);
   const [stopwatchTime, setStopwatchTime] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [targetHours, setTargetHours] = useState(8);
@@ -47,19 +45,14 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
   useEffect(() => {
     if (!user?.id) return;
 
-    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const loadDateData = async () => {
       try {
-        const [dateRows, daySessions] = await Promise.all([
-          api.getDates(user.id, month, year),
-          api.getSessions(user.id, { date: dateStr }),
-        ]);
+        const dateRows = await api.getDates(user.id, month, year);
 
         const matchedDate = dateRows.find((item: ApiDate) => item.day === day && item.month === month && item.year === year);
         setDateRecordId(matchedDate?.id || null);
         setFocusedMinutes(matchedDate?.focused_minutes || 0);
         setKeyOfSuccess(matchedDate?.key_of_success || 0);
-        setSessions(daySessions as ApiSession[]);
       } catch (error) {
         console.error('Error loading day details:', error);
       }
@@ -137,33 +130,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     }
   };
 
-  const handleUpdateSession = async (id: string, updates: Partial<ApiSession>) => {
-    try {
-      await api.updateSession({
-        id,
-        sessionName: updates.session_name,
-        focusedMinutes: updates.focused_minutes ?? undefined,
-        keyOfSuccess: updates.key_of_success ?? undefined,
-        startTime: updates.start_time,
-        endTime: updates.end_time,
-        sessionDate: updates.session_date,
-        inTimeStatus: updates.in_time_status,
-      });
-      setSessions((prev) => prev.map((session) => (session.id === id ? { ...session, ...updates } : session)));
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const handleDeleteSession = async (id: string) => {
-    try {
-      await api.deleteSession(id);
-      setSessions((prev) => prev.filter((session) => session.id !== id));
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
   const isToday = () => {
     const today = new Date();
     return day === today.getDate() && month === today.getMonth() + 1 && year === today.getFullYear();
@@ -212,7 +178,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
             <div className="grid grid-cols-3 gap-2 md:w-[420px]">
               <SummaryTile label="Hoàn thành" value={`${progressPercent.toFixed(0)}%`} />
               <SummaryTile label="Còn lại" value={`${remainingHours}h`} />
-              <SummaryTile label="Sessions" value={sessions.length} />
+              <SummaryTile label="Key" value={keyOfSuccess} />
             </div>
           </div>
         </motion.header>
@@ -372,29 +338,6 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
           </section>
         </main>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <div>
-              <h2 className="font-semibold text-slate-950">Session trong ngày</h2>
-              <p className="text-sm text-slate-500">Các session được ghi nhận cho ngày này.</p>
-            </div>
-            <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{sessions.length} session</span>
-          </div>
-
-          {sessions.length === 0 ? (
-            <div className="flex min-h-[140px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
-              Chưa có dữ liệu học tập cho ngày này
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <AnimatePresence>
-                {sessions.map((session) => (
-                  <SessionItem key={session.id} session={session} onUpdate={handleUpdateSession} onDelete={handleDeleteSession} />
-                ))}
-              </AnimatePresence>
-            </div>
-          )}
-        </section>
       </div>
     </div>
   );

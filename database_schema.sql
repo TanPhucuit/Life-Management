@@ -75,8 +75,9 @@ CREATE TABLE tasks (
   parent_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT,
+  start_date TIMESTAMP,
   deadline TIMESTAMP,
-  status VARCHAR(20) DEFAULT 'not_completed' CHECK (status IN ('not_completed', 'completed')),
+  status VARCHAR(20) DEFAULT 'not_completed' CHECK (status IN ('not_completed', 'in_progress', 'completed')),
   sort_order INTEGER DEFAULT 0,
   task_color VARCHAR(20),
   task_color_start VARCHAR(20),
@@ -129,6 +130,9 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_color VARCHAR(20);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_color_start VARCHAR(20);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_color_end VARCHAR(20);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS start_date TIMESTAMP;
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_status_check CHECK (status IN ('not_completed', 'in_progress', 'completed'));
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS focused_minutes INTEGER;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS key_of_success INTEGER DEFAULT 0 CHECK (key_of_success >= 0 AND key_of_success <= 3);
 
@@ -157,7 +161,8 @@ WITH RECURSIVE task_tree AS (
     t.archived_at,
     t.created_at,
     t.updated_at,
-    0 AS depth
+    0 AS depth,
+    t.start_date
   FROM tasks t
   WHERE t.parent_task_id IS NULL
 
@@ -180,12 +185,30 @@ WITH RECURSIVE task_tree AS (
     child.archived_at,
     child.created_at,
     child.updated_at,
-    parent.depth + 1 AS depth
+    parent.depth + 1 AS depth,
+    child.start_date
   FROM tasks child
   JOIN task_tree parent ON parent.id = child.parent_task_id
 )
 SELECT
-  task_tree.*,
+  task_tree.id,
+  task_tree.user_id,
+  task_tree.topic_id,
+  task_tree.parent_task_id,
+  task_tree.root_task_id,
+  task_tree.title,
+  task_tree.description,
+  task_tree.deadline,
+  task_tree.status,
+  task_tree.sort_order,
+  task_tree.task_color,
+  task_tree.task_color_start,
+  task_tree.task_color_end,
+  task_tree.archived_at,
+  task_tree.created_at,
+  task_tree.updated_at,
+  task_tree.depth,
   (SELECT COUNT(*) FROM tasks c WHERE c.parent_task_id = task_tree.id AND c.archived_at IS NULL) AS child_count,
-  (SELECT COUNT(*) FROM task_tree d WHERE d.root_task_id = task_tree.id AND d.id <> task_tree.id AND d.archived_at IS NULL) AS descendant_count
+  (SELECT COUNT(*) FROM task_tree d WHERE d.root_task_id = task_tree.id AND d.id <> task_tree.id AND d.archived_at IS NULL) AS descendant_count,
+  task_tree.start_date
 FROM task_tree;

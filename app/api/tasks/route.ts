@@ -14,8 +14,9 @@ type TaskRow = {
   parent_task_id?: string | null;
   title: string;
   description?: string | null;
+  start_date?: string | null;
   deadline?: string | null;
-  status: 'completed' | 'not_completed';
+  status: 'completed' | 'in_progress' | 'not_completed';
   sort_order?: number | null;
   task_color?: string | null;
   task_color_start?: string | null;
@@ -32,7 +33,7 @@ type EnrichedTask = TaskRow & {
   descendant_count: number;
   completed_leaf_count: number;
   leaf_count: number;
-  effective_status: 'completed' | 'not_completed';
+  effective_status: 'completed' | 'in_progress' | 'not_completed';
 };
 
 function enrichTasks(rows: TaskRow[]): EnrichedTask[] {
@@ -96,7 +97,9 @@ function enrichTasks(rows: TaskRow[]): EnrichedTask[] {
       ? task.status
       : childStats.length > 0 && childStats.every((child) => child.effective_status === 'completed')
         ? 'completed'
-        : 'not_completed';
+        : childStats.some((child) => child.effective_status === 'in_progress' || child.effective_status === 'completed')
+          ? 'in_progress'
+          : 'not_completed';
 
     const enriched: EnrichedTask = {
       ...task,
@@ -173,7 +176,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, topicId, parentTaskId, title, description, deadline, taskColor, taskColorStart, taskColorEnd } = body;
+    const { userId, topicId, parentTaskId, title, description, startDate, deadline, taskColor, taskColorStart, taskColorEnd } = body;
 
     if (!userId || !topicId || !title?.trim()) {
       return jsonError('Missing required fields', 400);
@@ -214,6 +217,7 @@ export async function POST(request: NextRequest) {
           parent_task_id: parentTaskId || null,
           title: title.trim(),
           description: description?.trim() || null,
+          start_date: startDate || null,
           deadline: deadline || null,
           status: 'not_completed',
           sort_order: count || 0,
@@ -235,7 +239,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, status, title, description, deadline, sortOrder, taskColor, taskColorStart, taskColorEnd } = body;
+    const { id, status, title, description, startDate, deadline, sortOrder, taskColor, taskColorStart, taskColorEnd } = body;
 
     if (!id) return jsonError('Task id is required', 400);
 
@@ -254,6 +258,7 @@ export async function PUT(request: NextRequest) {
     if (status) updateData.status = status;
     if (title !== undefined) updateData.title = title.trim();
     if (description !== undefined) updateData.description = description?.trim() || null;
+    if (startDate !== undefined) updateData.start_date = startDate || null;
     if (deadline !== undefined) updateData.deadline = deadline || null;
     if (sortOrder !== undefined) updateData.sort_order = sortOrder;
     if (taskColor !== undefined) updateData.task_color = taskColor || null;

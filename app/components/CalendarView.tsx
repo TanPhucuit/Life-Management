@@ -1,10 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Clock3 } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { calendarUtils } from '@/app/lib/calendar';
-import { api, ApiSession, ApiTask, ApiTopic } from '@/app/lib/api';
-import { getTopicColor, getTopicColorByName, TopicColor } from '@/app/lib/topicColors';
+import { api, ApiTask } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 
 interface CalendarViewProps {
@@ -12,14 +11,6 @@ interface CalendarViewProps {
   year: number;
   onMonthChange: (month: number, year: number) => void;
   onSelectDay?: (day: number, month: number, year: number) => void;
-}
-
-export interface CalendarSessionItem {
-  id: string;
-  sessionName: string;
-  startTime: string;
-  endTime: string;
-  topicColor: TopicColor;
 }
 
 const monthNames = [
@@ -47,13 +38,9 @@ const getDateKeyFromDateString = (value: string | null | undefined) => {
   return `${dateDay}-${dateMonth}-${dateYear}`;
 };
 
-const formatTime = (value: string) => {
-  return new Date(value).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-};
-
 export default function CalendarView({ month, year, onMonthChange, onSelectDay }: CalendarViewProps) {
   const { user } = useAppStore();
-  const [sessionsByDate, setSessionsByDate] = useState<Map<string, CalendarSessionItem[]>>(new Map());
+  const [startTasksByDate, setStartTasksByDate] = useState<Map<string, ApiTask[]>>(new Map());
   const [deadlineTasksByDate, setDeadlineTasksByDate] = useState<Map<string, ApiTask[]>>(new Map());
   const calendarData = calendarUtils.getMonthCalendar(year, month);
 
@@ -62,40 +49,18 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
 
     const loadCalendar = async () => {
       try {
-        const [sessions, tasks, topics] = await Promise.all([
-          api.getSessions(user.id, { month, year }),
-          api.getTasks(user.id, { view: 'tree' }),
-          api.getTopics(user.id),
-        ]);
+        const tasks = await api.getTasks(user.id, { view: 'tree' });
 
-        const topicColorById = new Map(topics.map((topic: ApiTopic, index: number) => [topic.id, getTopicColorByName(topic.topic_color, index)]));
-        const taskTopicById = new Map(tasks.map((task: ApiTask) => [task.id, task.topic_id]));
-        const sessionItems = new Map<string, CalendarSessionItem[]>();
-
-        sessions.forEach((session: ApiSession) => {
-          const key = getDateKeyFromDateString(session.session_date);
-          if (!key) return;
-          const topicId = taskTopicById.get(session.task_id);
-          const topicColor = topicId ? topicColorById.get(topicId) : undefined;
-          sessionItems.set(key, [
-            ...(sessionItems.get(key) || []),
-            {
-              id: session.id,
-              sessionName: session.session_name || 'Session',
-              startTime: session.start_time,
-              endTime: session.end_time,
-              topicColor: topicColor || getTopicColor(0),
-            },
-          ]);
-        });
-        setSessionsByDate(sessionItems);
-
+        const starts = new Map<string, ApiTask[]>();
         const deadlines = new Map<string, ApiTask[]>();
         tasks.forEach((task) => {
-          const key = getDateKeyFromDateString(task.deadline);
-          if (!key) return;
-          deadlines.set(key, [...(deadlines.get(key) || []), task]);
+          const startKey = getDateKeyFromDateString(task.start_date);
+          if (startKey) starts.set(startKey, [...(starts.get(startKey) || []), task]);
+
+          const deadlineKey = getDateKeyFromDateString(task.deadline);
+          if (deadlineKey) deadlines.set(deadlineKey, [...(deadlines.get(deadlineKey) || []), task]);
         });
+        setStartTasksByDate(starts);
         setDeadlineTasksByDate(deadlines);
       } catch (error) {
         console.error('Error loading calendar:', error);
@@ -118,7 +83,7 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
       <header className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-semibold">{monthNames[month - 1]} {year}</h2>
-          <p className="text-sm text-slate-500">Session hiển thị như event, deadline hiển thị như task chip.</p>
+          <p className="text-sm text-slate-500">Ngày thực hiện màu xanh dương, deadline màu đỏ.</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handlePrevMonth} className="rounded-md border border-slate-200 p-2 hover:bg-slate-50">
@@ -142,9 +107,10 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-7">
         {calendarData.allDates.map((dateInfo, index) => {
           const key = `${dateInfo.day}-${dateInfo.month}-${dateInfo.year}`;
-          const sessions = sessionsByDate.get(key) || [];
+          const startTasks = startTasksByDate.get(key) || [];
           const deadlines = deadlineTasksByDate.get(key) || [];
           const isToday = dateInfo.day === new Date().getDate() && dateInfo.month === new Date().getMonth() + 1 && dateInfo.year === new Date().getFullYear();
+          const totalItems = startTasks.length + deadlines.length;
 
           return (
             <button
@@ -156,30 +122,22 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
                 <span className={`flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold ${isToday ? 'bg-blue-600 text-white' : 'text-slate-700'}`}>
                   {dateInfo.day}
                 </span>
-                {(sessions.length > 0 || deadlines.length > 0) && <Clock3 className="h-3.5 w-3.5 text-slate-400" />}
+                {totalItems > 0 && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">{totalItems}</span>}
               </div>
 
               <div className="space-y-1">
-                {sessions.slice(0, 3).map((session) => (
-                  <div
-                    key={session.id}
-                    className="truncate rounded px-1.5 py-1 text-[11px] font-medium"
-                    style={{
-                      background: session.topicColor.background,
-                      color: session.topicColor.text,
-                      border: `1px solid ${session.topicColor.border}`,
-                    }}
-                  >
-                    {formatTime(session.startTime)} {session.sessionName}
+                {startTasks.slice(0, 3).map((task) => (
+                  <div key={`start-${task.id}`} className="truncate rounded border border-blue-200 bg-blue-50 px-1.5 py-1 text-[11px] font-medium text-blue-700">
+                    Bắt đầu: {task.title}
                   </div>
                 ))}
-                {deadlines.slice(0, 2).map((task) => (
-                  <div key={task.id} className="truncate rounded border border-orange-200 bg-orange-50 px-1.5 py-1 text-[11px] font-medium text-orange-700">
+                {deadlines.slice(0, Math.max(0, 5 - Math.min(startTasks.length, 3))).map((task) => (
+                  <div key={`deadline-${task.id}`} className="truncate rounded border border-red-200 bg-red-50 px-1.5 py-1 text-[11px] font-medium text-red-700">
                     Hạn: {task.title}
                   </div>
                 ))}
-                {sessions.length + deadlines.length > 5 && (
-                  <div className="text-[11px] text-slate-500">+{sessions.length + deadlines.length - 5} mục khác</div>
+                {totalItems > 5 && (
+                  <div className="text-[11px] text-slate-500">+{totalItems - 5} mục khác</div>
                 )}
               </div>
             </button>

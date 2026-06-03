@@ -7,7 +7,7 @@ export interface ApiTopic {
   updated_at?: string;
 }
 
-export type ApiTaskStatus = 'completed' | 'not_completed';
+export type ApiTaskStatus = 'completed' | 'in_progress' | 'not_completed';
 
 export interface ApiTask {
   id: string;
@@ -17,6 +17,7 @@ export interface ApiTask {
   root_task_id?: string | null;
   title: string;
   description?: string | null;
+  start_date?: string | null;
   deadline?: string | null;
   status: ApiTaskStatus;
   effective_status?: ApiTaskStatus;
@@ -64,13 +65,10 @@ export interface ApiDate {
 
 export interface TaskTreeStats {
   completedTasks: number;
-  activeRootTasks: number;
+  incompleteTasks: number;
+  inProgressTasks: number;
   overdueLeafTasks: number;
   totalTasks: number;
-  totalSessions: number;
-  onTimeSessions: number;
-  outTimeSessions: number;
-  totalSessionMinutes: number;
 }
 
 const API_URL = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_API_URL || '' : '';
@@ -138,6 +136,7 @@ export const api = {
     parentTaskId?: string | null;
     title: string;
     description?: string;
+    startDate?: string;
     deadline?: string;
     taskColor?: string | null;
     taskColorStart?: string | null;
@@ -153,6 +152,7 @@ export const api = {
     status?: ApiTaskStatus;
     title?: string;
     description?: string | null;
+    startDate?: string | null;
     deadline?: string | null;
     sortOrder?: number;
     taskColor?: string | null;

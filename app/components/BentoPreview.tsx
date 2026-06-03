@@ -86,8 +86,8 @@ export function BentoPreview() {
           <BentoCard3D 
             className="p-6 h-64"
             icon={<Zap size={24} />}
-            title="Focus Session"
-            description="Active study tracking"
+            title="Focus Day"
+            description="Active focus tracking"
           >
             <div className="space-y-6 mt-4">
               <div>
@@ -99,7 +99,7 @@ export function BentoPreview() {
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-white/5 rounded-lg p-3 text-center">
-                  <div className="text-sm text-white/50">Sessions</div>
+                  <div className="text-sm text-white/50">Focus blocks</div>
                   <div className="text-lg font-bold text-white">8</div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-3 text-center">
