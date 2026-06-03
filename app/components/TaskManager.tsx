@@ -3,11 +3,13 @@
 import { FormEvent, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  CalendarDays,
   CheckCircle2,
   Circle,
   Folder,
   FolderPlus,
   GitBranch,
+  MoreHorizontal,
   LocateFixed,
   Move,
   Plus,
@@ -32,10 +34,10 @@ type DragState = { taskId: string; offsetX: number; offsetY: number };
 
 const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', deadline: '', parentTaskId: null };
 
-const nodeWidth = 280;
-const nodeHeight = 124;
-const levelGap = 430;
-const siblingGap = 176;
+const nodeWidth = 300;
+const nodeHeight = 156;
+const levelGap = 470;
+const siblingGap = 214;
 const canvasPadding = 48;
 const canvasMinWidth = 2200;
 const canvasMinHeight = 1400;
@@ -45,10 +47,61 @@ const autoPanStep = 28;
 const connectorSpineOffset = 118;
 const connectorChildInset = 74;
 const connectorRadius = 14;
-const completedTaskBackground = '#86efac';
-const inProgressTaskBackground = '#93c5fd';
-const overdueTaskBackground = '#fca5a5';
-const pendingTaskBackground = '#ffffff';
+const taskThemes = {
+  incomplete: {
+    background: '#FFFFFF',
+    border: '#E2E8F0',
+    text: '#334155',
+    muted: '#64748B',
+    chipBackground: '#F1F5F9',
+    chipText: '#64748B',
+    progress: '#94A3B8',
+    connector: '#94A3B8',
+    selected: '#2563EB',
+    shadow: 'rgba(15, 23, 42, 0.06)',
+    markerId: 'task-arrow-slate',
+  },
+  inProgress: {
+    background: '#EFF6FF',
+    border: '#93C5FD',
+    text: '#1E3A8A',
+    muted: '#475569',
+    chipBackground: '#DBEAFE',
+    chipText: '#1D4ED8',
+    progress: '#3B82F6',
+    connector: '#3B82F6',
+    selected: '#2563EB',
+    shadow: 'rgba(59, 130, 246, 0.12)',
+    markerId: 'task-arrow-blue',
+  },
+  completed: {
+    background: '#ECFDF5',
+    border: '#86EFAC',
+    text: '#14532D',
+    muted: '#475569',
+    chipBackground: '#DCFCE7',
+    chipText: '#15803D',
+    progress: '#22C55E',
+    connector: '#22C55E',
+    selected: '#16A34A',
+    shadow: 'rgba(34, 197, 94, 0.12)',
+    markerId: 'task-arrow-green',
+  },
+  overdue: {
+    background: '#FEF2F2',
+    border: '#FCA5A5',
+    text: '#7F1D1D',
+    muted: '#64748B',
+    chipBackground: '#FEE2E2',
+    chipText: '#DC2626',
+    progress: '#EF4444',
+    connector: '#EF4444',
+    selected: '#DC2626',
+    shadow: 'rgba(239, 68, 68, 0.12)',
+    markerId: 'task-arrow-red',
+  },
+};
+type TaskTheme = (typeof taskThemes)[keyof typeof taskThemes];
 
 const inputClass =
   'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
@@ -65,10 +118,22 @@ const isTaskOverdue = (task: ApiTask) => {
   return new Date(task.deadline) < new Date();
 };
 
+const getTaskTone = (task: ApiTask): keyof typeof taskThemes => {
+  if (isTaskDone(task)) return 'completed';
+  if (isTaskOverdue(task)) return 'overdue';
+  if (isTaskInProgress(task)) return 'inProgress';
+  return 'incomplete';
+};
+
 const getTaskStatusLabel = (status?: ApiTaskStatus) => {
   if (status === 'completed') return 'Hoàn thành';
   if (status === 'in_progress') return 'Đang thực hiện';
   return 'Chưa hoàn thành';
+};
+
+const getTaskDisplayStatus = (task: ApiTask) => {
+  if (isTaskOverdue(task)) return 'Quá hạn';
+  return getTaskStatusLabel(task.effective_status || task.status);
 };
 
 const toDateTimeInputValue = (value?: string | null) => {
@@ -82,11 +147,11 @@ const toDateTimeInputValue = (value?: string | null) => {
 export default function TaskManager() {
   const { user } = useAppStore();
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const topScrollRef = useRef<HTMLDivElement | null>(null);
   const [topics, setTopics] = useState<ApiTopic[]>([]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [selectedRootId, setSelectedRootId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [newTopicName, setNewTopicName] = useState('');
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyTaskDraft);
@@ -95,6 +160,7 @@ export default function TaskManager() {
   const [errorMessage, setErrorMessage] = useState('');
   const [nodePositions, setNodePositions] = useState<Record<string, NodePosition>>({});
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [canvasZoom, setCanvasZoom] = useState(1);
 
   const loadData = async () => {
     if (!user?.id) return;
@@ -113,12 +179,9 @@ export default function TaskManager() {
       const nextTopicId = selectedTopicId && topicRows.some((topic) => topic.id === selectedTopicId) ? selectedTopicId : topicRows[0]?.id || '';
       if (nextTopicId !== selectedTopicId) setSelectedTopicId(nextTopicId);
 
-      const scopedRoots = taskRows.filter((task) => !task.parent_task_id && task.topic_id === nextTopicId);
-      const nextRoot = selectedRootId && scopedRoots.some((task) => task.id === selectedRootId) ? selectedRootId : scopedRoots[0]?.id || null;
-      setSelectedRootId(nextRoot);
       setSelectedTaskId((current) => {
-        if (current && taskRows.some((task) => task.id === current)) return current;
-        return nextRoot;
+        if (current && taskRows.some((task) => task.id === current && task.topic_id === nextTopicId)) return current;
+        return taskRows.find((task) => !task.parent_task_id && task.topic_id === nextTopicId)?.id || null;
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu nhiệm vụ.');
@@ -148,29 +211,11 @@ export default function TaskManager() {
 
   const rootTasks = childrenByParent.get(null) || [];
 
-  useEffect(() => {
-    const rootExists = selectedRootId && rootTasks.some((task) => task.id === selectedRootId);
-    const nextRootId = rootExists ? selectedRootId : rootTasks[0]?.id || null;
-    if (nextRootId !== selectedRootId) {
-      setSelectedRootId(nextRootId);
-      setSelectedTaskId(nextRootId);
-    }
-  }, [rootTasks, selectedRootId]);
-
   const selectedTask = selectedTaskId ? taskById.get(selectedTaskId) || null : null;
   const selectedTaskChildren = selectedTask ? childrenByParent.get(selectedTask.id) || [] : [];
 
   const canvasTasks = useMemo(() => {
-    if (!selectedRootId) return [];
-
-    const subtreeIds = new Set<string>();
-    const collect = (taskId: string) => {
-      subtreeIds.add(taskId);
-      (childrenByParent.get(taskId) || []).forEach((child) => collect(child.id));
-    };
-    collect(selectedRootId);
-
-    const baseTasks = topicScopedTasks.filter((task) => subtreeIds.has(task.id));
+    const baseTasks = topicScopedTasks;
     const search = searchTerm.trim().toLowerCase();
     if (!search) return baseTasks;
 
@@ -190,14 +235,15 @@ export default function TaskManager() {
     });
 
     return baseTasks.filter((task) => visibleIds.has(task.id));
-  }, [childrenByParent, searchTerm, selectedRootId, taskById, topicScopedTasks]);
+  }, [searchTerm, taskById, topicScopedTasks]);
 
   const canvasTaskIds = useMemo(() => new Set(canvasTasks.map((task) => task.id)), [canvasTasks]);
-  const layoutStorageKey = user?.id && selectedRootId ? `life-manager-task-layout:${user.id}:${selectedRootId}` : null;
+  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:${user.id}:topic:${selectedTopicId}` : null;
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};
-    if (!selectedRootId || !canvasTaskIds.has(selectedRootId)) return positions;
+    const visibleRoots = rootTasks.filter((root) => canvasTaskIds.has(root.id));
+    if (visibleRoots.length === 0) return positions;
 
     let leafIndex = 0;
     const place = (task: ApiTask, depth: number): number => {
@@ -215,10 +261,12 @@ export default function TaskManager() {
       return y;
     };
 
-    const root = taskById.get(selectedRootId);
-    if (root) place(root, 0);
+    visibleRoots.forEach((root, index) => {
+      if (index > 0) leafIndex += 1;
+      place(root, 0);
+    });
     return positions;
-  }, [canvasTaskIds, childrenByParent, selectedRootId, taskById]);
+  }, [canvasTaskIds, childrenByParent, rootTasks]);
 
   useEffect(() => {
     setNodePositions((current) => {
@@ -267,6 +315,39 @@ export default function TaskManager() {
     return { width: maxX, height: maxY };
   }, [canvasTasks, nodePositions]);
 
+  const scaledCanvasSize = useMemo(
+    () => ({
+      width: Math.ceil(canvasSize.width * canvasZoom),
+      height: Math.ceil(canvasSize.height * canvasZoom),
+    }),
+    [canvasSize.height, canvasSize.width, canvasZoom]
+  );
+
+  const updateCanvasZoom = (nextZoom: number) => {
+    setCanvasZoom(Math.min(1.6, Math.max(0.5, Math.round(nextZoom * 10) / 10)));
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      if (event.key === '-' || event.key === '_') {
+        event.preventDefault();
+        updateCanvasZoom(canvasZoom - 0.1);
+      }
+      if (event.key === '+' || event.key === '=') {
+        event.preventDefault();
+        updateCanvasZoom(canvasZoom + 0.1);
+      }
+      if (event.key === '0') {
+        event.preventDefault();
+        updateCanvasZoom(1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canvasZoom]);
+
   const stats = useMemo(() => {
     const leafTasks = topicScopedTasks.filter((task) => (task.child_count || 0) === 0);
     const completedLeafTasks = leafTasks.filter((task) => task.status === 'completed' || task.effective_status === 'completed');
@@ -286,13 +367,7 @@ export default function TaskManager() {
   const selectTopic = (topicId: string) => {
     setSelectedTopicId(topicId);
     const firstRoot = tasks.find((task) => !task.parent_task_id && task.topic_id === topicId);
-    setSelectedRootId(firstRoot?.id || null);
     setSelectedTaskId(firstRoot?.id || null);
-  };
-
-  const selectRootTask = (taskId: string) => {
-    setSelectedRootId(taskId);
-    setSelectedTaskId(taskId);
   };
 
   const openTaskModal = (parentTaskId: string | null) => {
@@ -310,6 +385,18 @@ export default function TaskManager() {
     setNodePositions(autoLayoutPositions);
   };
 
+  const handleTopScroll = () => {
+    if (!topScrollRef.current || !canvasRef.current) return;
+    canvasRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+  };
+
+  const handleCanvasScroll = () => {
+    if (!topScrollRef.current || !canvasRef.current) return;
+    if (topScrollRef.current.scrollLeft !== canvasRef.current.scrollLeft) {
+      topScrollRef.current.scrollLeft = canvasRef.current.scrollLeft;
+    }
+  };
+
   const startDrag = (event: ReactMouseEvent, taskId: string) => {
     event.preventDefault();
     event.stopPropagation();
@@ -320,8 +407,8 @@ export default function TaskManager() {
     setSelectedTaskId(taskId);
     setDragState({
       taskId,
-      offsetX: event.clientX - canvasRect.left + (canvasRef.current?.scrollLeft || 0) - currentPosition.x,
-      offsetY: event.clientY - canvasRect.top + (canvasRef.current?.scrollTop || 0) - currentPosition.y,
+      offsetX: (event.clientX - canvasRect.left + (canvasRef.current?.scrollLeft || 0)) / canvasZoom - currentPosition.x,
+      offsetY: (event.clientY - canvasRect.top + (canvasRef.current?.scrollTop || 0)) / canvasZoom - currentPosition.y,
     });
   };
 
@@ -340,8 +427,12 @@ export default function TaskManager() {
     if (distanceBottom < autoPanThreshold) canvas.scrollTop += autoPanStep;
     if (distanceTop < autoPanThreshold) canvas.scrollTop = Math.max(0, canvas.scrollTop - autoPanStep);
 
-    const nextX = event.clientX - canvasRect.left + canvas.scrollLeft - dragState.offsetX;
-    const nextY = event.clientY - canvasRect.top + canvas.scrollTop - dragState.offsetY;
+    if (topScrollRef.current && topScrollRef.current.scrollLeft !== canvas.scrollLeft) {
+      topScrollRef.current.scrollLeft = canvas.scrollLeft;
+    }
+
+    const nextX = (event.clientX - canvasRect.left + canvas.scrollLeft) / canvasZoom - dragState.offsetX;
+    const nextY = (event.clientY - canvasRect.top + canvas.scrollTop) / canvasZoom - dragState.offsetY;
 
     setNodePositions((current) => ({
       ...current,
@@ -399,7 +490,6 @@ export default function TaskManager() {
       const topic = await api.createTopic(user.id, newTopicName.trim(), topicColorPalette[topics.length % topicColorPalette.length].name);
       setTopics((current) => [topic, ...current]);
       setSelectedTopicId(topic.id);
-      setSelectedRootId(null);
       setSelectedTaskId(null);
       setNewTopicName('');
     } catch (error) {
@@ -434,7 +524,6 @@ export default function TaskManager() {
       setIsTaskModalOpen(false);
       setTaskDraft(emptyTaskDraft);
       await loadData();
-      setSelectedRootId(taskDraft.parentTaskId ? selectedRootId : created.id);
       setSelectedTaskId(created.id);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Không tạo được nhiệm vụ.');
@@ -464,7 +553,7 @@ export default function TaskManager() {
 
     try {
       await api.deleteTask(taskId);
-      setSelectedTaskId((current) => (current === taskId ? selectedRootId : current));
+      setSelectedTaskId((current) => (current === taskId ? null : current));
       await loadData();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Không lưu trữ được nhiệm vụ.');
@@ -504,7 +593,7 @@ export default function TaskManager() {
                   />
                 </div>
                 <button
-                  onClick={() => openTaskModal(selectedTask?.id || selectedRootId)}
+                  onClick={() => openTaskModal(null)}
                   className="flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
                   <Plus className="h-4 w-4" />
@@ -530,28 +619,6 @@ export default function TaskManager() {
               })}
             </div>
 
-            <div className="mt-3 flex gap-2 overflow-x-auto border-t border-slate-100 pt-3">
-              {rootTasks.length === 0 ? (
-                <button onClick={() => openTaskModal(null)} className="rounded-md border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-500 hover:bg-slate-50">
-                  Thêm root task cho tab này
-                </button>
-              ) : (
-                rootTasks.map((root) => (
-                  <button
-                    key={root.id}
-                    onClick={() => selectRootTask(root.id)}
-                    className={`flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${
-                      selectedRootId === root.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white hover:bg-slate-50'
-                    }`}
-                  >
-                    <GitBranch className="h-4 w-4" />
-                    {root.title}
-                    <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">{getCompletionPercent(root)}%</span>
-                  </button>
-                ))
-              )}
-            </div>
-
             {errorMessage && (
               <div className="mt-3 flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 <AlertCircle className="h-4 w-4" />
@@ -572,18 +639,29 @@ export default function TaskManager() {
             onMouseMove={handleCanvasMouseMove}
             onMouseUp={handleCanvasMouseUp}
             onMouseLeave={handleCanvasMouseUp}
-            className="relative min-h-0 flex-1 overflow-auto bg-slate-50"
+            onScroll={handleCanvasScroll}
+            className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-slate-50"
           >
-            <div className="sticky left-0 top-0 z-20 flex items-center gap-2 border-b border-slate-200 bg-white/95 px-4 py-2 backdrop-blur">
-              <button
-                type="button"
-                onClick={resetCanvasLayout}
-                className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <LocateFixed className="h-4 w-4" />
-                Auto layout
-              </button>
-              <span className="text-xs text-slate-500">Kéo node để sắp xếp. Thứ tự anh em được lưu theo vị trí dọc.</span>
+            <div className="sticky left-0 top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-2 backdrop-blur">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={resetCanvasLayout}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  <LocateFixed className="h-4 w-4" />
+                  Auto layout
+                </button>
+                <div className="inline-flex overflow-hidden rounded-md border border-slate-200 bg-white text-sm">
+                  <button type="button" onClick={() => updateCanvasZoom(canvasZoom - 0.1)} className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">-</button>
+                  <button type="button" onClick={() => updateCanvasZoom(1)} className="border-x border-slate-200 px-3 py-1.5 font-medium text-slate-700">{Math.round(canvasZoom * 100)}%</button>
+                  <button type="button" onClick={() => updateCanvasZoom(canvasZoom + 0.1)} className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">+</button>
+                </div>
+                <span className="text-xs text-slate-500">Ctrl + - / Ctrl + + để zoom. Kéo node để sắp xếp theo vị trí dọc.</span>
+              </div>
+              <div ref={topScrollRef} onScroll={handleTopScroll} className="h-3 overflow-x-auto overflow-y-hidden">
+                <div style={{ width: scaledCanvasSize.width, height: 1 }} />
+              </div>
             </div>
 
             {canvasTasks.length === 0 ? (
@@ -591,19 +669,29 @@ export default function TaskManager() {
                 Chưa có task trong root này.
               </div>
             ) : (
-              <div className="relative" style={{ width: canvasSize.width, height: canvasSize.height }}>
+              <div className="relative" style={{ width: scaledCanvasSize.width, height: scaledCanvasSize.height }}>
+                <div className="absolute left-0 top-0" style={{ width: canvasSize.width, height: canvasSize.height, transform: `scale(${canvasZoom})`, transformOrigin: '0 0' }}>
                 <svg className="pointer-events-none absolute inset-0 z-0" width={canvasSize.width} height={canvasSize.height}>
                   <defs>
-                    <marker id="task-arrow-small" markerWidth="7" markerHeight="7" refX="6.2" refY="3.5" orient="auto" markerUnits="strokeWidth">
-                      <path d="M 0 0 L 7 3.5 L 0 7 z" fill="#64748b" />
-                    </marker>
+                    {[
+                      ['task-arrow-slate', taskThemes.incomplete.connector],
+                      ['task-arrow-blue', taskThemes.inProgress.connector],
+                      ['task-arrow-green', taskThemes.completed.connector],
+                      ['task-arrow-red', taskThemes.overdue.connector],
+                    ].map(([id, color]) => (
+                      <marker key={id} id={id} markerWidth="7" markerHeight="7" refX="6.2" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                        <path d="M 0 0 L 7 3.5 L 0 7 z" fill={color} />
+                      </marker>
+                    ))}
                   </defs>
                   {connectorGroups.map((group) => {
+                    const parentTask = taskById.get(group.parentId);
                     const parent = nodePositions[group.parentId];
                     const children = group.childIds
                       .map((childId) => ({ id: childId, position: nodePositions[childId] }))
                       .filter((child): child is { id: string; position: NodePosition } => Boolean(child.position));
-                    if (!parent || children.length === 0) return null;
+                    if (!parentTask || !parent || children.length === 0) return null;
+                    const connectorTheme = taskThemes[getTaskTone(parentTask)];
 
                     const parentAnchorX = parent.x + nodeWidth;
                     const parentAnchorY = parent.y + nodeHeight / 2;
@@ -616,7 +704,7 @@ export default function TaskManager() {
                     const maxSpineY = Math.max(parentAnchorY, ...childYs);
 
                     return (
-                      <g key={group.parentId} stroke="#64748b" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none">
+                      <g key={group.parentId} stroke={connectorTheme.connector} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" opacity="0.76">
                         <path d={`M ${parentAnchorX} ${parentAnchorY} H ${Math.max(parentAnchorX, trunkX - connectorRadius)} Q ${trunkX} ${parentAnchorY} ${trunkX} ${parentAnchorY}`} />
                         {(children.length > 1 || childYs[0] !== parentAnchorY) && <path d={`M ${trunkX} ${minSpineY} V ${maxSpineY}`} />}
                         {children.map((child) => {
@@ -626,11 +714,11 @@ export default function TaskManager() {
                             <path
                               key={child.id}
                               d={`M ${trunkX} ${childAnchorY} H ${arrowEndX}`}
-                              markerEnd="url(#task-arrow-small)"
+                              markerEnd={`url(#${connectorTheme.markerId})`}
                             />
                           );
                         })}
-                        <circle cx={trunkX} cy={parentAnchorY} r="2.4" fill="#64748b" stroke="none" />
+                        <circle cx={trunkX} cy={parentAnchorY} r="2.4" fill={connectorTheme.connector} stroke="none" />
                       </g>
                     );
                   })}
@@ -653,6 +741,7 @@ export default function TaskManager() {
                     />
                   );
                 })}
+                </div>
               </div>
             )}
           </section>
@@ -749,41 +838,54 @@ function TaskDiagramNode({
   onAddChild: () => void;
 }) {
   const taskDone = isTaskDone(task);
-  const taskInProgress = isTaskInProgress(task);
   const taskOverdue = isTaskOverdue(task);
-  const taskBackground = taskDone ? completedTaskBackground : taskOverdue ? overdueTaskBackground : taskInProgress ? inProgressTaskBackground : pendingTaskBackground;
-  const taskBorderClass = taskDone ? 'border-emerald-500' : taskOverdue ? 'border-red-500' : taskInProgress ? 'border-blue-500' : 'border-slate-200';
-  const progressClass = taskDone ? 'bg-emerald-700' : taskOverdue ? 'bg-red-700' : taskInProgress ? 'bg-blue-700' : 'bg-blue-500';
+  const theme = taskThemes[getTaskTone(task)];
+  const completedCount = task.completed_leaf_count || (taskDone ? 1 : 0);
+  const totalCount = task.leaf_count || 1;
+  const statusLabel = getTaskDisplayStatus(task);
 
   return (
     <div
-      className="absolute z-10"
+      className="group absolute z-10"
       style={{ width: nodeWidth, height: nodeHeight, transform: `translate(${position.x}px, ${position.y}px)` }}
       onMouseDown={onSelect}
     >
       <div
-        className={`h-full rounded-md border p-3 text-left shadow-sm transition hover:border-blue-300 ${
-          isSelected ? 'border-blue-500 ring-2 ring-blue-100' : taskBorderClass
-        }`}
-        style={{ background: taskBackground }}
+        className="relative h-full overflow-hidden rounded-xl border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        style={{
+          background: theme.background,
+          borderColor: isSelected ? theme.selected : theme.border,
+          color: theme.text,
+          boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 26px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
+        }}
       >
-        <div className="mb-2 flex items-start justify-between gap-2">
+        <div className="absolute inset-y-3 left-0 w-1 rounded-r-full" style={{ background: theme.progress }} />
+
+        <div className="mb-2.5 flex items-start justify-between gap-2 pl-1">
           <div className="flex min-w-0 items-start gap-2">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggle();
-              }}
-              className={`mt-0.5 ${hasChildren ? 'cursor-default text-slate-300' : 'text-slate-500 hover:text-blue-600'}`}
-              title={hasChildren ? 'Task cha tự tính trạng thái' : 'Đổi trạng thái'}
-            >
-              {taskDone ? <CheckCircle2 className="h-4 w-4 text-emerald-800" /> : <Circle className={`h-4 w-4 ${taskOverdue ? 'text-red-800' : taskInProgress ? 'text-blue-800' : ''}`} />}
-            </button>
+            {hasChildren ? (
+              <span className="mt-0.5 grid h-5 w-5 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+                {taskDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <GitBranch className="h-3.5 w-3.5" />}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggle();
+                }}
+                className="mt-0.5 grid h-5 w-5 place-items-center rounded-full transition hover:scale-105"
+                style={{ background: theme.chipBackground, color: theme.chipText }}
+                title="Đổi trạng thái"
+              >
+                {taskDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
+              </button>
+            )}
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{task.title}</p>
-              <p className="mt-1 text-xs text-slate-500">Bắt đầu: {formatDate(task.start_date, 'Chưa có ngày')}</p>
-              <p className="text-xs text-slate-500">Hạn: {formatDate(task.deadline)}</p>
+              <p className="truncate text-[14px] font-semibold leading-5" style={{ color: theme.text }}>{task.title}</p>
+              <span className="mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: theme.chipBackground, color: theme.chipText }}>
+                {statusLabel}
+              </span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -793,7 +895,7 @@ function TaskDiagramNode({
                 event.stopPropagation();
                 onAddChild();
               }}
-              className="grid h-7 w-7 place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
+              className="grid h-7 w-7 place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
               title="Thêm task con"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -801,22 +903,55 @@ function TaskDiagramNode({
             <button
               type="button"
               onMouseDown={onDragStart}
-              className="grid h-7 w-7 cursor-grab place-items-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 active:cursor-grabbing"
+              className="grid h-7 w-7 cursor-grab place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
               title="Kéo node"
             >
               <Move className="h-3.5 w-3.5" />
             </button>
+            <button
+              type="button"
+              className="grid h-7 w-7 place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-400 opacity-0 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
+              title="Tùy chọn"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
-        <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-          <div className={`h-full rounded-full ${progressClass}`} style={{ width: `${completion}%` }} />
+
+        <div className="mb-2.5 flex flex-wrap gap-1.5 pl-1">
+          <TaskMetaChip icon={<CalendarDays className="h-3 w-3" />} label={`Hạn: ${formatDate(task.deadline)}`} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} />
+          {task.start_date && <TaskMetaChip icon={<CalendarDays className="h-3 w-3" />} label={`Bắt đầu: ${formatDate(task.start_date)}`} theme={taskThemes.inProgress} />}
+          <TaskMetaChip icon={<GitBranch className="h-3 w-3" />} label={`${task.child_count || 0} con`} theme={taskThemes.incomplete} />
         </div>
-        <div className="flex items-center justify-between text-xs text-slate-500">
-          <span>{completion}% hoàn thành</span>
-          <span>{task.child_count || 0} con</span>
+
+        <div className="mb-2 pl-1">
+          <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px]" style={{ color: theme.muted }}>
+            <span>{completion}%</span>
+            <span>{completedCount}/{totalCount} hoàn thành</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-[#E5E7EB]">
+            <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: theme.progress }} />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pl-1 text-[11px]" style={{ color: theme.muted }}>
+          <span>{hasChildren ? 'Task cha · trạng thái tự tính' : 'Task con · có thể tick hoàn thành'}</span>
         </div>
       </div>
     </div>
+  );
+}
+
+function TaskMetaChip({ icon, label, theme }: { icon: ReactNode; label: string; theme: TaskTheme }) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4"
+      style={{ background: theme.chipBackground, color: theme.chipText }}
+    >
+      {icon}
+      <span className="truncate">{label}</span>
+    </span>
   );
 }
 
