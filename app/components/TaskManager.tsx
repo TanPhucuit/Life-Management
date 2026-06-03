@@ -40,7 +40,7 @@ const levelTwoNodeWidth = Math.round(nodeWidth * 0.75);
 const levelTwoNodeHeight = Math.round(nodeHeight * 0.75);
 const compactNodeWidth = Math.round(levelTwoNodeWidth * 0.5);
 const compactNodeHeight = Math.round(levelTwoNodeHeight * 0.5);
-const levelGap = 320;
+const levelGap = 120;
 const siblingGap = 120;
 const canvasPadding = 48;
 const canvasMinWidth = 2200;
@@ -52,11 +52,25 @@ const connectorSpineOffset = 56;
 const connectorChildInset = 24;
 const connectorRadius = 10;
 
-function getTaskNodeSize(task: Pick<ApiTask, 'depth'>) {
+function getTaskNodeSize(task: Pick<ApiTask, 'depth' | 'title'>) {
   const depth = task.depth || 0;
-  if (depth >= 2) return { width: compactNodeWidth, height: compactNodeHeight };
-  if (depth === 1) return { width: levelTwoNodeWidth, height: levelTwoNodeHeight };
-  return { width: nodeWidth, height: nodeHeight };
+  const titleLength = Math.max(task.title?.length || 0, 1);
+  if (depth >= 2) {
+    const width = Math.min(180, compactNodeWidth + Math.max(0, titleLength - 8) * 4);
+    const charsPerLine = Math.max(8, Math.floor((width - 56) / 6));
+    const lineCount = Math.ceil(titleLength / charsPerLine);
+    return { width, height: compactNodeHeight + Math.max(0, lineCount - 1) * 14 };
+  }
+  if (depth === 1) {
+    const width = Math.min(320, levelTwoNodeWidth + Math.max(0, titleLength - 16) * 5);
+    const charsPerLine = Math.max(14, Math.floor((width - 72) / 7));
+    const lineCount = Math.ceil(titleLength / charsPerLine);
+    return { width, height: levelTwoNodeHeight + Math.max(0, lineCount - 1) * 18 };
+  }
+  const width = Math.min(420, nodeWidth + Math.max(0, titleLength - 18) * 5);
+  const charsPerLine = Math.max(16, Math.floor((width - 88) / 7));
+  const lineCount = Math.ceil(titleLength / charsPerLine);
+  return { width, height: nodeHeight + Math.max(0, lineCount - 1) * 20 };
 }
 const taskThemes = {
   incomplete: {
@@ -154,6 +168,7 @@ export default function TaskManager() {
   const { user } = useAppStore();
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
+  const titleLayoutSignatureRef = useRef('');
   const [topics, setTopics] = useState<ApiTopic[]>([]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('');
@@ -244,7 +259,8 @@ export default function TaskManager() {
   }, [searchTerm, taskById, topicScopedTasks]);
 
   const canvasTaskIds = useMemo(() => new Set(canvasTasks.map((task) => task.id)), [canvasTasks]);
-  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:v3:${user.id}:topic:${selectedTopicId}` : null;
+  const titleLayoutSignature = useMemo(() => canvasTasks.map((task) => `${task.id}:${task.title}`).join('|'), [canvasTasks]);
+  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:v4:${user.id}:topic:${selectedTopicId}` : null;
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};
@@ -252,25 +268,26 @@ export default function TaskManager() {
     if (visibleRoots.length === 0) return positions;
 
     let leafIndex = 0;
-    const place = (task: ApiTask, depth: number): number => {
-      const currentSize = getTaskNodeSize({ depth });
+    const place = (task: ApiTask, depth: number, x: number): number => {
+      const currentSize = getTaskNodeSize({ depth, title: task.title });
       const visibleChildren = (childrenByParent.get(task.id) || []).filter((child) => canvasTaskIds.has(child.id));
       if (visibleChildren.length === 0) {
         const y = canvasPadding + leafIndex * siblingGap;
-        positions[task.id] = { x: canvasPadding + depth * levelGap, y };
+        positions[task.id] = { x, y };
         leafIndex += 1;
         return y + currentSize.height / 2;
       }
 
-      const childCenters = visibleChildren.map((child) => place(child, depth + 1));
+      const childX = x + currentSize.width + levelGap;
+      const childCenters = visibleChildren.map((child) => place(child, depth + 1, childX));
       const y = childCenters.reduce((sum, value) => sum + value, 0) / childCenters.length - currentSize.height / 2;
-      positions[task.id] = { x: canvasPadding + depth * levelGap, y };
+      positions[task.id] = { x, y };
       return y + currentSize.height / 2;
     };
 
     visibleRoots.forEach((root, index) => {
       if (index > 0) leafIndex += 1;
-      place(root, 0);
+      place(root, 0, canvasPadding);
     });
     return positions;
   }, [canvasTaskIds, childrenByParent, rootTasks]);
@@ -303,6 +320,17 @@ export default function TaskManager() {
     });
     localStorage.setItem(layoutStorageKey, JSON.stringify(savedPositions));
   }, [canvasTasks, layoutStorageKey, nodePositions]);
+
+  useEffect(() => {
+    if (!titleLayoutSignature) return;
+    if (!titleLayoutSignatureRef.current) {
+      titleLayoutSignatureRef.current = titleLayoutSignature;
+      return;
+    }
+    if (titleLayoutSignatureRef.current === titleLayoutSignature) return;
+    titleLayoutSignatureRef.current = titleLayoutSignature;
+    setNodePositions(autoLayoutPositions);
+  }, [autoLayoutPositions, titleLayoutSignature]);
 
   const connectorGroups = useMemo(() => {
     return canvasTasks
@@ -574,7 +602,7 @@ export default function TaskManager() {
     await handleUpdateTask(task.id, { status });
   };
 
-  const handleUpdateTask = async (taskId: string, input: { status?: ApiTaskStatus; startDate?: string | null; deadline?: string | null }) => {
+  const handleUpdateTask = async (taskId: string, input: { status?: ApiTaskStatus; title?: string; startDate?: string | null; deadline?: string | null }) => {
     try {
       await api.updateTask({ id: taskId, ...input });
       await loadData();
@@ -623,7 +651,7 @@ export default function TaskManager() {
                   <input
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="Tìm nhiệm vụ, mô tả..."
+                    placeholder="Tìm nhiệm vụ, mô tả"
                     className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500 sm:w-64"
                   />
                 </div>
@@ -850,7 +878,7 @@ function TopicTab({
       }`}
     >
       {icon || <span className="h-2.5 w-2.5 rounded-full" style={{ background: color || '#64748b' }} />}
-      <span className="max-w-36 truncate">{label}</span>
+      <span className="max-w-36 whitespace-normal break-words text-left leading-4">{label}</span>
       <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">{count}</span>
     </button>
   );
@@ -886,7 +914,7 @@ function TaskDiagramNode({
   const totalCount = task.leaf_count || 1;
   const isCompact = depth >= 2;
   const isLevelTwo = depth === 1;
-  const nodeSize = getTaskNodeSize({ depth });
+  const nodeSize = getTaskNodeSize(task);
 
   if (isCompact) {
     return (
@@ -896,7 +924,7 @@ function TaskDiagramNode({
         onMouseDown={onSelect}
       >
         <div
-          className="relative h-full overflow-hidden rounded-md border p-1.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          className="relative h-full overflow-visible rounded-md border p-1.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
           style={{
             background: theme.background,
             borderColor: isSelected ? theme.selected : theme.border,
@@ -925,7 +953,7 @@ function TaskDiagramNode({
                 {taskDone ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Circle className="h-2.5 w-2.5" />}
               </button>
             )}
-            <p className="min-w-0 flex-1 truncate text-[10px] font-semibold leading-3" style={{ color: theme.text }}>
+            <p className="min-w-0 flex-1 whitespace-normal break-words text-[10px] font-semibold leading-3" style={{ color: theme.text }}>
               {task.title}
             </p>
             <button
@@ -960,7 +988,7 @@ function TaskDiagramNode({
       onMouseDown={onSelect}
     >
       <div
-        className={`relative h-full overflow-hidden rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-2' : 'p-2.5'}`}
+        className={`relative h-full overflow-visible rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-2' : 'p-2.5'}`}
         style={{
           background: theme.background,
           borderColor: isSelected ? theme.selected : theme.border,
@@ -991,7 +1019,7 @@ function TaskDiagramNode({
               </button>
             )}
             <div className="min-w-0">
-              <p className={`truncate font-semibold ${isLevelTwo ? 'text-[12px] leading-4' : 'text-[14px] leading-5'}`} style={{ color: theme.text }}>{task.title}</p>
+              <p className={`whitespace-normal break-words font-semibold ${isLevelTwo ? 'text-[12px] leading-4' : 'text-[14px] leading-5'}`} style={{ color: theme.text }}>{task.title}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -1052,7 +1080,7 @@ function TaskMetaChip({ icon, label, theme, compact = false }: { icon: ReactNode
       style={{ background: theme.chipBackground, color: theme.chipText }}
     >
       {icon}
-      <span className="truncate">{label}</span>
+      <span className="whitespace-normal break-words">{label}</span>
     </span>
   );
 }
@@ -1071,10 +1099,25 @@ function Inspector({
   completion: number;
   onArchive: (taskId: string) => void;
   onAddChild: () => void;
-  onUpdateTask: (taskId: string, input: { status?: ApiTaskStatus; startDate?: string | null; deadline?: string | null }) => Promise<void>;
+  onUpdateTask: (taskId: string, input: { status?: ApiTaskStatus; title?: string; startDate?: string | null; deadline?: string | null }) => Promise<void>;
   onToggleTask: (task: ApiTask) => void;
 }) {
   const canToggleSelectedTask = selectedTaskChildren.length === 0;
+  const [titleDraft, setTitleDraft] = useState(selectedTask?.title || '');
+
+  useEffect(() => {
+    setTitleDraft(selectedTask?.title || '');
+  }, [selectedTask?.id, selectedTask?.title]);
+
+  const saveTitle = async () => {
+    if (!selectedTask) return;
+    const nextTitle = titleDraft.trim();
+    if (!nextTitle || nextTitle === selectedTask.title) {
+      setTitleDraft(selectedTask.title);
+      return;
+    }
+    await onUpdateTask(selectedTask.id, { title: nextTitle });
+  };
 
   return (
     <aside className="max-h-[72vh] overflow-y-auto border-t border-slate-200 bg-white p-3 pb-20 sm:p-4 lg:max-h-none lg:border-l lg:border-t-0 lg:pb-4">
@@ -1099,6 +1142,20 @@ function Inspector({
           </div>
 
           <div className="mb-4 space-y-3 rounded-md border border-slate-200 p-3">
+            <Field label="Tên task">
+              <input
+                value={titleDraft}
+                onChange={(event) => setTitleDraft(event.target.value)}
+                onBlur={() => void saveTitle()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    event.currentTarget.blur();
+                  }
+                }}
+                className={inputClass}
+              />
+            </Field>
             <Field label="Ngày thực hiện">
               <input
                 type="datetime-local"
