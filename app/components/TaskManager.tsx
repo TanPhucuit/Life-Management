@@ -36,8 +36,10 @@ const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', d
 
 const nodeWidth = 300;
 const nodeHeight = 156;
-const compactNodeWidth = 225;
-const compactNodeHeight = 117;
+const levelTwoNodeWidth = Math.round(nodeWidth * 0.75);
+const levelTwoNodeHeight = Math.round(nodeHeight * 0.75);
+const compactNodeWidth = Math.round(levelTwoNodeWidth * 0.5);
+const compactNodeHeight = 64;
 const levelGap = 470;
 const siblingGap = 214;
 const canvasPadding = 48;
@@ -50,14 +52,11 @@ const connectorSpineOffset = 118;
 const connectorChildInset = 74;
 const connectorRadius = 14;
 
-function isCompactTaskNode(task: Pick<ApiTask, 'depth'>) {
-  return (task.depth || 0) >= 2;
-}
-
 function getTaskNodeSize(task: Pick<ApiTask, 'depth'>) {
-  return isCompactTaskNode(task)
-    ? { width: compactNodeWidth, height: compactNodeHeight }
-    : { width: nodeWidth, height: nodeHeight };
+  const depth = task.depth || 0;
+  if (depth >= 2) return { width: compactNodeWidth, height: compactNodeHeight };
+  if (depth === 1) return { width: levelTwoNodeWidth, height: levelTwoNodeHeight };
+  return { width: nodeWidth, height: nodeHeight };
 }
 const taskThemes = {
   incomplete: {
@@ -690,9 +689,9 @@ export default function TaskManager() {
             onMouseUp={handleCanvasMouseUp}
             onMouseLeave={handleCanvasMouseUp}
             onScroll={handleCanvasScroll}
-            className="relative h-[64vh] min-h-[460px] overflow-auto bg-slate-50 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto"
+            className="relative h-[64vh] min-h-[460px] overflow-auto bg-slate-50 lg:min-h-0 lg:flex-1"
           >
-            <div className="sticky left-0 top-0 z-20 min-w-max border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:px-4">
+            <div className="sticky left-0 top-0 z-20 w-full border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:px-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -709,7 +708,7 @@ export default function TaskManager() {
                 </div>
                 <span className="text-xs text-slate-500">Ctrl + - / Ctrl + + để zoom. Kéo node để sắp xếp theo vị trí dọc.</span>
               </div>
-              <div ref={topScrollRef} onScroll={handleTopScroll} className="h-3 overflow-x-auto overflow-y-hidden">
+              <div ref={topScrollRef} onScroll={handleTopScroll} className="h-4 w-full overflow-x-auto overflow-y-hidden">
                 <div style={{ width: scaledCanvasSize.width, height: 1 }} />
               </div>
             </div>
@@ -898,6 +897,7 @@ function TaskDiagramNode({
   const totalCount = task.leaf_count || 1;
   const statusLabel = getTaskDisplayStatus(task);
   const isCompact = depth >= 2;
+  const isLevelTwo = depth === 1;
   const nodeSize = getTaskNodeSize({ depth });
 
   if (isCompact) {
@@ -908,7 +908,7 @@ function TaskDiagramNode({
         onMouseDown={onSelect}
       >
         <div
-          className="relative h-full overflow-hidden rounded-xl border p-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          className="relative h-full overflow-hidden rounded-lg border p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
           style={{
             background: theme.background,
             borderColor: isSelected ? theme.selected : theme.border,
@@ -916,12 +916,12 @@ function TaskDiagramNode({
             boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 24px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
           }}
         >
-          <div className="absolute inset-y-3 left-0 w-1 rounded-r-full" style={{ background: theme.progress }} />
+          <div className="absolute inset-y-2 left-0 w-1 rounded-r-full" style={{ background: theme.progress }} />
 
-          <div className="mb-1.5 flex items-start justify-between gap-1.5 pl-1">
-            <div className="flex min-w-0 items-start gap-1.5">
+          <div className="flex h-full min-w-0 flex-col justify-center gap-1 pl-1">
+            <div className="flex min-w-0 items-center gap-1.5">
               {hasChildren ? (
-                <span className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+                <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
                   {taskDone ? <CheckCircle2 className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
                 </span>
               ) : (
@@ -931,58 +931,40 @@ function TaskDiagramNode({
                     event.stopPropagation();
                     onToggle();
                   }}
-                  className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full transition hover:scale-105"
+                  className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full transition hover:scale-105"
                   style={{ background: theme.chipBackground, color: theme.chipText }}
                   title="Đổi trạng thái"
                 >
                   {taskDone ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
                 </button>
               )}
-              <div className="min-w-0">
-                <p className="truncate text-[12px] font-semibold leading-4" style={{ color: theme.text }}>
-                  {task.title}
-                </p>
-                <span className="mt-0.5 inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-3.5" style={{ background: theme.chipBackground, color: theme.chipText }}>
-                  {statusLabel}
-                </span>
-              </div>
+              <p className="truncate text-[11px] font-semibold leading-4" style={{ color: theme.text }}>
+                {task.title}
+              </p>
             </div>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex items-center gap-1">
+              <span className="min-w-0 truncate rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-[14px]" style={{ background: theme.chipBackground, color: theme.chipText }}>
+                {statusLabel}
+              </span>
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
                   onAddChild();
                 }}
-                className="grid h-[22px] w-[22px] place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
+                className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded border border-slate-200/80 bg-white/70 text-slate-500 opacity-70 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
                 title="Thêm task con"
               >
-                <Plus className="h-3 w-3" />
+                <Plus className="h-2.5 w-2.5" />
               </button>
               <button
                 type="button"
                 onMouseDown={onDragStart}
-                className="grid h-[22px] w-[22px] cursor-grab place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
+                className="grid h-[18px] w-[18px] shrink-0 cursor-grab place-items-center rounded border border-slate-200/80 bg-white/70 text-slate-500 opacity-70 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
                 title="Kéo node"
               >
-                <Move className="h-3 w-3" />
+                <Move className="h-2.5 w-2.5" />
               </button>
-            </div>
-          </div>
-
-          <div className="mb-1.5 flex flex-wrap gap-1 pl-1">
-            <TaskMetaChip icon={<CalendarDays className="h-2.5 w-2.5" />} label={formatDate(task.deadline)} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} compact />
-            {task.start_date && <TaskMetaChip icon={<CalendarDays className="h-2.5 w-2.5" />} label={formatDate(task.start_date)} theme={taskThemes.inProgress} compact />}
-            <TaskMetaChip icon={<GitBranch className="h-2.5 w-2.5" />} label={`${task.child_count || 0} con`} theme={taskThemes.incomplete} compact />
-          </div>
-
-          <div className="pl-1">
-            <div className="mb-1 flex items-center justify-between gap-2 text-[10px]" style={{ color: theme.muted }}>
-              <span>{completion}%</span>
-              <span>{completedCount}/{totalCount}</span>
-            </div>
-            <div className="h-1 overflow-hidden rounded-full bg-[#E5E7EB]">
-              <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: theme.progress }} />
             </div>
           </div>
         </div>
@@ -997,7 +979,7 @@ function TaskDiagramNode({
       onMouseDown={onSelect}
     >
       <div
-        className="relative h-full overflow-hidden rounded-xl border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        className={`relative h-full overflow-hidden rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-2.5' : 'p-3'}`}
         style={{
           background: theme.background,
           borderColor: isSelected ? theme.selected : theme.border,
@@ -1005,13 +987,13 @@ function TaskDiagramNode({
           boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 26px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
         }}
       >
-        <div className="absolute inset-y-3 left-0 w-1 rounded-r-full" style={{ background: theme.progress }} />
+        <div className={`${isLevelTwo ? 'absolute inset-y-2.5 left-0 w-1 rounded-r-full' : 'absolute inset-y-3 left-0 w-1 rounded-r-full'}`} style={{ background: theme.progress }} />
 
-        <div className="mb-2.5 flex items-start justify-between gap-2 pl-1">
-          <div className="flex min-w-0 items-start gap-2">
+        <div className={`flex items-start justify-between gap-2 pl-1 ${isLevelTwo ? 'mb-1.5' : 'mb-2.5'}`}>
+          <div className={`flex min-w-0 items-start ${isLevelTwo ? 'gap-1.5' : 'gap-2'}`}>
             {hasChildren ? (
-              <span className="mt-0.5 grid h-5 w-5 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
-                {taskDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <GitBranch className="h-3.5 w-3.5" />}
+              <span className={`${isLevelTwo ? 'mt-0.5 grid h-[18px] w-[18px]' : 'mt-0.5 grid h-5 w-5'} place-items-center rounded-full`} style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+                {taskDone ? <CheckCircle2 className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} /> : <GitBranch className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />}
               </span>
             ) : (
               <button
@@ -1020,16 +1002,16 @@ function TaskDiagramNode({
                   event.stopPropagation();
                   onToggle();
                 }}
-                className="mt-0.5 grid h-5 w-5 place-items-center rounded-full transition hover:scale-105"
+                className={`${isLevelTwo ? 'mt-0.5 grid h-[18px] w-[18px]' : 'mt-0.5 grid h-5 w-5'} place-items-center rounded-full transition hover:scale-105`}
                 style={{ background: theme.chipBackground, color: theme.chipText }}
                 title="Đổi trạng thái"
               >
-                {taskDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
+                {taskDone ? <CheckCircle2 className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} /> : <Circle className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />}
               </button>
             )}
             <div className="min-w-0">
-              <p className="truncate text-[14px] font-semibold leading-5" style={{ color: theme.text }}>{task.title}</p>
-              <span className="mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ background: theme.chipBackground, color: theme.chipText }}>
+              <p className={`truncate font-semibold ${isLevelTwo ? 'text-[12px] leading-4' : 'text-[14px] leading-5'}`} style={{ color: theme.text }}>{task.title}</p>
+              <span className={`inline-flex rounded-full font-medium ${isLevelTwo ? 'mt-0.5 px-1.5 py-0.5 text-[9px] leading-[14px]' : 'mt-1 px-2 py-0.5 text-[11px]'}`} style={{ background: theme.chipBackground, color: theme.chipText }}>
                 {statusLabel}
               </span>
             </div>
@@ -1041,22 +1023,22 @@ function TaskDiagramNode({
                 event.stopPropagation();
                 onAddChild();
               }}
-              className="grid h-7 w-7 place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
+              className={`${isLevelTwo ? 'grid h-[22px] w-[22px]' : 'grid h-7 w-7'} place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100`}
               title="Thêm task con"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
             </button>
             <button
               type="button"
               onMouseDown={onDragStart}
-              className="grid h-7 w-7 cursor-grab place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
+              className={`${isLevelTwo ? 'grid h-[22px] w-[22px]' : 'grid h-7 w-7'} cursor-grab place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100`}
               title="Kéo node"
             >
-              <Move className="h-3.5 w-3.5" />
+              <Move className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
             </button>
             <button
               type="button"
-              className="grid h-7 w-7 place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-400 opacity-0 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
+              className={`${isLevelTwo ? 'hidden' : 'grid h-7 w-7'} place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-400 opacity-0 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100`}
               title="Tùy chọn"
               onClick={(event) => event.stopPropagation()}
             >
@@ -1065,25 +1047,25 @@ function TaskDiagramNode({
           </div>
         </div>
 
-        <div className="mb-2.5 flex flex-wrap gap-1.5 pl-1">
-          <TaskMetaChip icon={<CalendarDays className="h-3 w-3" />} label={`Hạn: ${formatDate(task.deadline)}`} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} />
-          {task.start_date && <TaskMetaChip icon={<CalendarDays className="h-3 w-3" />} label={`Bắt đầu: ${formatDate(task.start_date)}`} theme={taskThemes.inProgress} />}
-          <TaskMetaChip icon={<GitBranch className="h-3 w-3" />} label={`${task.child_count || 0} con`} theme={taskThemes.incomplete} />
+        <div className={`flex flex-wrap pl-1 ${isLevelTwo ? 'mb-1.5 gap-1' : 'mb-2.5 gap-1.5'}`}>
+          <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Hạn: ${formatDate(task.deadline)}`} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} compact={isLevelTwo} />
+          {task.start_date && <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Bắt đầu: ${formatDate(task.start_date)}`} theme={taskThemes.inProgress} compact={isLevelTwo} />}
+          <TaskMetaChip icon={<GitBranch className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`${task.child_count || 0} con`} theme={taskThemes.incomplete} compact={isLevelTwo} />
         </div>
 
-        <div className="mb-2 pl-1">
-          <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px]" style={{ color: theme.muted }}>
+        <div className={`pl-1 ${isLevelTwo ? 'mb-0' : 'mb-2'}`}>
+          <div className={`flex items-center justify-between gap-2 ${isLevelTwo ? 'mb-1 text-[10px]' : 'mb-1.5 text-[11px]'}`} style={{ color: theme.muted }}>
             <span>{completion}%</span>
-            <span>{completedCount}/{totalCount} hoàn thành</span>
+            <span>{completedCount}/{totalCount}{isLevelTwo ? '' : ' hoàn thành'}</span>
           </div>
-          <div className="h-1.5 overflow-hidden rounded-full bg-[#E5E7EB]">
+          <div className={`${isLevelTwo ? 'h-1' : 'h-1.5'} overflow-hidden rounded-full bg-[#E5E7EB]`}>
             <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: theme.progress }} />
           </div>
         </div>
 
-        <div className="flex items-center justify-between pl-1 text-[11px]" style={{ color: theme.muted }}>
+        {!isLevelTwo && <div className="flex items-center justify-between pl-1 text-[11px]" style={{ color: theme.muted }}>
           <span>{hasChildren ? 'Task cha · trạng thái tự tính' : 'Task con · có thể tick hoàn thành'}</span>
-        </div>
+        </div>}
       </div>
     </div>
   );
