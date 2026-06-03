@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, MouseEvent as ReactMouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
@@ -469,9 +469,10 @@ export default function TaskManager() {
     }
   };
 
-  const startDrag = (event: ReactMouseEvent, taskId: string) => {
+  const startDrag = (event: ReactPointerEvent<HTMLElement>, taskId: string) => {
     event.preventDefault();
     event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     const currentPosition = nodePositions[taskId];
     if (!canvasRect || !currentPosition) return;
@@ -484,7 +485,7 @@ export default function TaskManager() {
     });
   };
 
-  const handleCanvasMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
+  const handleCanvasPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!dragState || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const canvasRect = canvas.getBoundingClientRect();
@@ -515,7 +516,7 @@ export default function TaskManager() {
     }));
   };
 
-  const handleCanvasMouseUp = async () => {
+  const handleCanvasPointerUp = async () => {
     if (!dragState) return;
     const draggedId = dragState.taskId;
     setDragState(null);
@@ -699,11 +700,13 @@ export default function TaskManager() {
 
           <section
             ref={canvasRef}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-            onMouseLeave={handleCanvasMouseUp}
+            onPointerMove={handleCanvasPointerMove}
+            onPointerUp={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerUp}
+            onPointerLeave={handleCanvasPointerUp}
             onScroll={handleCanvasScroll}
-            className="relative h-[64vh] min-h-[460px] overflow-auto bg-slate-50 lg:min-h-0 lg:flex-1"
+            className="relative h-[58vh] min-h-[360px] select-none overflow-auto bg-slate-50 sm:h-[64vh] sm:min-h-[460px] lg:min-h-0 lg:flex-1"
+            style={{ touchAction: dragState ? 'none' : 'pan-x pan-y' }}
           >
             <div className="sticky left-0 top-0 z-20 w-full border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:px-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -720,7 +723,7 @@ export default function TaskManager() {
                   <button type="button" onClick={() => updateCanvasZoom(1)} className="border-x border-slate-200 px-3 py-1.5 font-medium text-slate-700">{Math.round(canvasZoom * 100)}%</button>
                   <button type="button" onClick={() => updateCanvasZoom(canvasZoom + 0.1)} className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">+</button>
                 </div>
-                <span className="text-xs text-slate-500">Ctrl + - / Ctrl + + để zoom. Kéo node tự do để rút ngắn đường nối hoặc sắp xếp cây.</span>
+                <span className="hidden text-xs text-slate-500 sm:inline">Ctrl + - / Ctrl + + để zoom. Kéo node tự do để rút ngắn đường nối hoặc sắp xếp cây.</span>
               </div>
               <div ref={topScrollRef} onScroll={handleTopScroll} className="h-4 w-full overflow-x-auto overflow-y-hidden">
                 <div style={{ width: scaledCanvasSize.width, height: 1 }} />
@@ -903,7 +906,7 @@ function TaskDiagramNode({
   hasChildren: boolean;
   depth: number;
   onSelect: () => void;
-  onDragStart: (event: ReactMouseEvent) => void;
+  onDragStart: (event: ReactPointerEvent<HTMLElement>) => void;
   onToggle: () => void;
   onAddChild: () => void;
 }) {
@@ -921,7 +924,7 @@ function TaskDiagramNode({
       <div
         className="group absolute z-10"
         style={{ width: nodeSize.width, height: nodeSize.height, transform: `translate(${position.x}px, ${position.y}px)` }}
-        onMouseDown={onSelect}
+        onPointerDown={onSelect}
       >
         <div
           className="relative h-full overflow-visible rounded-md border p-1.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
@@ -969,11 +972,11 @@ function TaskDiagramNode({
             </button>
             <button
               type="button"
-              onMouseDown={onDragStart}
-              className="grid h-[16px] w-[16px] shrink-0 cursor-grab place-items-center rounded border border-slate-200/80 bg-white/70 text-slate-500 opacity-0 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
+              onPointerDown={onDragStart}
+              className="grid h-5 w-5 shrink-0 cursor-grab touch-none place-items-center rounded border border-slate-200/80 bg-white/80 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing sm:h-[16px] sm:w-[16px] sm:opacity-0 sm:group-hover:opacity-100"
               title="Kéo node"
             >
-              <Move className="h-2 w-2" />
+              <Move className="h-2.5 w-2.5 sm:h-2 sm:w-2" />
             </button>
           </div>
         </div>
@@ -985,7 +988,7 @@ function TaskDiagramNode({
     <div
       className="group absolute z-10"
       style={{ width: nodeSize.width, height: nodeSize.height, transform: `translate(${position.x}px, ${position.y}px)` }}
-      onMouseDown={onSelect}
+      onPointerDown={onSelect}
     >
       <div
         className={`relative h-full overflow-visible rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-2' : 'p-2.5'}`}
@@ -1036,8 +1039,8 @@ function TaskDiagramNode({
             </button>
             <button
               type="button"
-              onMouseDown={onDragStart}
-              className={`${isLevelTwo ? 'grid h-[22px] w-[22px]' : 'grid h-7 w-7'} cursor-grab place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100`}
+              onPointerDown={onDragStart}
+              className={`${isLevelTwo ? 'grid h-[24px] w-[24px] sm:h-[22px] sm:w-[22px]' : 'grid h-8 w-8 sm:h-7 sm:w-7'} cursor-grab touch-none place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 opacity-90 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing sm:opacity-80 sm:group-hover:opacity-100`}
               title="Kéo node"
             >
               <Move className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
