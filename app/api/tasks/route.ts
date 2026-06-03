@@ -97,9 +97,7 @@ function enrichTasks(rows: TaskRow[]): EnrichedTask[] {
       ? task.status
       : childStats.length > 0 && childStats.every((child) => child.effective_status === 'completed')
         ? 'completed'
-        : childStats.some((child) => child.effective_status === 'in_progress' || child.effective_status === 'completed')
-          ? 'in_progress'
-          : 'not_completed';
+        : 'not_completed';
 
     const enriched: EnrichedTask = {
       ...task,

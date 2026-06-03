@@ -44,8 +44,10 @@ const autoPanThreshold = 80;
 const autoPanStep = 28;
 const connectorSpineOffset = 118;
 const connectorChildInset = 74;
-const completedTaskBackground = '#dcfce7';
-const inProgressTaskBackground = '#dbeafe';
+const connectorRadius = 14;
+const completedTaskBackground = '#86efac';
+const inProgressTaskBackground = '#93c5fd';
+const overdueTaskBackground = '#fca5a5';
 const pendingTaskBackground = '#ffffff';
 
 const inputClass =
@@ -57,7 +59,11 @@ const formatDate = (value?: string | null, emptyLabel = 'Chưa có hạn') => {
 };
 
 const isTaskDone = (task: ApiTask) => task.effective_status === 'completed' || task.status === 'completed';
-const isTaskInProgress = (task: ApiTask) => !isTaskDone(task) && (task.effective_status === 'in_progress' || task.status === 'in_progress');
+const isTaskInProgress = (task: ApiTask) => !isTaskDone(task) && task.status === 'in_progress';
+const isTaskOverdue = (task: ApiTask) => {
+  if (!task.deadline || isTaskDone(task)) return false;
+  return new Date(task.deadline) < new Date();
+};
 
 const getTaskStatusLabel = (status?: ApiTaskStatus) => {
   if (status === 'completed') return 'Hoàn thành';
@@ -587,6 +593,11 @@ export default function TaskManager() {
             ) : (
               <div className="relative" style={{ width: canvasSize.width, height: canvasSize.height }}>
                 <svg className="pointer-events-none absolute inset-0 z-0" width={canvasSize.width} height={canvasSize.height}>
+                  <defs>
+                    <marker id="task-arrow-small" markerWidth="7" markerHeight="7" refX="6.2" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                      <path d="M 0 0 L 7 3.5 L 0 7 z" fill="#64748b" />
+                    </marker>
+                  </defs>
                   {connectorGroups.map((group) => {
                     const parent = nodePositions[group.parentId];
                     const children = group.childIds
@@ -605,14 +616,21 @@ export default function TaskManager() {
                     const maxSpineY = Math.max(parentAnchorY, ...childYs);
 
                     return (
-                      <g key={group.parentId} stroke="#94a3b8" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none">
-                        <path d={`M ${parentAnchorX} ${parentAnchorY} H ${trunkX}`} />
+                      <g key={group.parentId} stroke="#64748b" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none">
+                        <path d={`M ${parentAnchorX} ${parentAnchorY} H ${Math.max(parentAnchorX, trunkX - connectorRadius)} Q ${trunkX} ${parentAnchorY} ${trunkX} ${parentAnchorY}`} />
                         {(children.length > 1 || childYs[0] !== parentAnchorY) && <path d={`M ${trunkX} ${minSpineY} V ${maxSpineY}`} />}
                         {children.map((child) => {
                           const childAnchorY = child.position.y + nodeHeight / 2;
-                          return <path key={child.id} d={`M ${trunkX} ${childAnchorY} H ${child.position.x}`} />;
+                          const arrowEndX = child.position.x - 6;
+                          return (
+                            <path
+                              key={child.id}
+                              d={`M ${trunkX} ${childAnchorY} H ${arrowEndX}`}
+                              markerEnd="url(#task-arrow-small)"
+                            />
+                          );
                         })}
-                        <circle cx={trunkX} cy={parentAnchorY} r="2.5" fill="#94a3b8" stroke="none" />
+                        <circle cx={trunkX} cy={parentAnchorY} r="2.4" fill="#64748b" stroke="none" />
                       </g>
                     );
                   })}
@@ -732,8 +750,10 @@ function TaskDiagramNode({
 }) {
   const taskDone = isTaskDone(task);
   const taskInProgress = isTaskInProgress(task);
-  const taskBackground = taskDone ? completedTaskBackground : taskInProgress ? inProgressTaskBackground : pendingTaskBackground;
-  const taskBorderClass = taskDone ? 'border-emerald-300' : taskInProgress ? 'border-blue-300' : 'border-slate-200';
+  const taskOverdue = isTaskOverdue(task);
+  const taskBackground = taskDone ? completedTaskBackground : taskOverdue ? overdueTaskBackground : taskInProgress ? inProgressTaskBackground : pendingTaskBackground;
+  const taskBorderClass = taskDone ? 'border-emerald-500' : taskOverdue ? 'border-red-500' : taskInProgress ? 'border-blue-500' : 'border-slate-200';
+  const progressClass = taskDone ? 'bg-emerald-700' : taskOverdue ? 'bg-red-700' : taskInProgress ? 'bg-blue-700' : 'bg-blue-500';
 
   return (
     <div
@@ -758,7 +778,7 @@ function TaskDiagramNode({
               className={`mt-0.5 ${hasChildren ? 'cursor-default text-slate-300' : 'text-slate-500 hover:text-blue-600'}`}
               title={hasChildren ? 'Task cha tự tính trạng thái' : 'Đổi trạng thái'}
             >
-              {taskDone ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Circle className={`h-4 w-4 ${taskInProgress ? 'text-blue-600' : ''}`} />}
+              {taskDone ? <CheckCircle2 className="h-4 w-4 text-emerald-800" /> : <Circle className={`h-4 w-4 ${taskOverdue ? 'text-red-800' : taskInProgress ? 'text-blue-800' : ''}`} />}
             </button>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{task.title}</p>
@@ -789,7 +809,7 @@ function TaskDiagramNode({
           </div>
         </div>
         <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-          <div className={`h-full rounded-full ${taskDone ? 'bg-emerald-600' : taskInProgress ? 'bg-blue-600' : 'bg-blue-500'}`} style={{ width: `${completion}%` }} />
+          <div className={`h-full rounded-full ${progressClass}`} style={{ width: `${completion}%` }} />
         </div>
         <div className="flex items-center justify-between text-xs text-slate-500">
           <span>{completion}% hoàn thành</span>
