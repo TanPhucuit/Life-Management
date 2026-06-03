@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   LocateFixed,
   Move,
+  Palette,
   Plus,
   Search,
   Trash2,
@@ -55,6 +56,13 @@ const nodeHeight = 104;
 const levelGap = 360;
 const siblingGap = 132;
 const canvasPadding = 48;
+const canvasMinWidth = 2200;
+const canvasMinHeight = 1400;
+const canvasExpansionPadding = 900;
+const autoPanThreshold = 80;
+const autoPanStep = 28;
+const defaultTaskColorStart = '#eff6ff';
+const defaultTaskColorEnd = '#ffffff';
 
 const inputClass =
   'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
@@ -72,6 +80,18 @@ const getDurationMinutes = (session: ApiSession) => {
   if (session.focused_minutes !== null && session.focused_minutes !== undefined) return session.focused_minutes;
   return Math.max(0, Math.round((new Date(session.end_time).getTime() - new Date(session.start_time).getTime()) / 60000));
 };
+
+const getTaskGradient = (task: ApiTask) => {
+  const start = task.task_color_start || defaultTaskColorStart;
+  const end = task.task_color_end || defaultTaskColorEnd;
+  return {
+    start,
+    end,
+    background: `linear-gradient(135deg, ${start} 0%, ${end} 100%)`,
+  };
+};
+
+const toColorInputValue = (value: string) => (/^#[0-9a-fA-F]{6}$/.test(value) ? value : defaultTaskColorStart);
 
 export default function TaskManager() {
   const { user } = useAppStore();
@@ -256,8 +276,8 @@ export default function TaskManager() {
 
   const canvasSize = useMemo(() => {
     const positions = canvasTasks.map((task) => nodePositions[task.id]).filter(Boolean);
-    const maxX = Math.max(900, ...positions.map((position) => position.x + nodeWidth + canvasPadding));
-    const maxY = Math.max(560, ...positions.map((position) => position.y + nodeHeight + canvasPadding));
+    const maxX = Math.max(canvasMinWidth, ...positions.map((position) => position.x + nodeWidth + canvasExpansionPadding));
+    const maxY = Math.max(canvasMinHeight, ...positions.map((position) => position.y + nodeHeight + canvasExpansionPadding));
     return { width: maxX, height: maxY };
   }, [canvasTasks, nodePositions]);
 
@@ -324,9 +344,21 @@ export default function TaskManager() {
 
   const handleCanvasMouseMove = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (!dragState || !canvasRef.current) return;
-    const canvasRect = canvasRef.current.getBoundingClientRect();
-    const nextX = event.clientX - canvasRect.left + canvasRef.current.scrollLeft - dragState.offsetX;
-    const nextY = event.clientY - canvasRect.top + canvasRef.current.scrollTop - dragState.offsetY;
+    const canvas = canvasRef.current;
+    const canvasRect = canvas.getBoundingClientRect();
+
+    const distanceRight = canvasRect.right - event.clientX;
+    const distanceLeft = event.clientX - canvasRect.left;
+    const distanceBottom = canvasRect.bottom - event.clientY;
+    const distanceTop = event.clientY - canvasRect.top;
+
+    if (distanceRight < autoPanThreshold) canvas.scrollLeft += autoPanStep;
+    if (distanceLeft < autoPanThreshold) canvas.scrollLeft = Math.max(0, canvas.scrollLeft - autoPanStep);
+    if (distanceBottom < autoPanThreshold) canvas.scrollTop += autoPanStep;
+    if (distanceTop < autoPanThreshold) canvas.scrollTop = Math.max(0, canvas.scrollTop - autoPanStep);
+
+    const nextX = event.clientX - canvasRect.left + canvas.scrollLeft - dragState.offsetX;
+    const nextY = event.clientY - canvasRect.top + canvas.scrollTop - dragState.offsetY;
 
     setNodePositions((current) => ({
       ...current,
@@ -419,6 +451,19 @@ export default function TaskManager() {
       await loadData();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Không cập nhật được trạng thái.');
+    }
+  };
+
+  const handleUpdateTaskColor = async (taskId: string, taskColorStart: string, taskColorEnd: string) => {
+    setTasks((current) =>
+      current.map((task) => (task.id === taskId ? { ...task, task_color_start: taskColorStart, task_color_end: taskColorEnd } : task))
+    );
+
+    try {
+      await api.updateTask({ id: taskId, taskColorStart, taskColorEnd });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Không lưu được màu task.');
+      await loadData();
     }
   };
 
@@ -644,6 +689,7 @@ export default function TaskManager() {
           onAddChild={() => selectedTask && openTaskModal(selectedTask.id)}
           onAddSession={() => setIsSessionModalOpen(true)}
           onDeleteSession={handleDeleteSession}
+          onUpdateTaskColor={handleUpdateTaskColor}
         />
       </div>
 
@@ -750,6 +796,8 @@ function TaskDiagramNode({
   onToggle: () => void;
   onAddChild: () => void;
 }) {
+  const gradient = getTaskGradient(task);
+
   return (
     <div
       className="absolute z-10"
@@ -757,9 +805,10 @@ function TaskDiagramNode({
       onMouseDown={onSelect}
     >
       <div
-        className={`h-full rounded-md border bg-white p-3 text-left shadow-sm transition hover:border-blue-300 ${
+        className={`h-full rounded-md border p-3 text-left shadow-sm transition hover:border-blue-300 ${
           isSelected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'
         }`}
+        style={{ background: gradient.background }}
       >
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-2">
@@ -822,6 +871,7 @@ function Inspector({
   onAddChild,
   onAddSession,
   onDeleteSession,
+  onUpdateTaskColor,
 }: {
   selectedTask: ApiTask | null;
   selectedTaskChildren: ApiTask[];
@@ -831,7 +881,10 @@ function Inspector({
   onAddChild: () => void;
   onAddSession: () => void;
   onDeleteSession: (sessionId: string) => void;
+  onUpdateTaskColor: (taskId: string, taskColorStart: string, taskColorEnd: string) => void;
 }) {
+  const selectedGradient = selectedTask ? getTaskGradient(selectedTask) : null;
+
   return (
     <aside className="border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0">
       {selectedTask ? (
@@ -853,6 +906,38 @@ function Inspector({
             <InfoRow label="Task con" value={`${selectedTaskChildren.length}`} />
             <InfoRow label="Session" value={`${selectedTaskSessions.length}`} />
           </div>
+
+          {selectedGradient && (
+            <div className="mb-4 rounded-md border border-slate-200 p-3">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-slate-500" />
+                  <h3 className="text-sm font-semibold">Màu task</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onUpdateTaskColor(selectedTask.id, defaultTaskColorStart, defaultTaskColorEnd)}
+                  className="text-xs font-medium text-slate-500 hover:text-slate-950"
+                >
+                  Reset
+                </button>
+              </div>
+              <div className="mb-3 h-12 rounded-md border border-slate-200" style={{ background: selectedGradient.background }} />
+              <div className="grid grid-cols-2 gap-3">
+                <ColorField
+                  label="Màu đầu"
+                  value={selectedGradient.start}
+                  onChange={(value) => onUpdateTaskColor(selectedTask.id, value, selectedGradient.end)}
+                />
+                <ColorField
+                  label="Màu cuối"
+                  value={selectedGradient.end}
+                  onChange={(value) => onUpdateTaskColor(selectedTask.id, selectedGradient.start, value)}
+                />
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Chọn bất kỳ màu nào bằng bảng màu hệ thống hoặc nhập mã màu.</p>
+            </div>
+          )}
 
           <div className="mb-4">
             <div className="mb-2 flex items-center justify-between">
@@ -912,6 +997,41 @@ function Inspector({
         </div>
       )}
     </aside>
+  );
+}
+
+function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const [draftValue, setDraftValue] = useState(value);
+
+  useEffect(() => {
+    setDraftValue(value);
+  }, [value]);
+
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium text-slate-600">{label}</span>
+      <div className="flex overflow-hidden rounded-md border border-slate-200 bg-white">
+        <input
+          type="color"
+          value={toColorInputValue(value)}
+          onChange={(event) => onChange(event.target.value)}
+          className="h-10 w-12 shrink-0 cursor-pointer border-0 bg-transparent p-1"
+        />
+        <input
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            setDraftValue(nextValue);
+            if (/^#[0-9a-fA-F]{6}$/.test(nextValue)) onChange(nextValue);
+          }}
+          onBlur={() => {
+            if (!/^#[0-9a-fA-F]{6}$/.test(draftValue)) setDraftValue(value);
+          }}
+          value={draftValue}
+          className="min-w-0 flex-1 px-2 text-xs font-medium text-slate-700 outline-none"
+          spellCheck={false}
+        />
+      </div>
+    </label>
   );
 }
 

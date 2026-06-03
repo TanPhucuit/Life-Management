@@ -78,6 +78,8 @@ CREATE TABLE tasks (
   deadline TIMESTAMP,
   status VARCHAR(20) DEFAULT 'not_completed' CHECK (status IN ('not_completed', 'completed')),
   sort_order INTEGER DEFAULT 0,
+  task_color_start VARCHAR(20),
+  task_color_end VARCHAR(20),
   archived_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -122,6 +124,8 @@ CREATE INDEX idx_sessions_date ON sessions(session_date);
 -- Run this block if your database was created before task tree support.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_color_start VARCHAR(20);
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_color_end VARCHAR(20);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS focused_minutes INTEGER;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS key_of_success INTEGER DEFAULT 0 CHECK (key_of_success >= 0 AND key_of_success <= 3);
@@ -145,6 +149,8 @@ WITH RECURSIVE task_tree AS (
     t.deadline,
     t.status,
     t.sort_order,
+    t.task_color_start,
+    t.task_color_end,
     t.archived_at,
     t.created_at,
     t.updated_at,
@@ -165,6 +171,8 @@ WITH RECURSIVE task_tree AS (
     child.deadline,
     child.status,
     child.sort_order,
+    child.task_color_start,
+    child.task_color_end,
     child.archived_at,
     child.created_at,
     child.updated_at,

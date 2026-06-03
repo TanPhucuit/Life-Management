@@ -21,6 +21,8 @@ export interface ApiTask {
   status: ApiTaskStatus;
   effective_status?: ApiTaskStatus;
   sort_order?: number;
+  task_color_start?: string | null;
+  task_color_end?: string | null;
   depth?: number;
   child_count?: number;
   descendant_count?: number;
@@ -136,6 +138,8 @@ export const api = {
     title: string;
     description?: string;
     deadline?: string;
+    taskColorStart?: string | null;
+    taskColorEnd?: string | null;
   }) {
     return requestJson<ApiTask>('/api/tasks', {
       method: 'POST',
@@ -149,6 +153,8 @@ export const api = {
     description?: string | null;
     deadline?: string | null;
     sortOrder?: number;
+    taskColorStart?: string | null;
+    taskColorEnd?: string | null;
   }) {
     return requestJson<ApiTask>('/api/tasks', {
       method: 'PUT',
