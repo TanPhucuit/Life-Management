@@ -56,20 +56,20 @@ function getTaskNodeSize(task: Pick<ApiTask, 'depth' | 'title'>) {
   const depth = task.depth || 0;
   const titleLength = Math.max(task.title?.length || 0, 1);
   if (depth >= 2) {
-    const width = Math.min(180, compactNodeWidth + Math.max(0, titleLength - 8) * 4);
-    const charsPerLine = Math.max(8, Math.floor((width - 56) / 6));
-    const lineCount = Math.ceil(titleLength / charsPerLine);
+    const width = Math.min(240, compactNodeWidth + Math.max(0, titleLength - 4) * 8);
+    const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 54) / 6));
+    const lineCount = titleLength <= 12 ? 1 : Math.ceil(titleLength / charsPerLine);
     return { width, height: compactNodeHeight + Math.max(0, lineCount - 1) * 14 };
   }
   if (depth === 1) {
-    const width = Math.min(320, levelTwoNodeWidth + Math.max(0, titleLength - 16) * 5);
-    const charsPerLine = Math.max(14, Math.floor((width - 72) / 7));
-    const lineCount = Math.ceil(titleLength / charsPerLine);
+    const width = Math.min(360, levelTwoNodeWidth + Math.max(0, titleLength - 4) * 9);
+    const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 68) / 7));
+    const lineCount = titleLength <= 12 ? 1 : Math.ceil(titleLength / charsPerLine);
     return { width, height: levelTwoNodeHeight + Math.max(0, lineCount - 1) * 18 };
   }
-  const width = Math.min(420, nodeWidth + Math.max(0, titleLength - 18) * 5);
-  const charsPerLine = Math.max(16, Math.floor((width - 88) / 7));
-  const lineCount = Math.ceil(titleLength / charsPerLine);
+  const width = Math.min(480, nodeWidth + Math.max(0, titleLength - 4) * 9);
+  const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 84) / 7));
+  const lineCount = titleLength <= 12 ? 1 : Math.ceil(titleLength / charsPerLine);
   return { width, height: nodeHeight + Math.max(0, lineCount - 1) * 20 };
 }
 const taskThemes = {
@@ -953,7 +953,7 @@ function TaskDiagramNode({
                 {taskDone ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Circle className="h-2.5 w-2.5" />}
               </button>
             )}
-            <p className="min-w-0 flex-1 whitespace-normal break-words text-[10px] font-semibold leading-3" style={{ color: theme.text }}>
+            <p className="min-w-0 flex-1 whitespace-normal break-normal text-[10px] font-semibold leading-3" style={{ color: theme.text, overflowWrap: 'normal' }}>
               {task.title}
             </p>
             <button
@@ -1019,7 +1019,7 @@ function TaskDiagramNode({
               </button>
             )}
             <div className="min-w-0">
-              <p className={`whitespace-normal break-words font-semibold ${isLevelTwo ? 'text-[12px] leading-4' : 'text-[14px] leading-5'}`} style={{ color: theme.text }}>{task.title}</p>
+              <p className={`whitespace-normal break-normal font-semibold ${isLevelTwo ? 'text-[12px] leading-4' : 'text-[14px] leading-5'}`} style={{ color: theme.text, overflowWrap: 'normal' }}>{task.title}</p>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -1104,6 +1104,8 @@ function Inspector({
 }) {
   const canToggleSelectedTask = selectedTaskChildren.length === 0;
   const [titleDraft, setTitleDraft] = useState(selectedTask?.title || '');
+  const trimmedTitleDraft = titleDraft.trim();
+  const titleChanged = Boolean(selectedTask && trimmedTitleDraft && trimmedTitleDraft !== selectedTask.title);
 
   useEffect(() => {
     setTitleDraft(selectedTask?.title || '');
@@ -1143,18 +1145,27 @@ function Inspector({
 
           <div className="mb-4 space-y-3 rounded-md border border-slate-200 p-3">
             <Field label="Tên task">
-              <input
-                value={titleDraft}
-                onChange={(event) => setTitleDraft(event.target.value)}
-                onBlur={() => void saveTitle()}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    event.currentTarget.blur();
-                  }
-                }}
-                className={inputClass}
-              />
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <input
+                  value={titleDraft}
+                  onChange={(event) => setTitleDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void saveTitle();
+                    }
+                  }}
+                  className={inputClass}
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveTitle()}
+                  disabled={!titleChanged}
+                  className="h-10 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+                >
+                  Lưu
+                </button>
+              </div>
             </Field>
             <Field label="Ngày thực hiện">
               <input
