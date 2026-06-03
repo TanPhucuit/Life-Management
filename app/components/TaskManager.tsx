@@ -36,7 +36,8 @@ const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', d
 
 const nodeWidth = 300;
 const nodeHeight = 156;
-const compactNodeSize = 150;
+const compactNodeWidth = 225;
+const compactNodeHeight = 117;
 const levelGap = 470;
 const siblingGap = 214;
 const canvasPadding = 48;
@@ -55,7 +56,7 @@ function isCompactTaskNode(task: Pick<ApiTask, 'depth'>) {
 
 function getTaskNodeSize(task: Pick<ApiTask, 'depth'>) {
   return isCompactTaskNode(task)
-    ? { width: compactNodeSize, height: compactNodeSize }
+    ? { width: compactNodeWidth, height: compactNodeHeight }
     : { width: nodeWidth, height: nodeHeight };
 }
 const taskThemes = {
@@ -917,25 +918,35 @@ function TaskDiagramNode({
         >
           <div className="absolute inset-y-3 left-0 w-1 rounded-r-full" style={{ background: theme.progress }} />
 
-          <div className="mb-2 flex items-start justify-between gap-1 pl-1">
-            {hasChildren ? (
-              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
-                {taskDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <GitBranch className="h-3.5 w-3.5" />}
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onToggle();
-                }}
-                className="grid h-5 w-5 shrink-0 place-items-center rounded-full transition hover:scale-105"
-                style={{ background: theme.chipBackground, color: theme.chipText }}
-                title="Đổi trạng thái"
-              >
-                {taskDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
-              </button>
-            )}
+          <div className="mb-1.5 flex items-start justify-between gap-1.5 pl-1">
+            <div className="flex min-w-0 items-start gap-1.5">
+              {hasChildren ? (
+                <span className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+                  {taskDone ? <CheckCircle2 className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggle();
+                  }}
+                  className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full transition hover:scale-105"
+                  style={{ background: theme.chipBackground, color: theme.chipText }}
+                  title="Đổi trạng thái"
+                >
+                  {taskDone ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
+                </button>
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-[12px] font-semibold leading-4" style={{ color: theme.text }}>
+                  {task.title}
+                </p>
+                <span className="mt-0.5 inline-flex max-w-full truncate rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-3.5" style={{ background: theme.chipBackground, color: theme.chipText }}>
+                  {statusLabel}
+                </span>
+              </div>
+            </div>
             <div className="flex shrink-0 items-center gap-1">
               <button
                 type="button"
@@ -943,7 +954,7 @@ function TaskDiagramNode({
                   event.stopPropagation();
                   onAddChild();
                 }}
-                className="grid h-6 w-6 place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
+                className="grid h-[22px] w-[22px] place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
                 title="Thêm task con"
               >
                 <Plus className="h-3 w-3" />
@@ -951,7 +962,7 @@ function TaskDiagramNode({
               <button
                 type="button"
                 onMouseDown={onDragStart}
-                className="grid h-6 w-6 cursor-grab place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
+                className="grid h-[22px] w-[22px] cursor-grab place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
                 title="Kéo node"
               >
                 <Move className="h-3 w-3" />
@@ -959,25 +970,18 @@ function TaskDiagramNode({
             </div>
           </div>
 
-          <p className="line-clamp-2 min-h-[34px] pl-1 text-[13px] font-semibold leading-4" style={{ color: theme.text }}>
-            {task.title}
-          </p>
-
-          <div className="mt-2 flex flex-wrap gap-1 pl-1">
-            <span className="max-w-full truncate rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4" style={{ background: theme.chipBackground, color: theme.chipText }}>
-              {statusLabel}
-            </span>
-            <span className="rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4" style={{ background: taskThemes.incomplete.chipBackground, color: taskThemes.incomplete.chipText }}>
-              {task.child_count || 0} con
-            </span>
+          <div className="mb-1.5 flex flex-wrap gap-1 pl-1">
+            <TaskMetaChip icon={<CalendarDays className="h-2.5 w-2.5" />} label={formatDate(task.deadline)} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} compact />
+            {task.start_date && <TaskMetaChip icon={<CalendarDays className="h-2.5 w-2.5" />} label={formatDate(task.start_date)} theme={taskThemes.inProgress} compact />}
+            <TaskMetaChip icon={<GitBranch className="h-2.5 w-2.5" />} label={`${task.child_count || 0} con`} theme={taskThemes.incomplete} compact />
           </div>
 
-          <div className="absolute inset-x-2.5 bottom-2.5">
-            <div className="mb-1 flex items-center justify-between text-[10px]" style={{ color: theme.muted }}>
+          <div className="pl-1">
+            <div className="mb-1 flex items-center justify-between gap-2 text-[10px]" style={{ color: theme.muted }}>
               <span>{completion}%</span>
               <span>{completedCount}/{totalCount}</span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-[#E5E7EB]">
+            <div className="h-1 overflow-hidden rounded-full bg-[#E5E7EB]">
               <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: theme.progress }} />
             </div>
           </div>
@@ -1085,10 +1089,10 @@ function TaskDiagramNode({
   );
 }
 
-function TaskMetaChip({ icon, label, theme }: { icon: ReactNode; label: string; theme: TaskTheme }) {
+function TaskMetaChip({ icon, label, theme, compact = false }: { icon: ReactNode; label: string; theme: TaskTheme; compact?: boolean }) {
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium leading-4"
+      className={`inline-flex max-w-full items-center gap-1 rounded-full font-medium ${compact ? 'px-1.5 py-0.5 text-[9px] leading-[14px]' : 'px-2 py-0.5 text-[11px] leading-4'}`}
       style={{ background: theme.chipBackground, color: theme.chipText }}
     >
       {icon}
