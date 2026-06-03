@@ -611,17 +611,17 @@ export default function TaskManager() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-120px)] overflow-hidden rounded-lg border border-slate-200 bg-white text-slate-950 shadow-sm">
-      <div className="grid min-h-[calc(100vh-120px)] grid-cols-1 lg:grid-cols-[minmax(0,1fr)_300px]">
+    <div className="overflow-visible rounded-lg border border-slate-200 bg-white text-slate-950 shadow-sm lg:min-h-[calc(100vh-120px)] lg:overflow-hidden">
+      <div className="grid grid-cols-1 lg:min-h-[calc(100vh-120px)] lg:grid-cols-[minmax(0,1fr)_300px]">
         <main className="flex min-w-0 flex-col">
-          <header className="border-b border-slate-200 bg-white px-4 py-3">
+          <header className="border-b border-slate-200 bg-white px-3 py-3 sm:px-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <h1 className="text-xl font-semibold">Nhiệm vụ</h1>
                 <p className="text-sm text-slate-500">Canvas task tree kéo thả tự do, có đường nối trực tiếp giữa node cha và node con.</p>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <form onSubmit={handleCreateTopic} className="flex gap-2">
+                <form onSubmit={handleCreateTopic} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex">
                   <input
                     value={newTopicName}
                     onChange={(event) => setNewTopicName(event.target.value)}
@@ -676,7 +676,7 @@ export default function TaskManager() {
               </div>
             )}
 
-            <div className="mt-4 grid grid-cols-2 gap-2 xl:grid-cols-4">
+            <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
               <StatCard label="Task hoàn thành" value={stats.completedLeafTasks} icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} />
               <StatCard label="Chưa hoàn thành" value={stats.incompleteLeafTasks} icon={<Circle className="h-4 w-4 text-slate-500" />} />
               <StatCard label="Đang thực hiện" value={stats.inProgressTasks} icon={<GitBranch className="h-4 w-4 text-blue-600" />} />
@@ -690,9 +690,9 @@ export default function TaskManager() {
             onMouseUp={handleCanvasMouseUp}
             onMouseLeave={handleCanvasMouseUp}
             onScroll={handleCanvasScroll}
-            className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto bg-slate-50"
+            className="relative h-[64vh] min-h-[460px] overflow-auto bg-slate-50 lg:min-h-0 lg:flex-1 lg:overflow-x-hidden lg:overflow-y-auto"
           >
-            <div className="sticky left-0 top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-2 backdrop-blur">
+            <div className="sticky left-0 top-0 z-20 min-w-max border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:px-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -1121,7 +1121,7 @@ function Inspector({
   const canToggleSelectedTask = selectedTaskChildren.length === 0;
 
   return (
-    <aside className="border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0">
+    <aside className="max-h-[72vh] overflow-y-auto border-t border-slate-200 bg-white p-3 pb-20 sm:p-4 lg:max-h-none lg:border-l lg:border-t-0 lg:pb-4">
       {selectedTask ? (
         <div className="flex h-full flex-col">
           <div className="mb-4 flex items-start justify-between gap-3">
@@ -1251,8 +1251,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-3 sm:p-4">
+      <div className="max-h-[calc(100vh-1.5rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:max-h-[calc(100vh-2rem)] sm:p-5">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button onClick={onClose} className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
