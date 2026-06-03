@@ -78,6 +78,7 @@ CREATE TABLE tasks (
   deadline TIMESTAMP,
   status VARCHAR(20) DEFAULT 'not_completed' CHECK (status IN ('not_completed', 'completed')),
   sort_order INTEGER DEFAULT 0,
+  task_color VARCHAR(20),
   task_color_start VARCHAR(20),
   task_color_end VARCHAR(20),
   archived_at TIMESTAMP,
@@ -124,6 +125,7 @@ CREATE INDEX idx_sessions_date ON sessions(session_date);
 -- Run this block if your database was created before task tree support.
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS parent_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_color VARCHAR(20);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_color_start VARCHAR(20);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_color_end VARCHAR(20);
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP;
@@ -136,7 +138,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_archived_at ON tasks(archived_at);
 
 -- Recursive task tree view for reporting. The application also computes this
 -- in the API so the UI keeps working if the view has not been deployed yet.
-CREATE OR REPLACE VIEW task_tree_view AS
+CREATE OR REPLACE VIEW task_tree_view WITH (security_invoker = true) AS
 WITH RECURSIVE task_tree AS (
   SELECT
     t.id,
@@ -149,6 +151,7 @@ WITH RECURSIVE task_tree AS (
     t.deadline,
     t.status,
     t.sort_order,
+    t.task_color,
     t.task_color_start,
     t.task_color_end,
     t.archived_at,
@@ -171,6 +174,7 @@ WITH RECURSIVE task_tree AS (
     child.deadline,
     child.status,
     child.sort_order,
+    child.task_color,
     child.task_color_start,
     child.task_color_end,
     child.archived_at,

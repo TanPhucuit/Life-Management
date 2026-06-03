@@ -61,8 +61,7 @@ const canvasMinHeight = 1400;
 const canvasExpansionPadding = 900;
 const autoPanThreshold = 80;
 const autoPanStep = 28;
-const defaultTaskColorStart = '#eff6ff';
-const defaultTaskColorEnd = '#ffffff';
+const defaultTaskColor = '#eff6ff';
 
 const inputClass =
   'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
@@ -81,17 +80,9 @@ const getDurationMinutes = (session: ApiSession) => {
   return Math.max(0, Math.round((new Date(session.end_time).getTime() - new Date(session.start_time).getTime()) / 60000));
 };
 
-const getTaskGradient = (task: ApiTask) => {
-  const start = task.task_color_start || defaultTaskColorStart;
-  const end = task.task_color_end || defaultTaskColorEnd;
-  return {
-    start,
-    end,
-    background: `linear-gradient(135deg, ${start} 0%, ${end} 100%)`,
-  };
-};
+const getTaskColor = (task: ApiTask) => task.task_color || task.task_color_start || defaultTaskColor;
 
-const toColorInputValue = (value: string) => (/^#[0-9a-fA-F]{6}$/.test(value) ? value : defaultTaskColorStart);
+const toColorInputValue = (value: string) => (/^#[0-9a-fA-F]{6}$/.test(value) ? value : defaultTaskColor);
 
 export default function TaskManager() {
   const { user } = useAppStore();
@@ -454,13 +445,13 @@ export default function TaskManager() {
     }
   };
 
-  const handleUpdateTaskColor = async (taskId: string, taskColorStart: string, taskColorEnd: string) => {
+  const handleUpdateTaskColor = async (taskId: string, taskColor: string) => {
     setTasks((current) =>
-      current.map((task) => (task.id === taskId ? { ...task, task_color_start: taskColorStart, task_color_end: taskColorEnd } : task))
+      current.map((task) => (task.id === taskId ? { ...task, task_color: taskColor, task_color_start: taskColor, task_color_end: null } : task))
     );
 
     try {
-      await api.updateTask({ id: taskId, taskColorStart, taskColorEnd });
+      await api.updateTask({ id: taskId, taskColor, taskColorStart: taskColor, taskColorEnd: null });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Không lưu được màu task.');
       await loadData();
@@ -690,6 +681,7 @@ export default function TaskManager() {
           onAddSession={() => setIsSessionModalOpen(true)}
           onDeleteSession={handleDeleteSession}
           onUpdateTaskColor={handleUpdateTaskColor}
+          onToggleTask={handleToggleLeaf}
         />
       </div>
 
@@ -796,7 +788,7 @@ function TaskDiagramNode({
   onToggle: () => void;
   onAddChild: () => void;
 }) {
-  const gradient = getTaskGradient(task);
+  const taskColor = getTaskColor(task);
 
   return (
     <div
@@ -808,7 +800,7 @@ function TaskDiagramNode({
         className={`h-full rounded-md border p-3 text-left shadow-sm transition hover:border-blue-300 ${
           isSelected ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'
         }`}
-        style={{ background: gradient.background }}
+        style={{ background: taskColor }}
       >
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-start gap-2">
@@ -872,6 +864,7 @@ function Inspector({
   onAddSession,
   onDeleteSession,
   onUpdateTaskColor,
+  onToggleTask,
 }: {
   selectedTask: ApiTask | null;
   selectedTaskChildren: ApiTask[];
@@ -881,9 +874,11 @@ function Inspector({
   onAddChild: () => void;
   onAddSession: () => void;
   onDeleteSession: (sessionId: string) => void;
-  onUpdateTaskColor: (taskId: string, taskColorStart: string, taskColorEnd: string) => void;
+  onUpdateTaskColor: (taskId: string, taskColor: string) => void;
+  onToggleTask: (task: ApiTask) => void;
 }) {
-  const selectedGradient = selectedTask ? getTaskGradient(selectedTask) : null;
+  const selectedColor = selectedTask ? getTaskColor(selectedTask) : defaultTaskColor;
+  const canToggleSelectedTask = selectedTaskChildren.length === 0;
 
   return (
     <aside className="border-t border-slate-200 bg-white p-4 lg:border-l lg:border-t-0">
@@ -907,37 +902,46 @@ function Inspector({
             <InfoRow label="Session" value={`${selectedTaskSessions.length}`} />
           </div>
 
-          {selectedGradient && (
-            <div className="mb-4 rounded-md border border-slate-200 p-3">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Palette className="h-4 w-4 text-slate-500" />
-                  <h3 className="text-sm font-semibold">Màu task</h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onUpdateTaskColor(selectedTask.id, defaultTaskColorStart, defaultTaskColorEnd)}
-                  className="text-xs font-medium text-slate-500 hover:text-slate-950"
-                >
-                  Reset
-                </button>
-              </div>
-              <div className="mb-3 h-12 rounded-md border border-slate-200" style={{ background: selectedGradient.background }} />
-              <div className="grid grid-cols-2 gap-3">
-                <ColorField
-                  label="Màu đầu"
-                  value={selectedGradient.start}
-                  onChange={(value) => onUpdateTaskColor(selectedTask.id, value, selectedGradient.end)}
-                />
-                <ColorField
-                  label="Màu cuối"
-                  value={selectedGradient.end}
-                  onChange={(value) => onUpdateTaskColor(selectedTask.id, selectedGradient.start, value)}
-                />
-              </div>
-              <p className="mt-2 text-xs text-slate-500">Chọn bất kỳ màu nào bằng bảng màu hệ thống hoặc nhập mã màu.</p>
+          <div className="mb-4 rounded-md border border-slate-200 p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Trạng thái task</h3>
+              <span className={`rounded-full px-2 py-1 text-xs font-medium ${selectedTask.effective_status === 'completed' ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'}`}>
+                {selectedTask.effective_status === 'completed' ? 'Hoàn thành' : 'Đang làm'}
+              </span>
             </div>
-          )}
+            {canToggleSelectedTask ? (
+              <button
+                type="button"
+                onClick={() => onToggleTask(selectedTask)}
+                className={`w-full rounded-md px-3 py-2 text-sm font-semibold transition ${selectedTask.status === 'completed' ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' : 'bg-emerald-600 text-white hover:bg-emerald-700'}`}
+              >
+                {selectedTask.status === 'completed' ? 'Mở lại task' : 'Đánh dấu hoàn thành'}
+              </button>
+            ) : (
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                Task cha tự hoàn thành khi toàn bộ task con hoàn thành.
+              </p>
+            )}
+          </div>
+
+          <div className="mb-4 rounded-md border border-slate-200 p-3">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Palette className="h-4 w-4 text-slate-500" />
+                <h3 className="text-sm font-semibold">Màu task</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => onUpdateTaskColor(selectedTask.id, defaultTaskColor)}
+                className="text-xs font-medium text-slate-500 hover:text-slate-950"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="mb-3 h-12 rounded-md border border-slate-200" style={{ background: selectedColor }} />
+            <ColorField label="Màu" value={selectedColor} onChange={(value) => onUpdateTaskColor(selectedTask.id, value)} />
+            <p className="mt-2 text-xs text-slate-500">Chọn màu thường bằng bảng màu hệ thống hoặc nhập mã màu.</p>
+          </div>
 
           <div className="mb-4">
             <div className="mb-2 flex items-center justify-between">

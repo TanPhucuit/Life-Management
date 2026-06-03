@@ -17,6 +17,7 @@ type TaskRow = {
   deadline?: string | null;
   status: 'completed' | 'not_completed';
   sort_order?: number | null;
+  task_color?: string | null;
   task_color_start?: string | null;
   task_color_end?: string | null;
   archived_at?: string | null;
@@ -172,7 +173,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, topicId, parentTaskId, title, description, deadline, taskColorStart, taskColorEnd } = body;
+    const { userId, topicId, parentTaskId, title, description, deadline, taskColor, taskColorStart, taskColorEnd } = body;
 
     if (!userId || !topicId || !title?.trim()) {
       return jsonError('Missing required fields', 400);
@@ -216,6 +217,7 @@ export async function POST(request: NextRequest) {
           deadline: deadline || null,
           status: 'not_completed',
           sort_order: count || 0,
+          task_color: taskColor || null,
           task_color_start: taskColorStart || null,
           task_color_end: taskColorEnd || null,
         },
@@ -233,7 +235,7 @@ export async function POST(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json();
-    const { id, status, title, description, deadline, sortOrder, taskColorStart, taskColorEnd } = body;
+    const { id, status, title, description, deadline, sortOrder, taskColor, taskColorStart, taskColorEnd } = body;
 
     if (!id) return jsonError('Task id is required', 400);
 
@@ -254,6 +256,7 @@ export async function PUT(request: NextRequest) {
     if (description !== undefined) updateData.description = description?.trim() || null;
     if (deadline !== undefined) updateData.deadline = deadline || null;
     if (sortOrder !== undefined) updateData.sort_order = sortOrder;
+    if (taskColor !== undefined) updateData.task_color = taskColor || null;
     if (taskColorStart !== undefined) updateData.task_color_start = taskColorStart || null;
     if (taskColorEnd !== undefined) updateData.task_color_end = taskColorEnd || null;
 

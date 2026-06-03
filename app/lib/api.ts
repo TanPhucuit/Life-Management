@@ -21,6 +21,7 @@ export interface ApiTask {
   status: ApiTaskStatus;
   effective_status?: ApiTaskStatus;
   sort_order?: number;
+  task_color?: string | null;
   task_color_start?: string | null;
   task_color_end?: string | null;
   depth?: number;
@@ -138,6 +139,7 @@ export const api = {
     title: string;
     description?: string;
     deadline?: string;
+    taskColor?: string | null;
     taskColorStart?: string | null;
     taskColorEnd?: string | null;
   }) {
@@ -153,6 +155,7 @@ export const api = {
     description?: string | null;
     deadline?: string | null;
     sortOrder?: number;
+    taskColor?: string | null;
     taskColorStart?: string | null;
     taskColorEnd?: string | null;
   }) {
