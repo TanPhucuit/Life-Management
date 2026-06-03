@@ -34,23 +34,23 @@ type DragState = { taskId: string; offsetX: number; offsetY: number };
 
 const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', deadline: '', parentTaskId: null };
 
-const nodeWidth = 300;
-const nodeHeight = 156;
+const nodeWidth = 240;
+const nodeHeight = 96;
 const levelTwoNodeWidth = Math.round(nodeWidth * 0.75);
 const levelTwoNodeHeight = Math.round(nodeHeight * 0.75);
 const compactNodeWidth = Math.round(levelTwoNodeWidth * 0.5);
-const compactNodeHeight = 64;
-const levelGap = 470;
-const siblingGap = 214;
+const compactNodeHeight = Math.round(levelTwoNodeHeight * 0.5);
+const levelGap = 320;
+const siblingGap = 120;
 const canvasPadding = 48;
 const canvasMinWidth = 2200;
 const canvasMinHeight = 1400;
 const canvasExpansionPadding = 900;
 const autoPanThreshold = 80;
 const autoPanStep = 28;
-const connectorSpineOffset = 118;
-const connectorChildInset = 74;
-const connectorRadius = 14;
+const connectorSpineOffset = 56;
+const connectorChildInset = 24;
+const connectorRadius = 10;
 
 function getTaskNodeSize(task: Pick<ApiTask, 'depth'>) {
   const depth = task.depth || 0;
@@ -140,11 +140,6 @@ const getTaskStatusLabel = (status?: ApiTaskStatus) => {
   if (status === 'completed') return 'Hoàn thành';
   if (status === 'in_progress') return 'Đang thực hiện';
   return 'Chưa hoàn thành';
-};
-
-const getTaskDisplayStatus = (task: ApiTask) => {
-  if (isTaskOverdue(task)) return 'Quá hạn';
-  return getTaskStatusLabel(task.effective_status || task.status);
 };
 
 const toDateTimeInputValue = (value?: string | null) => {
@@ -249,7 +244,7 @@ export default function TaskManager() {
   }, [searchTerm, taskById, topicScopedTasks]);
 
   const canvasTaskIds = useMemo(() => new Set(canvasTasks.map((task) => task.id)), [canvasTasks]);
-  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:v2:${user.id}:topic:${selectedTopicId}` : null;
+  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:v3:${user.id}:topic:${selectedTopicId}` : null;
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};
@@ -500,15 +495,6 @@ export default function TaskManager() {
     const draggedTask = taskById.get(draggedId);
     if (!draggedTask) return;
 
-    const snappedX = autoLayoutPositions[draggedId]?.x ?? canvasPadding + (draggedTask.depth || 0) * levelGap;
-    setNodePositions((current) => ({
-      ...current,
-      [draggedId]: {
-        ...(current[draggedId] || { y: canvasPadding }),
-        x: snappedX,
-      },
-    }));
-
     const siblings = (childrenByParent.get(draggedTask.parent_task_id || null) || []).filter((task) => canvasTaskIds.has(task.id));
     const ordered = [...siblings].sort((a, b) => (nodePositions[a.id]?.y || 0) - (nodePositions[b.id]?.y || 0));
     const changedOrders = ordered
@@ -706,7 +692,7 @@ export default function TaskManager() {
                   <button type="button" onClick={() => updateCanvasZoom(1)} className="border-x border-slate-200 px-3 py-1.5 font-medium text-slate-700">{Math.round(canvasZoom * 100)}%</button>
                   <button type="button" onClick={() => updateCanvasZoom(canvasZoom + 0.1)} className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">+</button>
                 </div>
-                <span className="text-xs text-slate-500">Ctrl + - / Ctrl + + để zoom. Kéo node để sắp xếp theo vị trí dọc.</span>
+                <span className="text-xs text-slate-500">Ctrl + - / Ctrl + + để zoom. Kéo node tự do để rút ngắn đường nối hoặc sắp xếp cây.</span>
               </div>
               <div ref={topScrollRef} onScroll={handleTopScroll} className="h-4 w-full overflow-x-auto overflow-y-hidden">
                 <div style={{ width: scaledCanvasSize.width, height: 1 }} />
@@ -748,7 +734,10 @@ export default function TaskManager() {
                     const firstChildX = Math.min(...children.map((child) => child.position.x));
                     const preferredTrunkX = parentAnchorX + connectorSpineOffset;
                     const maxTrunkX = firstChildX - connectorChildInset;
-                    const trunkX = Math.max(parentAnchorX + 64, Math.min(preferredTrunkX, maxTrunkX));
+                    const minTrunkX = parentAnchorX + 18;
+                    const trunkX = maxTrunkX <= minTrunkX
+                      ? Math.max(parentAnchorX + 8, firstChildX - 12)
+                      : Math.max(minTrunkX, Math.min(preferredTrunkX, maxTrunkX));
                     const childYs = children.map((child) => child.position.y + getTaskNodeSize(child.task).height / 2);
                     const minSpineY = Math.min(parentAnchorY, ...childYs);
                     const maxSpineY = Math.max(parentAnchorY, ...childYs);
@@ -895,7 +884,6 @@ function TaskDiagramNode({
   const theme = taskThemes[getTaskTone(task)];
   const completedCount = task.completed_leaf_count || (taskDone ? 1 : 0);
   const totalCount = task.leaf_count || 1;
-  const statusLabel = getTaskDisplayStatus(task);
   const isCompact = depth >= 2;
   const isLevelTwo = depth === 1;
   const nodeSize = getTaskNodeSize({ depth });
@@ -908,7 +896,7 @@ function TaskDiagramNode({
         onMouseDown={onSelect}
       >
         <div
-          className="relative h-full overflow-hidden rounded-lg border p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          className="relative h-full overflow-hidden rounded-md border p-1.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
           style={{
             background: theme.background,
             borderColor: isSelected ? theme.selected : theme.border,
@@ -916,56 +904,49 @@ function TaskDiagramNode({
             boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 24px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
           }}
         >
-          <div className="absolute inset-y-2 left-0 w-1 rounded-r-full" style={{ background: theme.progress }} />
+          <div className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full" style={{ background: theme.progress }} />
 
-          <div className="flex h-full min-w-0 flex-col justify-center gap-1 pl-1">
-            <div className="flex min-w-0 items-center gap-1.5">
-              {hasChildren ? (
-                <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
-                  {taskDone ? <CheckCircle2 className="h-3 w-3" /> : <GitBranch className="h-3 w-3" />}
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggle();
-                  }}
-                  className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full transition hover:scale-105"
-                  style={{ background: theme.chipBackground, color: theme.chipText }}
-                  title="Đổi trạng thái"
-                >
-                  {taskDone ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
-                </button>
-              )}
-              <p className="truncate text-[11px] font-semibold leading-4" style={{ color: theme.text }}>
-                {task.title}
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="min-w-0 truncate rounded-full px-1.5 py-0.5 text-[9px] font-medium leading-[14px]" style={{ background: theme.chipBackground, color: theme.chipText }}>
-                {statusLabel}
+          <div className="flex h-full min-w-0 items-center gap-1 pl-0.5">
+            {hasChildren ? (
+              <span className="grid h-[16px] w-[16px] shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+                {taskDone ? <CheckCircle2 className="h-2.5 w-2.5" /> : <GitBranch className="h-2.5 w-2.5" />}
               </span>
+            ) : (
               <button
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  onAddChild();
+                  onToggle();
                 }}
-                className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded border border-slate-200/80 bg-white/70 text-slate-500 opacity-70 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
-                title="Thêm task con"
+                className="grid h-[16px] w-[16px] shrink-0 place-items-center rounded-full transition hover:scale-105"
+                style={{ background: theme.chipBackground, color: theme.chipText }}
+                title="Đổi trạng thái"
               >
-                <Plus className="h-2.5 w-2.5" />
+                {taskDone ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Circle className="h-2.5 w-2.5" />}
               </button>
-              <button
-                type="button"
-                onMouseDown={onDragStart}
-                className="grid h-[18px] w-[18px] shrink-0 cursor-grab place-items-center rounded border border-slate-200/80 bg-white/70 text-slate-500 opacity-70 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
-                title="Kéo node"
-              >
-                <Move className="h-2.5 w-2.5" />
-              </button>
-            </div>
+            )}
+            <p className="min-w-0 flex-1 truncate text-[10px] font-semibold leading-3" style={{ color: theme.text }}>
+              {task.title}
+            </p>
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onAddChild();
+              }}
+              className="grid h-[16px] w-[16px] shrink-0 place-items-center rounded border border-slate-200/80 bg-white/70 text-slate-500 opacity-60 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
+              title="Thêm task con"
+            >
+              <Plus className="h-2 w-2" />
+            </button>
+            <button
+              type="button"
+              onMouseDown={onDragStart}
+              className="grid h-[16px] w-[16px] shrink-0 cursor-grab place-items-center rounded border border-slate-200/80 bg-white/70 text-slate-500 opacity-0 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
+              title="Kéo node"
+            >
+              <Move className="h-2 w-2" />
+            </button>
           </div>
         </div>
       </div>
@@ -979,7 +960,7 @@ function TaskDiagramNode({
       onMouseDown={onSelect}
     >
       <div
-        className={`relative h-full overflow-hidden rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-2.5' : 'p-3'}`}
+        className={`relative h-full overflow-hidden rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-2' : 'p-2.5'}`}
         style={{
           background: theme.background,
           borderColor: isSelected ? theme.selected : theme.border,
@@ -987,9 +968,9 @@ function TaskDiagramNode({
           boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 26px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
         }}
       >
-        <div className={`${isLevelTwo ? 'absolute inset-y-2.5 left-0 w-1 rounded-r-full' : 'absolute inset-y-3 left-0 w-1 rounded-r-full'}`} style={{ background: theme.progress }} />
+        <div className={`${isLevelTwo ? 'absolute inset-y-2 left-0 w-0.5 rounded-r-full' : 'absolute inset-y-2.5 left-0 w-1 rounded-r-full'}`} style={{ background: theme.progress }} />
 
-        <div className={`flex items-start justify-between gap-2 pl-1 ${isLevelTwo ? 'mb-1.5' : 'mb-2.5'}`}>
+        <div className={`flex items-start justify-between gap-2 pl-1 ${isLevelTwo ? 'mb-1' : 'mb-2'}`}>
           <div className={`flex min-w-0 items-start ${isLevelTwo ? 'gap-1.5' : 'gap-2'}`}>
             {hasChildren ? (
               <span className={`${isLevelTwo ? 'mt-0.5 grid h-[18px] w-[18px]' : 'mt-0.5 grid h-5 w-5'} place-items-center rounded-full`} style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
@@ -1011,9 +992,6 @@ function TaskDiagramNode({
             )}
             <div className="min-w-0">
               <p className={`truncate font-semibold ${isLevelTwo ? 'text-[12px] leading-4' : 'text-[14px] leading-5'}`} style={{ color: theme.text }}>{task.title}</p>
-              <span className={`inline-flex rounded-full font-medium ${isLevelTwo ? 'mt-0.5 px-1.5 py-0.5 text-[9px] leading-[14px]' : 'mt-1 px-2 py-0.5 text-[11px]'}`} style={{ background: theme.chipBackground, color: theme.chipText }}>
-                {statusLabel}
-              </span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
@@ -1047,25 +1025,21 @@ function TaskDiagramNode({
           </div>
         </div>
 
-        <div className={`flex flex-wrap pl-1 ${isLevelTwo ? 'mb-1.5 gap-1' : 'mb-2.5 gap-1.5'}`}>
+        <div className={`flex flex-wrap pl-1 ${isLevelTwo ? 'mb-1 gap-1' : 'mb-2 gap-1.5'}`}>
           <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Hạn: ${formatDate(task.deadline)}`} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} compact={isLevelTwo} />
           {task.start_date && <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Bắt đầu: ${formatDate(task.start_date)}`} theme={taskThemes.inProgress} compact={isLevelTwo} />}
-          <TaskMetaChip icon={<GitBranch className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`${task.child_count || 0} con`} theme={taskThemes.incomplete} compact={isLevelTwo} />
         </div>
 
         <div className={`pl-1 ${isLevelTwo ? 'mb-0' : 'mb-2'}`}>
           <div className={`flex items-center justify-between gap-2 ${isLevelTwo ? 'mb-1 text-[10px]' : 'mb-1.5 text-[11px]'}`} style={{ color: theme.muted }}>
             <span>{completion}%</span>
-            <span>{completedCount}/{totalCount}{isLevelTwo ? '' : ' hoàn thành'}</span>
+            <span>{completedCount}/{totalCount}</span>
           </div>
           <div className={`${isLevelTwo ? 'h-1' : 'h-1.5'} overflow-hidden rounded-full bg-[#E5E7EB]`}>
             <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: theme.progress }} />
           </div>
         </div>
 
-        {!isLevelTwo && <div className="flex items-center justify-between pl-1 text-[11px]" style={{ color: theme.muted }}>
-          <span>{hasChildren ? 'Task cha · trạng thái tự tính' : 'Task con · có thể tick hoàn thành'}</span>
-        </div>}
       </div>
     </div>
   );
