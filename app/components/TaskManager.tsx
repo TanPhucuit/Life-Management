@@ -36,6 +36,7 @@ const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', d
 
 const nodeWidth = 300;
 const nodeHeight = 156;
+const compactNodeSize = 150;
 const levelGap = 470;
 const siblingGap = 214;
 const canvasPadding = 48;
@@ -47,6 +48,16 @@ const autoPanStep = 28;
 const connectorSpineOffset = 118;
 const connectorChildInset = 74;
 const connectorRadius = 14;
+
+function isCompactTaskNode(task: Pick<ApiTask, 'depth'>) {
+  return (task.depth || 0) >= 2;
+}
+
+function getTaskNodeSize(task: Pick<ApiTask, 'depth'>) {
+  return isCompactTaskNode(task)
+    ? { width: compactNodeSize, height: compactNodeSize }
+    : { width: nodeWidth, height: nodeHeight };
+}
 const taskThemes = {
   incomplete: {
     background: '#FFFFFF',
@@ -247,18 +258,19 @@ export default function TaskManager() {
 
     let leafIndex = 0;
     const place = (task: ApiTask, depth: number): number => {
+      const currentSize = getTaskNodeSize({ depth });
       const visibleChildren = (childrenByParent.get(task.id) || []).filter((child) => canvasTaskIds.has(child.id));
       if (visibleChildren.length === 0) {
         const y = canvasPadding + leafIndex * siblingGap;
         positions[task.id] = { x: canvasPadding + depth * levelGap, y };
         leafIndex += 1;
-        return y;
+        return y + currentSize.height / 2;
       }
 
-      const childYs = visibleChildren.map((child) => place(child, depth + 1));
-      const y = childYs.reduce((sum, value) => sum + value, 0) / childYs.length;
+      const childCenters = visibleChildren.map((child) => place(child, depth + 1));
+      const y = childCenters.reduce((sum, value) => sum + value, 0) / childCenters.length - currentSize.height / 2;
       positions[task.id] = { x: canvasPadding + depth * levelGap, y };
-      return y;
+      return y + currentSize.height / 2;
     };
 
     visibleRoots.forEach((root, index) => {
@@ -309,9 +321,17 @@ export default function TaskManager() {
   }, [canvasTaskIds, canvasTasks, childrenByParent, nodePositions]);
 
   const canvasSize = useMemo(() => {
-    const positions = canvasTasks.map((task) => nodePositions[task.id]).filter(Boolean);
-    const maxX = Math.max(canvasMinWidth, ...positions.map((position) => position.x + nodeWidth + canvasExpansionPadding));
-    const maxY = Math.max(canvasMinHeight, ...positions.map((position) => position.y + nodeHeight + canvasExpansionPadding));
+    const positionedTasks = canvasTasks
+      .map((task) => ({ task, position: nodePositions[task.id] }))
+      .filter((item): item is { task: ApiTask; position: NodePosition } => Boolean(item.position));
+    const maxX = Math.max(
+      canvasMinWidth,
+      ...positionedTasks.map(({ task, position }) => position.x + getTaskNodeSize(task).width + canvasExpansionPadding)
+    );
+    const maxY = Math.max(
+      canvasMinHeight,
+      ...positionedTasks.map(({ task, position }) => position.y + getTaskNodeSize(task).height + canvasExpansionPadding)
+    );
     return { width: maxX, height: maxY };
   }, [canvasTasks, nodePositions]);
 
@@ -328,25 +348,54 @@ export default function TaskManager() {
   };
 
   useEffect(() => {
+    const isZoomOutShortcut = (event: KeyboardEvent) => event.code === 'Minus' || event.code === 'NumpadSubtract' || event.key === '-' || event.key === '_';
+    const isZoomInShortcut = (event: KeyboardEvent) => event.code === 'Equal' || event.code === 'NumpadAdd' || event.key === '+' || event.key === '=';
+    const isZoomResetShortcut = (event: KeyboardEvent) => event.code === 'Digit0' || event.code === 'Numpad0' || event.key === '0';
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!event.ctrlKey && !event.metaKey) return;
-      if (event.key === '-' || event.key === '_') {
+      if (isZoomOutShortcut(event)) {
         event.preventDefault();
-        updateCanvasZoom(canvasZoom - 0.1);
+        event.stopPropagation();
+        setCanvasZoom((current) => Math.min(1.6, Math.max(0.5, Math.round((current - 0.1) * 10) / 10)));
       }
-      if (event.key === '+' || event.key === '=') {
+      if (isZoomInShortcut(event)) {
         event.preventDefault();
-        updateCanvasZoom(canvasZoom + 0.1);
+        event.stopPropagation();
+        setCanvasZoom((current) => Math.min(1.6, Math.max(0.5, Math.round((current + 0.1) * 10) / 10)));
       }
-      if (event.key === '0') {
+      if (isZoomResetShortcut(event)) {
         event.preventDefault();
-        updateCanvasZoom(1);
+        event.stopPropagation();
+        setCanvasZoom(1);
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canvasZoom]);
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown, { capture: true });
+      document.removeEventListener('keydown', handleKeyDown, { capture: true });
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleCanvasWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setCanvasZoom((current) => {
+        const direction = event.deltaY > 0 ? -0.1 : 0.1;
+        return Math.min(1.6, Math.max(0.5, Math.round((current + direction) * 10) / 10));
+      });
+    };
+
+    canvas.addEventListener('wheel', handleCanvasWheel, { passive: false, capture: true });
+    return () => canvas.removeEventListener('wheel', handleCanvasWheel, { capture: true });
+  }, []);
 
   const stats = useMemo(() => {
     const leafTasks = topicScopedTasks.filter((task) => (task.child_count || 0) === 0);
@@ -688,18 +737,19 @@ export default function TaskManager() {
                     const parentTask = taskById.get(group.parentId);
                     const parent = nodePositions[group.parentId];
                     const children = group.childIds
-                      .map((childId) => ({ id: childId, position: nodePositions[childId] }))
-                      .filter((child): child is { id: string; position: NodePosition } => Boolean(child.position));
+                      .map((childId) => ({ task: taskById.get(childId), position: nodePositions[childId] }))
+                      .filter((child): child is { task: ApiTask; position: NodePosition } => Boolean(child.task && child.position));
                     if (!parentTask || !parent || children.length === 0) return null;
                     const connectorTheme = taskThemes[getTaskTone(parentTask)];
+                    const parentSize = getTaskNodeSize(parentTask);
 
-                    const parentAnchorX = parent.x + nodeWidth;
-                    const parentAnchorY = parent.y + nodeHeight / 2;
+                    const parentAnchorX = parent.x + parentSize.width;
+                    const parentAnchorY = parent.y + parentSize.height / 2;
                     const firstChildX = Math.min(...children.map((child) => child.position.x));
                     const preferredTrunkX = parentAnchorX + connectorSpineOffset;
                     const maxTrunkX = firstChildX - connectorChildInset;
                     const trunkX = Math.max(parentAnchorX + 64, Math.min(preferredTrunkX, maxTrunkX));
-                    const childYs = children.map((child) => child.position.y + nodeHeight / 2);
+                    const childYs = children.map((child) => child.position.y + getTaskNodeSize(child.task).height / 2);
                     const minSpineY = Math.min(parentAnchorY, ...childYs);
                     const maxSpineY = Math.max(parentAnchorY, ...childYs);
 
@@ -708,11 +758,11 @@ export default function TaskManager() {
                         <path d={`M ${parentAnchorX} ${parentAnchorY} H ${Math.max(parentAnchorX, trunkX - connectorRadius)} Q ${trunkX} ${parentAnchorY} ${trunkX} ${parentAnchorY}`} />
                         {(children.length > 1 || childYs[0] !== parentAnchorY) && <path d={`M ${trunkX} ${minSpineY} V ${maxSpineY}`} />}
                         {children.map((child) => {
-                          const childAnchorY = child.position.y + nodeHeight / 2;
+                          const childAnchorY = child.position.y + getTaskNodeSize(child.task).height / 2;
                           const arrowEndX = child.position.x - 6;
                           return (
                             <path
-                              key={child.id}
+                              key={child.task.id}
                               d={`M ${trunkX} ${childAnchorY} H ${arrowEndX}`}
                               markerEnd={`url(#${connectorTheme.markerId})`}
                             />
@@ -734,6 +784,7 @@ export default function TaskManager() {
                       completion={getCompletionPercent(task)}
                       isSelected={selectedTaskId === task.id}
                       hasChildren={(childrenByParent.get(task.id) || []).length > 0}
+                      depth={task.depth || 0}
                       onSelect={() => setSelectedTaskId(task.id)}
                       onDragStart={(event) => startDrag(event, task.id)}
                       onToggle={() => handleToggleLeaf(task)}
@@ -822,6 +873,7 @@ function TaskDiagramNode({
   completion,
   isSelected,
   hasChildren,
+  depth,
   onSelect,
   onDragStart,
   onToggle,
@@ -832,6 +884,7 @@ function TaskDiagramNode({
   completion: number;
   isSelected: boolean;
   hasChildren: boolean;
+  depth: number;
   onSelect: () => void;
   onDragStart: (event: ReactMouseEvent) => void;
   onToggle: () => void;
@@ -843,11 +896,100 @@ function TaskDiagramNode({
   const completedCount = task.completed_leaf_count || (taskDone ? 1 : 0);
   const totalCount = task.leaf_count || 1;
   const statusLabel = getTaskDisplayStatus(task);
+  const isCompact = depth >= 2;
+  const nodeSize = getTaskNodeSize({ depth });
+
+  if (isCompact) {
+    return (
+      <div
+        className="group absolute z-10"
+        style={{ width: nodeSize.width, height: nodeSize.height, transform: `translate(${position.x}px, ${position.y}px)` }}
+        onMouseDown={onSelect}
+      >
+        <div
+          className="relative h-full overflow-hidden rounded-xl border p-2.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          style={{
+            background: theme.background,
+            borderColor: isSelected ? theme.selected : theme.border,
+            color: theme.text,
+            boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 24px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
+          }}
+        >
+          <div className="absolute inset-y-3 left-0 w-1 rounded-r-full" style={{ background: theme.progress }} />
+
+          <div className="mb-2 flex items-start justify-between gap-1 pl-1">
+            {hasChildren ? (
+              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+                {taskDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <GitBranch className="h-3.5 w-3.5" />}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggle();
+                }}
+                className="grid h-5 w-5 shrink-0 place-items-center rounded-full transition hover:scale-105"
+                style={{ background: theme.chipBackground, color: theme.chipText }}
+                title="Đổi trạng thái"
+              >
+                {taskDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
+              </button>
+            )}
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAddChild();
+                }}
+                className="grid h-6 w-6 place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
+                title="Thêm task con"
+              >
+                <Plus className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                onMouseDown={onDragStart}
+                className="grid h-6 w-6 cursor-grab place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing group-hover:opacity-100"
+                title="Kéo node"
+              >
+                <Move className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+
+          <p className="line-clamp-2 min-h-[34px] pl-1 text-[13px] font-semibold leading-4" style={{ color: theme.text }}>
+            {task.title}
+          </p>
+
+          <div className="mt-2 flex flex-wrap gap-1 pl-1">
+            <span className="max-w-full truncate rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4" style={{ background: theme.chipBackground, color: theme.chipText }}>
+              {statusLabel}
+            </span>
+            <span className="rounded-full px-1.5 py-0.5 text-[10px] font-medium leading-4" style={{ background: taskThemes.incomplete.chipBackground, color: taskThemes.incomplete.chipText }}>
+              {task.child_count || 0} con
+            </span>
+          </div>
+
+          <div className="absolute inset-x-2.5 bottom-2.5">
+            <div className="mb-1 flex items-center justify-between text-[10px]" style={{ color: theme.muted }}>
+              <span>{completion}%</span>
+              <span>{completedCount}/{totalCount}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-[#E5E7EB]">
+              <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: theme.progress }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
       className="group absolute z-10"
-      style={{ width: nodeWidth, height: nodeHeight, transform: `translate(${position.x}px, ${position.y}px)` }}
+      style={{ width: nodeSize.width, height: nodeSize.height, transform: `translate(${position.x}px, ${position.y}px)` }}
       onMouseDown={onSelect}
     >
       <div
