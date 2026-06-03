@@ -238,7 +238,7 @@ export default function TaskManager() {
   }, [searchTerm, taskById, topicScopedTasks]);
 
   const canvasTaskIds = useMemo(() => new Set(canvasTasks.map((task) => task.id)), [canvasTasks]);
-  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:${user.id}:topic:${selectedTopicId}` : null;
+  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:v2:${user.id}:topic:${selectedTopicId}` : null;
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};

@@ -153,7 +153,24 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query.order('sort_order', { ascending: true }).order('created_at', { ascending: true });
     if (error) return jsonError(error.message, 400);
 
-    let tasks = enrichTasks((data || []) as TaskRow[]);
+    const activeRows = (data || []) as TaskRow[];
+    const activeTaskById = new Map(activeRows.map((row) => [row.id, row]));
+    const rows = activeRows.filter((task) => {
+      const visited = new Set<string>();
+      let current = task;
+
+      while (current.parent_task_id) {
+        if (visited.has(current.id)) return false;
+        visited.add(current.id);
+        const parent = activeTaskById.get(current.parent_task_id);
+        if (!parent) return false;
+        current = parent;
+      }
+
+      return true;
+    });
+
+    let tasks = enrichTasks(rows);
 
     if (parentTaskId) {
       tasks = parentTaskId === 'root'
@@ -282,13 +299,42 @@ export async function DELETE(request: NextRequest) {
     const id = request.nextUrl.searchParams.get('id');
     if (!id) return jsonError('Task id is required', 400);
 
+    const { data: target, error: targetError } = await supabase
+      .from('tasks')
+      .select('id, user_id')
+      .eq('id', id)
+      .single();
+
+    if (targetError || !target) return jsonError('Task not found', 404);
+
+    const { data: taskRows, error: taskRowsError } = await supabase
+      .from('tasks')
+      .select('id, parent_task_id')
+      .eq('user_id', target.user_id)
+      .is('archived_at', null);
+
+    if (taskRowsError) return jsonError(taskRowsError.message, 400);
+
+    const childrenByParent = new Map<string | null, Array<{ id: string; parent_task_id: string | null }>>();
+    (taskRows || []).forEach((task) => {
+      const parentId = task.parent_task_id || null;
+      childrenByParent.set(parentId, [...(childrenByParent.get(parentId) || []), task]);
+    });
+
+    const idsToArchive = new Set<string>();
+    const collectSubtree = (taskId: string) => {
+      idsToArchive.add(taskId);
+      (childrenByParent.get(taskId) || []).forEach((child) => collectSubtree(child.id));
+    };
+    collectSubtree(id);
+
     const { error } = await supabase
       .from('tasks')
       .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-      .eq('id', id);
+      .in('id', Array.from(idsToArchive));
 
     if (error) return jsonError(error.message, 400);
-    return NextResponse.json({ success: true, archived: true }, { headers: corsHeaders });
+    return NextResponse.json({ success: true, archived: true, archivedCount: idsToArchive.size }, { headers: corsHeaders });
   } catch (error) {
     return jsonError('Internal server error', 500);
   }
