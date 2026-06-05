@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   LocateFixed,
   Move,
+  Pencil,
   Plus,
   Search,
   Trash2,
@@ -175,6 +176,8 @@ export default function TaskManager() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [newTopicName, setNewTopicName] = useState('');
+  const [editingTopic, setEditingTopic] = useState<ApiTopic | null>(null);
+  const [topicNameDraft, setTopicNameDraft] = useState('');
   const [taskDraft, setTaskDraft] = useState<TaskDraft>(emptyTaskDraft);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -442,6 +445,11 @@ export default function TaskManager() {
     setSelectedTaskId(firstRoot?.id || null);
   };
 
+  const openTopicEditor = (topic: ApiTopic) => {
+    setEditingTopic(topic);
+    setTopicNameDraft(topic.name);
+  };
+
   const openTaskModal = (parentTaskId: string | null) => {
     setTaskDraft({ ...emptyTaskDraft, parentTaskId });
     setIsTaskModalOpen(true);
@@ -563,6 +571,34 @@ export default function TaskManager() {
     }
   };
 
+  const handleUpdateTopic = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingTopic) return;
+
+    const nextName = topicNameDraft.trim();
+    if (!nextName) {
+      setErrorMessage('Tên chủ đề không được để trống.');
+      return;
+    }
+
+    if (nextName === editingTopic.name) {
+      setEditingTopic(null);
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const updated = await api.updateTopic(editingTopic.id, { name: nextName });
+      setTopics((current) => current.map((topic) => (topic.id === updated.id ? updated : topic)));
+      setEditingTopic(null);
+      setTopicNameDraft('');
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Không cập nhật được chủ đề.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleCreateTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!user?.id || !taskDraft.title.trim()) return;
@@ -678,6 +714,7 @@ export default function TaskManager() {
                     count={count}
                     color={color.text}
                     onClick={() => selectTopic(topic.id)}
+                    onEdit={() => openTopicEditor(topic)}
                   />
                 );
               })}
@@ -854,6 +891,37 @@ export default function TaskManager() {
         </Modal>
       )}
 
+      {editingTopic && (
+        <Modal title="Chỉnh sửa chủ đề" onClose={() => setEditingTopic(null)}>
+          <form onSubmit={handleUpdateTopic} className="space-y-3">
+            <Field label="Tên chủ đề">
+              <input
+                value={topicNameDraft}
+                onChange={(event) => setTopicNameDraft(event.target.value)}
+                className={inputClass}
+                autoFocus
+                required
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setEditingTopic(null)}
+                className="rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Hủy
+              </button>
+              <button
+                disabled={isLoading || !topicNameDraft.trim()}
+                className="rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+              >
+                Lưu
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
     </div>
   );
 }
@@ -865,6 +933,7 @@ function TopicTab({
   icon,
   color,
   onClick,
+  onEdit,
 }: {
   active: boolean;
   label: string;
@@ -872,18 +941,33 @@ function TopicTab({
   icon?: ReactNode;
   color?: string;
   onClick: () => void;
+  onEdit?: () => void;
 }) {
   return (
-    <button
-      onClick={onClick}
-      className={`flex shrink-0 items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium ${
+    <div
+      className={`group flex shrink-0 items-center rounded-md border text-sm font-medium ${
         active ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
       }`}
     >
-      {icon || <span className="h-2.5 w-2.5 rounded-full" style={{ background: color || '#64748b' }} />}
-      <span className="max-w-36 whitespace-normal break-words text-left leading-4">{label}</span>
-      <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">{count}</span>
-    </button>
+      <button onClick={onClick} className="flex min-h-9 items-center gap-2 px-3 py-2 text-left">
+        {icon || <span className="h-2.5 w-2.5 rounded-full" style={{ background: color || '#64748b' }} />}
+        <span className="max-w-36 whitespace-normal break-words text-left leading-4">{label}</span>
+        <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">{count}</span>
+      </button>
+      {active && onEdit && (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onEdit();
+          }}
+          className="mr-1 grid h-7 w-7 place-items-center rounded-md border border-blue-100 bg-white/80 text-blue-600 transition hover:bg-white hover:text-blue-700 sm:opacity-80 sm:group-hover:opacity-100"
+          title="Chỉnh sửa chủ đề"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
   );
 }
 
