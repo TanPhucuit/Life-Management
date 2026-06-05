@@ -28,12 +28,25 @@ type TaskDraft = {
   startDate: string;
   deadline: string;
   parentTaskId: string | null;
+  topicId: string | null;
 };
 
 type NodePosition = { x: number; y: number };
 type DragState = { taskId: string; offsetX: number; offsetY: number };
+type DiagramNodeKind = 'life-root' | 'topic' | 'task';
+type DiagramNode = {
+  id: string;
+  kind: DiagramNodeKind;
+  title: string;
+  depth: number;
+  task?: ApiTask;
+  topic?: ApiTopic;
+};
 
-const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', deadline: '', parentTaskId: null };
+const lifeRootNodeId = 'life-root';
+const topicNodeId = (topicId: string) => `topic:${topicId}`;
+
+const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', deadline: '', parentTaskId: null, topicId: null };
 
 const nodeWidth = 220;
 const nodeHeight = 78;
@@ -53,9 +66,9 @@ const connectorSpineOffset = 56;
 const connectorChildInset = 24;
 const connectorRadius = 10;
 
-function getTaskNodeSize(task: Pick<ApiTask, 'depth' | 'title'>) {
-  const depth = task.depth || 0;
-  const titleLength = Math.max(task.title?.length || 0, 1);
+function getNodeSize(node: Pick<DiagramNode, 'depth' | 'title'>) {
+  const depth = node.depth || 0;
+  const titleLength = Math.max(node.title?.length || 0, 1);
   if (depth >= 2) {
     const width = Math.min(180, compactNodeWidth + Math.max(0, titleLength - 4) * 6);
     const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 42) / 6));
@@ -220,80 +233,137 @@ export default function TaskManager() {
   }, [user?.id]);
 
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
-
-  const topicScopedTasks = useMemo(() => tasks.filter((task) => task.topic_id === selectedTopicId), [selectedTopicId, tasks]);
+  const lifeTopic = useMemo(() => topics.find((topic) => topic.name.trim().toLowerCase() === 'life') || null, [topics]);
+  const visibleTopics = useMemo(() => topics.filter((topic) => topic.id !== lifeTopic?.id), [lifeTopic?.id, topics]);
 
   const childrenByParent = useMemo(() => {
     const map = new Map<string | null, ApiTask[]>();
-    topicScopedTasks.forEach((task) => {
+    tasks.forEach((task) => {
       const parentId = task.parent_task_id || null;
       map.set(parentId, [...(map.get(parentId) || []), task]);
     });
     map.forEach((items) => items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
     return map;
-  }, [topicScopedTasks]);
+  }, [tasks]);
 
   const rootTasks = childrenByParent.get(null) || [];
 
   const selectedTask = selectedTaskId ? taskById.get(selectedTaskId) || null : null;
   const selectedTaskChildren = selectedTask ? childrenByParent.get(selectedTask.id) || [] : [];
 
-  const canvasTasks = useMemo(() => {
-    const baseTasks = topicScopedTasks;
+  const diagramNodes = useMemo<DiagramNode[]>(() => {
     const search = searchTerm.trim().toLowerCase();
-    if (!search) return baseTasks;
+    const visibleTaskIds = new Set<string>();
+    const visibleTopicIds = new Set<string>();
 
-    const visibleIds = new Set<string>();
-    baseTasks.forEach((task) => {
-      const matches = task.title.toLowerCase().includes(search) || task.description?.toLowerCase().includes(search);
-      if (!matches) return;
+    if (search) {
+      visibleTopics.forEach((topic) => {
+        if (topic.name.toLowerCase().includes(search)) visibleTopicIds.add(topic.id);
+      });
 
-      visibleIds.add(task.id);
-      let current = task;
-      while (current.parent_task_id) {
-        visibleIds.add(current.parent_task_id);
-        const parent = taskById.get(current.parent_task_id);
-        if (!parent) break;
-        current = parent;
-      }
+      tasks.forEach((task) => {
+        const matches = task.title.toLowerCase().includes(search) || task.description?.toLowerCase().includes(search);
+        if (!matches) return;
+
+        visibleTaskIds.add(task.id);
+        visibleTopicIds.add(task.topic_id);
+        let current = task;
+        while (current.parent_task_id) {
+          visibleTaskIds.add(current.parent_task_id);
+          const parent = taskById.get(current.parent_task_id);
+          if (!parent) break;
+          current = parent;
+        }
+      });
+    } else {
+      visibleTopics.forEach((topic) => visibleTopicIds.add(topic.id));
+      tasks.forEach((task) => visibleTaskIds.add(task.id));
+    }
+
+    const nodes: DiagramNode[] = [{ id: lifeRootNodeId, kind: 'life-root', title: lifeTopic?.name || 'Life', depth: 0, topic: lifeTopic || undefined }];
+
+    visibleTopics
+      .filter((topic) => visibleTopicIds.has(topic.id))
+      .forEach((topic) => nodes.push({ id: topicNodeId(topic.id), kind: 'topic', title: topic.name, depth: 1, topic }));
+
+    tasks
+      .filter((task) => visibleTaskIds.has(task.id))
+      .forEach((task) => {
+        const isLifeTask = Boolean(lifeTopic && task.topic_id === lifeTopic.id);
+        nodes.push({
+          id: task.id,
+          kind: 'task',
+          title: task.title,
+          depth: (task.depth || 0) + (isLifeTask ? 1 : 2),
+          task,
+        });
+      });
+
+    return nodes;
+  }, [lifeTopic, searchTerm, taskById, tasks, visibleTopics]);
+
+  const diagramNodeById = useMemo(() => new Map(diagramNodes.map((node) => [node.id, node])), [diagramNodes]);
+  const canvasNodeIds = useMemo(() => new Set(diagramNodes.map((node) => node.id)), [diagramNodes]);
+  const titleLayoutSignature = useMemo(() => diagramNodes.map((node) => `${node.id}:${node.title}`).join('|'), [diagramNodes]);
+  const layoutStorageKey = user?.id ? `life-manager-task-layout:v6:${user.id}:life-tree` : null;
+
+  const diagramChildrenByParent = useMemo(() => {
+    const map = new Map<string, string[]>();
+    const lifeChildren: string[] = [];
+
+    visibleTopics.forEach((topic) => {
+      const id = topicNodeId(topic.id);
+      if (canvasNodeIds.has(id)) lifeChildren.push(id);
     });
 
-    return baseTasks.filter((task) => visibleIds.has(task.id));
-  }, [searchTerm, taskById, topicScopedTasks]);
+    rootTasks.forEach((task) => {
+      if (!canvasNodeIds.has(task.id)) return;
+      if (lifeTopic && task.topic_id === lifeTopic.id) {
+        lifeChildren.push(task.id);
+        return;
+      }
+      const parentTopicNodeId = topicNodeId(task.topic_id);
+      map.set(parentTopicNodeId, [...(map.get(parentTopicNodeId) || []), task.id]);
+    });
 
-  const canvasTaskIds = useMemo(() => new Set(canvasTasks.map((task) => task.id)), [canvasTasks]);
-  const titleLayoutSignature = useMemo(() => canvasTasks.map((task) => `${task.id}:${task.title}`).join('|'), [canvasTasks]);
-  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:v5:${user.id}:topic:${selectedTopicId}` : null;
+    tasks.forEach((task) => {
+      if (!task.parent_task_id || !canvasNodeIds.has(task.id)) return;
+      map.set(task.parent_task_id, [...(map.get(task.parent_task_id) || []), task.id]);
+    });
+
+    map.set(lifeRootNodeId, lifeChildren.filter((id) => canvasNodeIds.has(id)));
+    return map;
+  }, [canvasNodeIds, lifeTopic, rootTasks, tasks, visibleTopics]);
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};
-    const visibleRoots = rootTasks.filter((root) => canvasTaskIds.has(root.id));
-    if (visibleRoots.length === 0) return positions;
+    const rootNode = diagramNodeById.get(lifeRootNodeId);
+    if (!rootNode) return positions;
 
     let leafIndex = 0;
-    const place = (task: ApiTask, depth: number, x: number): number => {
-      const currentSize = getTaskNodeSize({ depth, title: task.title });
-      const visibleChildren = (childrenByParent.get(task.id) || []).filter((child) => canvasTaskIds.has(child.id));
+    const place = (node: DiagramNode, x: number): number => {
+      const currentSize = getNodeSize(node);
+      const visibleChildren = (diagramChildrenByParent.get(node.id) || [])
+        .map((childId) => diagramNodeById.get(childId))
+        .filter((child): child is DiagramNode => Boolean(child));
+
       if (visibleChildren.length === 0) {
         const y = canvasPadding + leafIndex * siblingGap;
-        positions[task.id] = { x, y };
+        positions[node.id] = { x, y };
         leafIndex += 1;
         return y + currentSize.height / 2;
       }
 
       const childX = x + currentSize.width + levelGap;
-      const childCenters = visibleChildren.map((child) => place(child, depth + 1, childX));
+      const childCenters = visibleChildren.map((child) => place(child, childX));
       const y = childCenters.reduce((sum, value) => sum + value, 0) / childCenters.length - currentSize.height / 2;
-      positions[task.id] = { x, y };
+      positions[node.id] = { x, y };
       return y + currentSize.height / 2;
     };
 
-    visibleRoots.forEach((root, index) => {
-      if (index > 0) leafIndex += 1;
-      place(root, 0, canvasPadding);
-    });
+    place(rootNode, canvasPadding);
     return positions;
-  }, [canvasTaskIds, childrenByParent, rootTasks]);
+  }, [diagramChildrenByParent, diagramNodeById]);
 
   useEffect(() => {
     setNodePositions((current) => {
@@ -307,22 +377,22 @@ export default function TaskManager() {
       }
 
       const next: Record<string, NodePosition> = {};
-      canvasTasks.forEach((task) => {
-        next[task.id] = current[task.id] || savedPositions[task.id] || autoLayoutPositions[task.id] || { x: canvasPadding, y: canvasPadding };
+      diagramNodes.forEach((node) => {
+        next[node.id] = current[node.id] || savedPositions[node.id] || autoLayoutPositions[node.id] || { x: canvasPadding, y: canvasPadding };
       });
       return next;
     });
-  }, [autoLayoutPositions, canvasTasks, layoutStorageKey]);
+  }, [autoLayoutPositions, diagramNodes, layoutStorageKey]);
 
   useEffect(() => {
-    if (!layoutStorageKey || canvasTasks.length === 0 || typeof window === 'undefined') return;
+    if (!layoutStorageKey || diagramNodes.length === 0 || typeof window === 'undefined') return;
 
     const savedPositions: Record<string, NodePosition> = {};
-    canvasTasks.forEach((task) => {
-      if (nodePositions[task.id]) savedPositions[task.id] = nodePositions[task.id];
+    diagramNodes.forEach((node) => {
+      if (nodePositions[node.id]) savedPositions[node.id] = nodePositions[node.id];
     });
     localStorage.setItem(layoutStorageKey, JSON.stringify(savedPositions));
-  }, [canvasTasks, layoutStorageKey, nodePositions]);
+  }, [diagramNodes, layoutStorageKey, nodePositions]);
 
   useEffect(() => {
     if (!titleLayoutSignature) return;
@@ -336,30 +406,30 @@ export default function TaskManager() {
   }, [autoLayoutPositions, titleLayoutSignature]);
 
   const connectorGroups = useMemo(() => {
-    return canvasTasks
-      .map((task) => {
-        const children = (childrenByParent.get(task.id) || [])
-          .filter((child) => canvasTaskIds.has(child.id))
-          .sort((a, b) => (nodePositions[a.id]?.y || 0) - (nodePositions[b.id]?.y || 0));
-        return { parentId: task.id, childIds: children.map((child) => child.id) };
+    return diagramNodes
+      .map((node) => {
+        const children = (diagramChildrenByParent.get(node.id) || [])
+          .filter((childId) => canvasNodeIds.has(childId))
+          .sort((a, b) => (nodePositions[a]?.y || 0) - (nodePositions[b]?.y || 0));
+        return { parentId: node.id, childIds: children };
       })
       .filter((group) => group.childIds.length > 0);
-  }, [canvasTaskIds, canvasTasks, childrenByParent, nodePositions]);
+  }, [canvasNodeIds, diagramChildrenByParent, diagramNodes, nodePositions]);
 
   const canvasSize = useMemo(() => {
-    const positionedTasks = canvasTasks
-      .map((task) => ({ task, position: nodePositions[task.id] }))
-      .filter((item): item is { task: ApiTask; position: NodePosition } => Boolean(item.position));
+    const positionedNodes = diagramNodes
+      .map((node) => ({ node, position: nodePositions[node.id] }))
+      .filter((item): item is { node: DiagramNode; position: NodePosition } => Boolean(item.position));
     const maxX = Math.max(
       canvasMinWidth,
-      ...positionedTasks.map(({ task, position }) => position.x + getTaskNodeSize(task).width + canvasExpansionPadding)
+      ...positionedNodes.map(({ node, position }) => position.x + getNodeSize(node).width + canvasExpansionPadding)
     );
     const maxY = Math.max(
       canvasMinHeight,
-      ...positionedTasks.map(({ task, position }) => position.y + getTaskNodeSize(task).height + canvasExpansionPadding)
+      ...positionedNodes.map(({ node, position }) => position.y + getNodeSize(node).height + canvasExpansionPadding)
     );
     return { width: maxX, height: maxY };
-  }, [canvasTasks, nodePositions]);
+  }, [diagramNodes, nodePositions]);
 
   const scaledCanvasSize = useMemo(
     () => ({
@@ -424,10 +494,10 @@ export default function TaskManager() {
   }, []);
 
   const stats = useMemo(() => {
-    const leafTasks = topicScopedTasks.filter((task) => (task.child_count || 0) === 0);
+    const leafTasks = tasks.filter((task) => (task.child_count || 0) === 0);
     const completedLeafTasks = leafTasks.filter((task) => task.status === 'completed' || task.effective_status === 'completed');
     const incompleteLeafTasks = leafTasks.filter((task) => task.status !== 'completed' && task.effective_status !== 'completed');
-    const inProgressTasks = topicScopedTasks.filter((task) => task.status === 'in_progress' || task.effective_status === 'in_progress');
+    const inProgressTasks = tasks.filter((task) => task.status === 'in_progress' || task.effective_status === 'in_progress');
     const overdueLeafTasks = leafTasks.filter((task) => task.deadline && task.status !== 'completed' && new Date(task.deadline) < new Date());
 
     return {
@@ -435,23 +505,17 @@ export default function TaskManager() {
       incompleteLeafTasks: incompleteLeafTasks.length,
       inProgressTasks: inProgressTasks.length,
       overdueLeafTasks: overdueLeafTasks.length,
-      totalTasks: topicScopedTasks.length,
+      totalTasks: tasks.length,
     };
-  }, [topicScopedTasks]);
-
-  const selectTopic = (topicId: string) => {
-    setSelectedTopicId(topicId);
-    const firstRoot = tasks.find((task) => !task.parent_task_id && task.topic_id === topicId);
-    setSelectedTaskId(firstRoot?.id || null);
-  };
+  }, [tasks]);
 
   const openTopicEditor = (topic: ApiTopic) => {
     setEditingTopic(topic);
     setTopicNameDraft(topic.name);
   };
 
-  const openTaskModal = (parentTaskId: string | null) => {
-    setTaskDraft({ ...emptyTaskDraft, parentTaskId });
+  const openTaskModal = (parentTaskId: string | null, topicId?: string | null) => {
+    setTaskDraft({ ...emptyTaskDraft, parentTaskId, topicId: topicId || null });
     setIsTaskModalOpen(true);
   };
 
@@ -485,7 +549,13 @@ export default function TaskManager() {
     const currentPosition = nodePositions[taskId];
     if (!canvasRect || !currentPosition) return;
 
-    setSelectedTaskId(taskId);
+    const draggedNode = diagramNodeById.get(taskId);
+    if (draggedNode?.kind === 'task') {
+      setSelectedTaskId(taskId);
+    } else {
+      setSelectedTaskId(null);
+      if (draggedNode?.topic) setSelectedTopicId(draggedNode.topic.id);
+    }
     setDragState({
       taskId,
       offsetX: (event.clientX - canvasRect.left + (canvasRef.current?.scrollLeft || 0)) / canvasZoom - currentPosition.x,
@@ -532,7 +602,8 @@ export default function TaskManager() {
     const draggedTask = taskById.get(draggedId);
     if (!draggedTask) return;
 
-    const siblings = (childrenByParent.get(draggedTask.parent_task_id || null) || []).filter((task) => canvasTaskIds.has(task.id));
+    const siblings = (childrenByParent.get(draggedTask.parent_task_id || null) || [])
+      .filter((task) => task.topic_id === draggedTask.topic_id && canvasNodeIds.has(task.id));
     const ordered = [...siblings].sort((a, b) => (nodePositions[a.id]?.y || 0) - (nodePositions[b.id]?.y || 0));
     const changedOrders = ordered
       .map((task, index) => ({ task, sortOrder: index }))
@@ -604,7 +675,8 @@ export default function TaskManager() {
     if (!user?.id || !taskDraft.title.trim()) return;
 
     const parentTask = taskDraft.parentTaskId ? taskById.get(taskDraft.parentTaskId) : null;
-    const topicId = parentTask?.topic_id || selectedTopicId;
+    const fallbackTopicId = visibleTopics[0]?.id || lifeTopic?.id || topics[0]?.id || '';
+    const topicId = parentTask?.topic_id || taskDraft.topicId || selectedTopicId || fallbackTopicId;
     if (!topicId) {
       setErrorMessage('Hãy tạo ít nhất một chủ đề trước khi thêm nhiệm vụ.');
       return;
@@ -693,31 +765,13 @@ export default function TaskManager() {
                   />
                 </div>
                 <button
-                  onClick={() => openTaskModal(null)}
+                  onClick={() => openTaskModal(null, selectedTopicId || visibleTopics[0]?.id || lifeTopic?.id)}
                   className="flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
                   <Plus className="h-4 w-4" />
                   Thêm task
                 </button>
               </div>
-            </div>
-
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-              {topics.map((topic, index) => {
-                const color = getTopicColorByName(topic.topic_color, index);
-                const count = tasks.filter((task) => task.topic_id === topic.id).length;
-                return (
-                  <TopicTab
-                    key={topic.id}
-                    active={selectedTopicId === topic.id}
-                    label={topic.name}
-                    count={count}
-                    color={color.text}
-                    onClick={() => selectTopic(topic.id)}
-                    onEdit={() => openTopicEditor(topic)}
-                  />
-                );
-              })}
             </div>
 
             {errorMessage && (
@@ -767,9 +821,9 @@ export default function TaskManager() {
               </div>
             </div>
 
-            {canvasTasks.length === 0 ? (
+            {diagramNodes.length === 0 ? (
               <div className="m-4 flex min-h-[420px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-center text-sm text-slate-500">
-                Chưa có task trong root này.
+                Chưa có chủ đề hoặc task trong cây.
               </div>
             ) : (
               <div className="relative" style={{ width: scaledCanvasSize.width, height: scaledCanvasSize.height }}>
@@ -788,14 +842,14 @@ export default function TaskManager() {
                     ))}
                   </defs>
                   {connectorGroups.map((group) => {
-                    const parentTask = taskById.get(group.parentId);
+                    const parentNode = diagramNodeById.get(group.parentId);
                     const parent = nodePositions[group.parentId];
                     const children = group.childIds
-                      .map((childId) => ({ task: taskById.get(childId), position: nodePositions[childId] }))
-                      .filter((child): child is { task: ApiTask; position: NodePosition } => Boolean(child.task && child.position));
-                    if (!parentTask || !parent || children.length === 0) return null;
-                    const connectorTheme = taskThemes[getTaskTone(parentTask)];
-                    const parentSize = getTaskNodeSize(parentTask);
+                      .map((childId) => ({ node: diagramNodeById.get(childId), position: nodePositions[childId] }))
+                      .filter((child): child is { node: DiagramNode; position: NodePosition } => Boolean(child.node && child.position));
+                    if (!parentNode || !parent || children.length === 0) return null;
+                    const connectorTheme = parentNode.kind === 'task' && parentNode.task ? taskThemes[getTaskTone(parentNode.task)] : taskThemes.incomplete;
+                    const parentSize = getNodeSize(parentNode);
 
                     const parentAnchorX = parent.x + parentSize.width;
                     const parentAnchorY = parent.y + parentSize.height / 2;
@@ -806,7 +860,7 @@ export default function TaskManager() {
                     const trunkX = maxTrunkX <= minTrunkX
                       ? Math.max(parentAnchorX + 8, firstChildX - 12)
                       : Math.max(minTrunkX, Math.min(preferredTrunkX, maxTrunkX));
-                    const childYs = children.map((child) => child.position.y + getTaskNodeSize(child.task).height / 2);
+                    const childYs = children.map((child) => child.position.y + getNodeSize(child.node).height / 2);
                     const minSpineY = Math.min(parentAnchorY, ...childYs);
                     const maxSpineY = Math.max(parentAnchorY, ...childYs);
 
@@ -815,11 +869,11 @@ export default function TaskManager() {
                         <path d={`M ${parentAnchorX} ${parentAnchorY} H ${Math.max(parentAnchorX, trunkX - connectorRadius)} Q ${trunkX} ${parentAnchorY} ${trunkX} ${parentAnchorY}`} />
                         {(children.length > 1 || childYs[0] !== parentAnchorY) && <path d={`M ${trunkX} ${minSpineY} V ${maxSpineY}`} />}
                         {children.map((child) => {
-                          const childAnchorY = child.position.y + getTaskNodeSize(child.task).height / 2;
+                          const childAnchorY = child.position.y + getNodeSize(child.node).height / 2;
                           const arrowEndX = child.position.x - 6;
                           return (
                             <path
-                              key={child.task.id}
+                              key={child.node.id}
                               d={`M ${trunkX} ${childAnchorY} H ${arrowEndX}`}
                               markerEnd={`url(#${connectorTheme.markerId})`}
                             />
@@ -831,19 +885,39 @@ export default function TaskManager() {
                   })}
                 </svg>
 
-                {canvasTasks.map((task) => {
-                  const position = nodePositions[task.id] || autoLayoutPositions[task.id] || { x: canvasPadding, y: canvasPadding };
+                {diagramNodes.map((node) => {
+                  const position = nodePositions[node.id] || autoLayoutPositions[node.id] || { x: canvasPadding, y: canvasPadding };
+                  if (node.kind !== 'task') {
+                    return (
+                      <TopicDiagramNode
+                        key={node.id}
+                        node={node}
+                        position={position}
+                        isSelected={selectedTaskId === null && ((node.kind === 'life-root' && !selectedTopicId) || node.topic?.id === selectedTopicId)}
+                        taskCount={node.kind === 'life-root' ? tasks.length : tasks.filter((task) => task.topic_id === node.topic?.id).length}
+                        onSelect={() => {
+                          setSelectedTaskId(null);
+                          setSelectedTopicId(node.topic?.id || '');
+                        }}
+                        onDragStart={(event) => startDrag(event, node.id)}
+                        onEditTopic={node.topic ? () => openTopicEditor(node.topic as ApiTopic) : undefined}
+                        onAddTask={node.topic ? () => openTaskModal(null, node.topic?.id) : undefined}
+                      />
+                    );
+                  }
+                  const task = node.task;
+                  if (!task) return null;
                   return (
                     <TaskDiagramNode
-                      key={task.id}
+                      key={node.id}
                       task={task}
+                      visualDepth={node.depth}
                       position={position}
                       completion={getCompletionPercent(task)}
                       isSelected={selectedTaskId === task.id}
                       hasChildren={(childrenByParent.get(task.id) || []).length > 0}
-                      depth={task.depth || 0}
                       onSelect={() => setSelectedTaskId(task.id)}
-                      onDragStart={(event) => startDrag(event, task.id)}
+                      onDragStart={(event) => startDrag(event, node.id)}
                       onToggle={() => handleToggleLeaf(task)}
                       onAddChild={() => openTaskModal(task.id)}
                     />
@@ -926,69 +1000,120 @@ export default function TaskManager() {
   );
 }
 
-function TopicTab({
-  active,
-  label,
-  count,
-  icon,
-  color,
-  onClick,
-  onEdit,
+function TopicDiagramNode({
+  node,
+  position,
+  isSelected,
+  taskCount,
+  onSelect,
+  onDragStart,
+  onEditTopic,
+  onAddTask,
 }: {
-  active: boolean;
-  label: string;
-  count: number;
-  icon?: ReactNode;
-  color?: string;
-  onClick: () => void;
-  onEdit?: () => void;
+  node: DiagramNode;
+  position: NodePosition;
+  isSelected: boolean;
+  taskCount: number;
+  onSelect: () => void;
+  onDragStart: (event: ReactPointerEvent<HTMLElement>) => void;
+  onEditTopic?: () => void;
+  onAddTask?: () => void;
 }) {
+  const nodeSize = getNodeSize(node);
+  const isRoot = node.kind === 'life-root';
+  const color = node.topic ? getTopicColorByName(node.topic.topic_color, 0).text : '#2563eb';
+  const background = isRoot ? '#EFF6FF' : '#FFFFFF';
+  const borderColor = isSelected ? '#2563EB' : isRoot ? '#93C5FD' : '#E2E8F0';
+
   return (
     <div
-      className={`group flex shrink-0 items-center rounded-md border text-sm font-medium ${
-        active ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-      }`}
+      className="group absolute z-10"
+      style={{ width: nodeSize.width, height: nodeSize.height, transform: `translate(${position.x}px, ${position.y}px)` }}
+      onPointerDown={onSelect}
     >
-      <button onClick={onClick} className="flex min-h-9 items-center gap-2 px-3 py-2 text-left">
-        {icon || <span className="h-2.5 w-2.5 rounded-full" style={{ background: color || '#64748b' }} />}
-        <span className="max-w-36 whitespace-normal break-words text-left leading-4">{label}</span>
-        <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500">{count}</span>
-      </button>
-      {active && onEdit && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onEdit();
-          }}
-          className="mr-1 grid h-7 w-7 place-items-center rounded-md border border-blue-100 bg-white/80 text-blue-600 transition hover:bg-white hover:text-blue-700 sm:opacity-80 sm:group-hover:opacity-100"
-          title="Chỉnh sửa chủ đề"
-        >
-          <Pencil className="h-3.5 w-3.5" />
-        </button>
-      )}
+      <div
+        className={`relative h-full overflow-visible rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isRoot ? 'p-2' : 'p-1.5'}`}
+        style={{
+          background,
+          borderColor,
+          boxShadow: isSelected ? '0 0 0 2px rgba(37, 99, 235, 0.16), 0 10px 26px rgba(37, 99, 235, 0.12)' : '0 1px 2px rgba(15, 23, 42, 0.06)',
+        }}
+      >
+        <div className="absolute inset-y-2 left-0 w-0.5 rounded-r-full" style={{ background: color }} />
+        <div className="flex items-start justify-between gap-1.5 pl-1">
+          <div className="flex min-w-0 items-start gap-2">
+            <span className="mt-0.5 grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full bg-blue-100 text-blue-700">
+              <GitBranch className="h-3 w-3" />
+            </span>
+            <div className="min-w-0">
+              <p className={`${isRoot ? 'text-[13px]' : 'text-[11px]'} whitespace-normal break-normal font-semibold leading-4 text-slate-800`} style={{ overflowWrap: 'normal' }}>
+                {node.title}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-3 text-slate-500">
+                {isRoot ? 'Root workspace' : `${taskCount} task`}
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-0.5">
+            {onAddTask && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAddTask();
+                }}
+                className="grid h-5 w-5 place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 transition hover:bg-white hover:text-slate-900"
+                title="Thêm task"
+              >
+                <Plus className="h-2.5 w-2.5" />
+              </button>
+            )}
+            {onEditTopic && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onEditTopic();
+                }}
+                className="grid h-5 w-5 place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 transition hover:bg-white hover:text-slate-900"
+                title="Chỉnh sửa chủ đề"
+              >
+                <Pencil className="h-2.5 w-2.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onPointerDown={onDragStart}
+              className="grid h-5 w-5 cursor-grab touch-none place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing"
+              title="Kéo node"
+            >
+              <Move className="h-2.5 w-2.5" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
 
 function TaskDiagramNode({
   task,
+  visualDepth,
   position,
   completion,
   isSelected,
   hasChildren,
-  depth,
   onSelect,
   onDragStart,
   onToggle,
   onAddChild,
 }: {
   task: ApiTask;
+  visualDepth: number;
   position: NodePosition;
   completion: number;
   isSelected: boolean;
   hasChildren: boolean;
-  depth: number;
   onSelect: () => void;
   onDragStart: (event: ReactPointerEvent<HTMLElement>) => void;
   onToggle: () => void;
@@ -997,9 +1122,9 @@ function TaskDiagramNode({
   const taskDone = isTaskDone(task);
   const taskOverdue = isTaskOverdue(task);
   const theme = taskThemes[getTaskTone(task)];
-  const isCompact = depth >= 2;
-  const isLevelTwo = depth === 1;
-  const nodeSize = getTaskNodeSize(task);
+  const isCompact = visualDepth >= 2;
+  const isLevelTwo = visualDepth === 1;
+  const nodeSize = getNodeSize({ title: task.title, depth: visualDepth });
 
   if (isCompact) {
     return (
@@ -1372,3 +1497,5 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
     </div>
   );
 }
+
+
