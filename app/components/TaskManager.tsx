@@ -35,14 +35,14 @@ type DragState = { taskId: string; offsetX: number; offsetY: number };
 
 const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', deadline: '', parentTaskId: null };
 
-const nodeWidth = 240;
-const nodeHeight = 96;
+const nodeWidth = 220;
+const nodeHeight = 78;
 const levelTwoNodeWidth = Math.round(nodeWidth * 0.75);
 const levelTwoNodeHeight = Math.round(nodeHeight * 0.75);
 const compactNodeWidth = Math.round(levelTwoNodeWidth * 0.5);
 const compactNodeHeight = Math.round(levelTwoNodeHeight * 0.5);
-const levelGap = 120;
-const siblingGap = 120;
+const levelGap = 96;
+const siblingGap = 74;
 const canvasPadding = 48;
 const canvasMinWidth = 2200;
 const canvasMinHeight = 1400;
@@ -57,21 +57,21 @@ function getTaskNodeSize(task: Pick<ApiTask, 'depth' | 'title'>) {
   const depth = task.depth || 0;
   const titleLength = Math.max(task.title?.length || 0, 1);
   if (depth >= 2) {
-    const width = Math.min(240, compactNodeWidth + Math.max(0, titleLength - 4) * 8);
-    const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 54) / 6));
+    const width = Math.min(180, compactNodeWidth + Math.max(0, titleLength - 4) * 6);
+    const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 42) / 6));
     const lineCount = titleLength <= 12 ? 1 : Math.ceil(titleLength / charsPerLine);
-    return { width, height: compactNodeHeight + Math.max(0, lineCount - 1) * 14 };
+    return { width, height: compactNodeHeight + Math.max(0, lineCount - 1) * 12 };
   }
   if (depth === 1) {
-    const width = Math.min(360, levelTwoNodeWidth + Math.max(0, titleLength - 4) * 9);
-    const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 68) / 7));
+    const width = Math.min(280, levelTwoNodeWidth + Math.max(0, titleLength - 4) * 6);
+    const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 56) / 7));
     const lineCount = titleLength <= 12 ? 1 : Math.ceil(titleLength / charsPerLine);
-    return { width, height: levelTwoNodeHeight + Math.max(0, lineCount - 1) * 18 };
+    return { width, height: levelTwoNodeHeight + Math.max(0, lineCount - 1) * 15 };
   }
-  const width = Math.min(480, nodeWidth + Math.max(0, titleLength - 4) * 9);
-  const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 84) / 7));
+  const width = Math.min(340, nodeWidth + Math.max(0, titleLength - 4) * 6);
+  const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 68) / 7));
   const lineCount = titleLength <= 12 ? 1 : Math.ceil(titleLength / charsPerLine);
-  return { width, height: nodeHeight + Math.max(0, lineCount - 1) * 20 };
+  return { width, height: nodeHeight + Math.max(0, lineCount - 1) * 16 };
 }
 const taskThemes = {
   incomplete: {
@@ -263,7 +263,7 @@ export default function TaskManager() {
 
   const canvasTaskIds = useMemo(() => new Set(canvasTasks.map((task) => task.id)), [canvasTasks]);
   const titleLayoutSignature = useMemo(() => canvasTasks.map((task) => `${task.id}:${task.title}`).join('|'), [canvasTasks]);
-  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:v4:${user.id}:topic:${selectedTopicId}` : null;
+  const layoutStorageKey = user?.id && selectedTopicId ? `life-manager-task-layout:v5:${user.id}:topic:${selectedTopicId}` : null;
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};
@@ -997,8 +997,6 @@ function TaskDiagramNode({
   const taskDone = isTaskDone(task);
   const taskOverdue = isTaskOverdue(task);
   const theme = taskThemes[getTaskTone(task)];
-  const completedCount = task.completed_leaf_count || (taskDone ? 1 : 0);
-  const totalCount = task.leaf_count || 1;
   const isCompact = depth >= 2;
   const isLevelTwo = depth === 1;
   const nodeSize = getTaskNodeSize(task);
@@ -1057,7 +1055,7 @@ function TaskDiagramNode({
             <button
               type="button"
               onPointerDown={onDragStart}
-              className="grid h-5 w-5 shrink-0 cursor-grab touch-none place-items-center rounded border border-slate-200/80 bg-white/80 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing sm:h-[16px] sm:w-[16px] sm:opacity-0 sm:group-hover:opacity-100"
+              className="grid h-[18px] w-[18px] shrink-0 cursor-grab touch-none place-items-center rounded border border-slate-200/80 bg-white/80 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing sm:h-[16px] sm:w-[16px] sm:opacity-0 sm:group-hover:opacity-100"
               title="Kéo node"
             >
               <Move className="h-2.5 w-2.5 sm:h-2 sm:w-2" />
@@ -1075,7 +1073,7 @@ function TaskDiagramNode({
       onPointerDown={onSelect}
     >
       <div
-        className={`relative h-full overflow-visible rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-2' : 'p-2.5'}`}
+        className={`relative h-full overflow-visible rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-1.5' : 'p-2'}`}
         style={{
           background: theme.background,
           borderColor: isSelected ? theme.selected : theme.border,
@@ -1083,13 +1081,13 @@ function TaskDiagramNode({
           boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 26px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
         }}
       >
-        <div className={`${isLevelTwo ? 'absolute inset-y-2 left-0 w-0.5 rounded-r-full' : 'absolute inset-y-2.5 left-0 w-1 rounded-r-full'}`} style={{ background: theme.progress }} />
+        <div className={`${isLevelTwo ? 'absolute inset-y-1.5 left-0 w-0.5 rounded-r-full' : 'absolute inset-y-2 left-0 w-0.5 rounded-r-full'}`} style={{ background: theme.progress }} />
 
-        <div className={`flex items-start justify-between gap-2 pl-1 ${isLevelTwo ? 'mb-1' : 'mb-2'}`}>
+        <div className={`flex items-start justify-between gap-1.5 pl-1 ${isLevelTwo ? 'mb-1' : 'mb-1.5'}`}>
           <div className={`flex min-w-0 items-start ${isLevelTwo ? 'gap-1.5' : 'gap-2'}`}>
             {hasChildren ? (
-              <span className={`${isLevelTwo ? 'mt-0.5 grid h-[18px] w-[18px]' : 'mt-0.5 grid h-5 w-5'} place-items-center rounded-full`} style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
-                {taskDone ? <CheckCircle2 className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} /> : <GitBranch className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />}
+              <span className={`${isLevelTwo ? 'mt-0.5 grid h-4 w-4' : 'mt-0.5 grid h-[18px] w-[18px]'} place-items-center rounded-full`} style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+                {taskDone ? <CheckCircle2 className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} /> : <GitBranch className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />}
               </span>
             ) : (
               <button
@@ -1098,40 +1096,40 @@ function TaskDiagramNode({
                   event.stopPropagation();
                   onToggle();
                 }}
-                className={`${isLevelTwo ? 'mt-0.5 grid h-[18px] w-[18px]' : 'mt-0.5 grid h-5 w-5'} place-items-center rounded-full transition hover:scale-105`}
+                className={`${isLevelTwo ? 'mt-0.5 grid h-4 w-4' : 'mt-0.5 grid h-[18px] w-[18px]'} place-items-center rounded-full transition hover:scale-105`}
                 style={{ background: theme.chipBackground, color: theme.chipText }}
                 title="Đổi trạng thái"
               >
-                {taskDone ? <CheckCircle2 className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} /> : <Circle className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />}
+                {taskDone ? <CheckCircle2 className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} /> : <Circle className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />}
               </button>
             )}
             <div className="min-w-0">
-              <p className={`whitespace-normal break-normal font-semibold ${isLevelTwo ? 'text-[12px] leading-4' : 'text-[14px] leading-5'}`} style={{ color: theme.text, overflowWrap: 'normal' }}>{task.title}</p>
+              <p className={`whitespace-normal break-normal font-semibold ${isLevelTwo ? 'text-[11px] leading-[14px]' : 'text-[13px] leading-4'}`} style={{ color: theme.text, overflowWrap: 'normal' }}>{task.title}</p>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-0.5">
             <button
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
                 onAddChild();
               }}
-              className={`${isLevelTwo ? 'grid h-[22px] w-[22px]' : 'grid h-7 w-7'} place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100`}
+              className={`${isLevelTwo ? 'grid h-5 w-5' : 'grid h-6 w-6'} place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100`}
               title="Thêm task con"
             >
-              <Plus className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+              <Plus className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
             </button>
             <button
               type="button"
               onPointerDown={onDragStart}
-              className={`${isLevelTwo ? 'grid h-[24px] w-[24px] sm:h-[22px] sm:w-[22px]' : 'grid h-8 w-8 sm:h-7 sm:w-7'} cursor-grab touch-none place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 opacity-90 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing sm:opacity-80 sm:group-hover:opacity-100`}
+              className={`${isLevelTwo ? 'grid h-5 w-5' : 'grid h-6 w-6'} cursor-grab touch-none place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 opacity-90 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing sm:opacity-80 sm:group-hover:opacity-100`}
               title="Kéo node"
             >
-              <Move className={isLevelTwo ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+              <Move className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
             </button>
             <button
               type="button"
-              className={`${isLevelTwo ? 'hidden' : 'grid h-7 w-7'} place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-400 opacity-0 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100`}
+              className={`${isLevelTwo ? 'hidden' : 'grid h-6 w-6'} place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-400 opacity-0 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100`}
               title="Tùy chọn"
               onClick={(event) => event.stopPropagation()}
             >
@@ -1140,17 +1138,16 @@ function TaskDiagramNode({
           </div>
         </div>
 
-        <div className={`flex flex-wrap pl-1 ${isLevelTwo ? 'mb-1 gap-1' : 'mb-2 gap-1.5'}`}>
+        <div className={`flex flex-wrap pl-1 ${isLevelTwo ? 'mb-0.5 gap-1' : 'mb-1 gap-1'}`}>
           <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Hạn: ${formatDate(task.deadline)}`} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} compact={isLevelTwo} />
           {task.start_date && <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Bắt đầu: ${formatDate(task.start_date)}`} theme={taskThemes.inProgress} compact={isLevelTwo} />}
         </div>
 
-        <div className={`pl-1 ${isLevelTwo ? 'mb-0' : 'mb-2'}`}>
-          <div className={`flex items-center justify-between gap-2 ${isLevelTwo ? 'mb-1 text-[10px]' : 'mb-1.5 text-[11px]'}`} style={{ color: theme.muted }}>
+        <div className="pl-1">
+          <div className={`mb-0.5 flex items-center ${isLevelTwo ? 'text-[9px]' : 'text-[10px]'}`} style={{ color: theme.muted }}>
             <span>{completion}%</span>
-            <span>{completedCount}/{totalCount}</span>
           </div>
-          <div className={`${isLevelTwo ? 'h-1' : 'h-1.5'} overflow-hidden rounded-full bg-[#E5E7EB]`}>
+          <div className="h-1 overflow-hidden rounded-full bg-[#E5E7EB]">
             <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: theme.progress }} />
           </div>
         </div>
