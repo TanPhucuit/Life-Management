@@ -33,7 +33,7 @@ type TaskDraft = {
 
 type NodePosition = { x: number; y: number };
 type DragState = { taskId: string; offsetX: number; offsetY: number };
-type DiagramNodeKind = 'life-root' | 'topic' | 'task';
+type DiagramNodeKind = 'topic' | 'task';
 type DiagramNode = {
   id: string;
   kind: DiagramNodeKind;
@@ -43,7 +43,6 @@ type DiagramNode = {
   topic?: ApiTopic;
 };
 
-const lifeRootNodeId = 'life-root';
 const topicNodeId = (topicId: string) => `topic:${topicId}`;
 
 const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', deadline: '', parentTaskId: null, topicId: null };
@@ -233,8 +232,6 @@ export default function TaskManager() {
   }, [user?.id]);
 
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
-  const lifeTopic = useMemo(() => topics.find((topic) => topic.name.trim().toLowerCase() === 'life') || null, [topics]);
-  const visibleTopics = useMemo(() => topics.filter((topic) => topic.id !== lifeTopic?.id), [lifeTopic?.id, topics]);
 
   const childrenByParent = useMemo(() => {
     const map = new Map<string | null, ApiTask[]>();
@@ -257,7 +254,7 @@ export default function TaskManager() {
     const visibleTopicIds = new Set<string>();
 
     if (search) {
-      visibleTopics.forEach((topic) => {
+      topics.forEach((topic) => {
         if (topic.name.toLowerCase().includes(search)) visibleTopicIds.add(topic.id);
       });
 
@@ -276,52 +273,41 @@ export default function TaskManager() {
         }
       });
     } else {
-      visibleTopics.forEach((topic) => visibleTopicIds.add(topic.id));
+      topics.forEach((topic) => visibleTopicIds.add(topic.id));
       tasks.forEach((task) => visibleTaskIds.add(task.id));
     }
 
-    const nodes: DiagramNode[] = [{ id: lifeRootNodeId, kind: 'life-root', title: lifeTopic?.name || 'Life', depth: 0, topic: lifeTopic || undefined }];
+    const nodes: DiagramNode[] = [];
 
-    visibleTopics
+    topics
       .filter((topic) => visibleTopicIds.has(topic.id))
-      .forEach((topic) => nodes.push({ id: topicNodeId(topic.id), kind: 'topic', title: topic.name, depth: 1, topic }));
+      .forEach((topic) => nodes.push({ id: topicNodeId(topic.id), kind: 'topic', title: topic.name, depth: 0, topic }));
 
     tasks
       .filter((task) => visibleTaskIds.has(task.id))
       .forEach((task) => {
-        const isLifeTask = Boolean(lifeTopic && task.topic_id === lifeTopic.id);
         nodes.push({
           id: task.id,
           kind: 'task',
           title: task.title,
-          depth: (task.depth || 0) + (isLifeTask ? 1 : 2),
+          depth: (task.depth || 0) + 1,
           task,
         });
       });
 
     return nodes;
-  }, [lifeTopic, searchTerm, taskById, tasks, visibleTopics]);
+  }, [searchTerm, taskById, tasks, topics]);
 
   const diagramNodeById = useMemo(() => new Map(diagramNodes.map((node) => [node.id, node])), [diagramNodes]);
   const canvasNodeIds = useMemo(() => new Set(diagramNodes.map((node) => node.id)), [diagramNodes]);
   const titleLayoutSignature = useMemo(() => diagramNodes.map((node) => `${node.id}:${node.title}`).join('|'), [diagramNodes]);
-  const layoutStorageKey = user?.id ? `life-manager-task-layout:v6:${user.id}:life-tree` : null;
+  const layoutStorageKey = user?.id ? `life-manager-task-layout:v7:${user.id}:topics-as-roots` : null;
 
   const diagramChildrenByParent = useMemo(() => {
     const map = new Map<string, string[]>();
-    const lifeChildren: string[] = [];
-
-    visibleTopics.forEach((topic) => {
-      const id = topicNodeId(topic.id);
-      if (canvasNodeIds.has(id)) lifeChildren.push(id);
-    });
 
     rootTasks.forEach((task) => {
       if (!canvasNodeIds.has(task.id)) return;
-      if (lifeTopic && task.topic_id === lifeTopic.id) {
-        lifeChildren.push(task.id);
-        return;
-      }
       const parentTopicNodeId = topicNodeId(task.topic_id);
       map.set(parentTopicNodeId, [...(map.get(parentTopicNodeId) || []), task.id]);
     });
@@ -331,14 +317,13 @@ export default function TaskManager() {
       map.set(task.parent_task_id, [...(map.get(task.parent_task_id) || []), task.id]);
     });
 
-    map.set(lifeRootNodeId, lifeChildren.filter((id) => canvasNodeIds.has(id)));
     return map;
-  }, [canvasNodeIds, lifeTopic, rootTasks, tasks, visibleTopics]);
+  }, [canvasNodeIds, rootTasks, tasks]);
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};
-    const rootNode = diagramNodeById.get(lifeRootNodeId);
-    if (!rootNode) return positions;
+    const rootNodes = diagramNodes.filter((node) => node.kind === 'topic');
+    if (rootNodes.length === 0) return positions;
 
     let leafIndex = 0;
     const place = (node: DiagramNode, x: number): number => {
@@ -361,9 +346,12 @@ export default function TaskManager() {
       return y + currentSize.height / 2;
     };
 
-    place(rootNode, canvasPadding);
+    rootNodes.forEach((rootNode, index) => {
+      if (index > 0) leafIndex += 1;
+      place(rootNode, canvasPadding);
+    });
     return positions;
-  }, [diagramChildrenByParent, diagramNodeById]);
+  }, [diagramChildrenByParent, diagramNodeById, diagramNodes]);
 
   useEffect(() => {
     setNodePositions((current) => {
@@ -675,7 +663,7 @@ export default function TaskManager() {
     if (!user?.id || !taskDraft.title.trim()) return;
 
     const parentTask = taskDraft.parentTaskId ? taskById.get(taskDraft.parentTaskId) : null;
-    const fallbackTopicId = visibleTopics[0]?.id || lifeTopic?.id || topics[0]?.id || '';
+    const fallbackTopicId = topics[0]?.id || '';
     const topicId = parentTask?.topic_id || taskDraft.topicId || selectedTopicId || fallbackTopicId;
     if (!topicId) {
       setErrorMessage('Hãy tạo ít nhất một chủ đề trước khi thêm nhiệm vụ.');
@@ -765,7 +753,7 @@ export default function TaskManager() {
                   />
                 </div>
                 <button
-                  onClick={() => openTaskModal(null, selectedTopicId || visibleTopics[0]?.id || lifeTopic?.id)}
+                  onClick={() => openTaskModal(null, selectedTopicId || topics[0]?.id)}
                   className="flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
                   <Plus className="h-4 w-4" />
@@ -893,8 +881,8 @@ export default function TaskManager() {
                         key={node.id}
                         node={node}
                         position={position}
-                        isSelected={selectedTaskId === null && ((node.kind === 'life-root' && !selectedTopicId) || node.topic?.id === selectedTopicId)}
-                        taskCount={node.kind === 'life-root' ? tasks.length : tasks.filter((task) => task.topic_id === node.topic?.id).length}
+                        isSelected={selectedTaskId === null && node.topic?.id === selectedTopicId}
+                        taskCount={tasks.filter((task) => task.topic_id === node.topic?.id).length}
                         onSelect={() => {
                           setSelectedTaskId(null);
                           setSelectedTopicId(node.topic?.id || '');
@@ -1020,10 +1008,9 @@ function TopicDiagramNode({
   onAddTask?: () => void;
 }) {
   const nodeSize = getNodeSize(node);
-  const isRoot = node.kind === 'life-root';
   const color = node.topic ? getTopicColorByName(node.topic.topic_color, 0).text : '#2563eb';
-  const background = isRoot ? '#EFF6FF' : '#FFFFFF';
-  const borderColor = isSelected ? '#2563EB' : isRoot ? '#93C5FD' : '#E2E8F0';
+  const background = '#FFFFFF';
+  const borderColor = isSelected ? '#2563EB' : '#E2E8F0';
 
   return (
     <div
@@ -1032,7 +1019,7 @@ function TopicDiagramNode({
       onPointerDown={onSelect}
     >
       <div
-        className={`relative h-full overflow-visible rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isRoot ? 'p-2' : 'p-1.5'}`}
+        className="relative h-full overflow-visible rounded-xl border p-2 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
         style={{
           background,
           borderColor,
@@ -1046,11 +1033,11 @@ function TopicDiagramNode({
               <GitBranch className="h-3 w-3" />
             </span>
             <div className="min-w-0">
-              <p className={`${isRoot ? 'text-[13px]' : 'text-[11px]'} whitespace-normal break-normal font-semibold leading-4 text-slate-800`} style={{ overflowWrap: 'normal' }}>
+              <p className="whitespace-normal break-normal text-[13px] font-semibold leading-4 text-slate-800" style={{ overflowWrap: 'normal' }}>
                 {node.title}
               </p>
               <p className="mt-0.5 text-[10px] leading-3 text-slate-500">
-                {isRoot ? 'Root workspace' : `${taskCount} task`}
+                {taskCount} task
               </p>
             </div>
           </div>
