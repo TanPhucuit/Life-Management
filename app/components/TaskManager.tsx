@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
@@ -33,6 +33,7 @@ type TaskDraft = {
 
 type NodePosition = { x: number; y: number };
 type DragState = { taskId: string; offsetX: number; offsetY: number };
+type TaskContextMenu = { taskId: string; x: number; y: number };
 type DiagramNodeKind = 'topic' | 'task';
 type DiagramNode = {
   id: string;
@@ -196,6 +197,8 @@ export default function TaskManager() {
   const [errorMessage, setErrorMessage] = useState('');
   const [nodePositions, setNodePositions] = useState<Record<string, NodePosition>>({});
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenu | null>(null);
+  const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
   const [canvasZoom, setCanvasZoom] = useState(1);
 
   const loadData = async () => {
@@ -230,6 +233,24 @@ export default function TaskManager() {
     void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!taskContextMenu) return;
+
+    const closeMenu = () => setTaskContextMenu(null);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeMenu();
+    };
+
+    window.addEventListener('click', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('click', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [taskContextMenu]);
 
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
 
@@ -507,6 +528,19 @@ export default function TaskManager() {
     setIsTaskModalOpen(true);
   };
 
+  const openTaskDetails = (taskId: string) => {
+    setSelectedTaskId(taskId);
+    setTaskContextMenu(null);
+    setIsTaskDetailsOpen(true);
+  };
+
+  const openTaskContextMenu = (event: ReactMouseEvent<HTMLElement>, taskId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedTaskId(taskId);
+    setTaskContextMenu({ taskId, x: event.clientX, y: event.clientY });
+  };
+
   const getCompletionPercent = (task: ApiTask) => {
     if ((task.leaf_count || 0) > 0) return Math.round(((task.completed_leaf_count || 0) / (task.leaf_count || 1)) * 100);
     return task.status === 'completed' ? 100 : 0;
@@ -714,6 +748,8 @@ export default function TaskManager() {
     try {
       await api.deleteTask(taskId);
       setSelectedTaskId((current) => (current === taskId ? null : current));
+      setTaskContextMenu(null);
+      setIsTaskDetailsOpen(false);
       await loadData();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Không lưu trữ được nhiệm vụ.');
@@ -722,7 +758,7 @@ export default function TaskManager() {
 
   return (
     <div className="overflow-visible rounded-lg border border-slate-200 bg-white text-slate-950 shadow-sm lg:min-h-[calc(100vh-120px)] lg:overflow-hidden">
-      <div className="grid grid-cols-1 lg:min-h-[calc(100vh-120px)] lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="grid grid-cols-1 lg:min-h-[calc(100vh-120px)]">
         <main className="flex min-w-0 flex-col">
           <header className="border-b border-slate-200 bg-white px-3 py-3 sm:px-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -904,6 +940,7 @@ export default function TaskManager() {
                       isSelected={selectedTaskId === task.id}
                       hasChildren={(childrenByParent.get(task.id) || []).length > 0}
                       onSelect={() => setSelectedTaskId(task.id)}
+                      onContextMenu={(event) => openTaskContextMenu(event, task.id)}
                       onDragStart={(event) => startDrag(event, node.id)}
                       onToggle={() => handleToggleLeaf(task)}
                       onAddChild={() => openTaskModal(task.id)}
@@ -915,17 +952,46 @@ export default function TaskManager() {
             )}
           </section>
         </main>
-
-        <Inspector
-          selectedTask={selectedTask}
-          selectedTaskChildren={selectedTaskChildren}
-          completion={selectedTask ? getCompletionPercent(selectedTask) : 0}
-          onArchive={handleArchiveTask}
-          onAddChild={() => selectedTask && openTaskModal(selectedTask.id)}
-          onUpdateTask={handleUpdateTask}
-          onToggleTask={handleToggleLeaf}
-        />
       </div>
+
+      {taskContextMenu && (
+        <div
+          className="fixed z-50 w-40 overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-xl"
+          style={{ left: taskContextMenu.x, top: taskContextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => openTaskDetails(taskContextMenu.taskId)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"
+          >
+            <Pencil className="h-4 w-4" />
+            Chỉnh sửa
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleArchiveTask(taskContextMenu.taskId)}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+          >
+            <Trash2 className="h-4 w-4" />
+            Xóa task
+          </button>
+        </div>
+      )}
+
+      {isTaskDetailsOpen && selectedTask && (
+        <Modal title="Chi tiết task" onClose={() => setIsTaskDetailsOpen(false)}>
+          <TaskDetailsContent
+            selectedTask={selectedTask}
+            selectedTaskChildren={selectedTaskChildren}
+            completion={getCompletionPercent(selectedTask)}
+            onArchive={handleArchiveTask}
+            onAddChild={() => openTaskModal(selectedTask.id)}
+            onUpdateTask={handleUpdateTask}
+            onToggleTask={handleToggleLeaf}
+          />
+        </Modal>
+      )}
 
       {isTaskModalOpen && (
         <Modal title={taskDraft.parentTaskId ? 'Tạo task con' : 'Tạo root task'} onClose={() => setIsTaskModalOpen(false)}>
@@ -1089,6 +1155,7 @@ function TaskDiagramNode({
   isSelected,
   hasChildren,
   onSelect,
+  onContextMenu,
   onDragStart,
   onToggle,
   onAddChild,
@@ -1099,6 +1166,7 @@ function TaskDiagramNode({
   isSelected: boolean;
   hasChildren: boolean;
   onSelect: () => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onDragStart: (event: ReactPointerEvent<HTMLElement>) => void;
   onToggle: () => void;
   onAddChild: () => void;
@@ -1116,6 +1184,7 @@ function TaskDiagramNode({
         className="group absolute z-10"
         style={{ width: nodeSize.width, height: nodeSize.height, transform: `translate(${position.x}px, ${position.y}px)` }}
         onPointerDown={onSelect}
+        onContextMenu={onContextMenu}
       >
         <div
           className="relative h-full overflow-visible rounded-md border p-1.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
@@ -1180,6 +1249,7 @@ function TaskDiagramNode({
       className="group absolute z-10"
       style={{ width: nodeSize.width, height: nodeSize.height, transform: `translate(${position.x}px, ${position.y}px)` }}
       onPointerDown={onSelect}
+      onContextMenu={onContextMenu}
     >
       <div
         className={`relative h-full overflow-visible rounded-xl border text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${isLevelTwo ? 'p-1.5' : 'p-2'}`}
@@ -1269,7 +1339,7 @@ function TaskMetaChip({ icon, label, theme, compact = false }: { icon: ReactNode
   );
 }
 
-function Inspector({
+function TaskDetailsContent({
   selectedTask,
   selectedTaskChildren,
   completion,
@@ -1306,12 +1376,12 @@ function Inspector({
   };
 
   return (
-    <aside className="max-h-[72vh] overflow-y-auto border-t border-slate-200 bg-white p-3 pb-20 sm:p-4 lg:max-h-none lg:border-l lg:border-t-0 lg:pb-4">
+    <div className="max-h-[calc(100vh-8rem)] overflow-y-auto">
       {selectedTask ? (
         <div className="flex h-full flex-col">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Inspector</p>
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Chi tiết task</p>
               <h2 className="text-lg font-semibold">{selectedTask.title}</h2>
               <p className="mt-1 text-sm text-slate-500">{selectedTask.description || 'Chưa có mô tả.'}</p>
             </div>
@@ -1420,10 +1490,10 @@ function Inspector({
         <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed border-slate-300 p-6 text-center text-slate-500">
           <Folder className="mb-3 h-8 w-8" />
           <p className="text-sm font-medium">Chọn một task để xem chi tiết</p>
-          <p className="mt-1 text-xs">Inspector sẽ hiển thị task con và tiến độ.</p>
+          <p className="mt-1 text-xs">Menu chuột phải sẽ mở chỉnh sửa hoặc xóa task.</p>
         </div>
       )}
-    </aside>
+    </div>
   );
 }
 
@@ -1460,7 +1530,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-3 sm:p-4">
-      <div className="max-h-[calc(100vh-1.5rem)] w-full max-w-md overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:max-h-[calc(100vh-2rem)] sm:p-5">
+      <div className="max-h-[calc(100vh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:max-h-[calc(100vh-2rem)] sm:p-5">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button onClick={onClose} className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
