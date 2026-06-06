@@ -901,7 +901,6 @@ export default function TaskManager() {
                       task={task}
                       visualDepth={node.depth}
                       position={position}
-                      completion={getCompletionPercent(task)}
                       isSelected={selectedTaskId === task.id}
                       hasChildren={(childrenByParent.get(task.id) || []).length > 0}
                       onSelect={() => setSelectedTaskId(task.id)}
@@ -1087,7 +1086,6 @@ function TaskDiagramNode({
   task,
   visualDepth,
   position,
-  completion,
   isSelected,
   hasChildren,
   onSelect,
@@ -1098,7 +1096,6 @@ function TaskDiagramNode({
   task: ApiTask;
   visualDepth: number;
   position: NodePosition;
-  completion: number;
   isSelected: boolean;
   hasChildren: boolean;
   onSelect: () => void;
@@ -1253,15 +1250,6 @@ function TaskDiagramNode({
         <div className={`flex flex-wrap pl-1 ${isLevelTwo ? 'mb-0.5 gap-1' : 'mb-1 gap-1'}`}>
           <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Hạn: ${formatDate(task.deadline)}`} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} compact={isLevelTwo} />
           {task.start_date && <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Bắt đầu: ${formatDate(task.start_date)}`} theme={taskThemes.inProgress} compact={isLevelTwo} />}
-        </div>
-
-        <div className="pl-1">
-          <div className={`mb-0.5 flex items-center ${isLevelTwo ? 'text-[9px]' : 'text-[10px]'}`} style={{ color: theme.muted }}>
-            <span>{completion}%</span>
-          </div>
-          <div className="h-1 overflow-hidden rounded-full bg-[#E5E7EB]">
-            <div className="h-full rounded-full transition-all" style={{ width: `${completion}%`, background: theme.progress }} />
-          </div>
         </div>
 
       </div>
