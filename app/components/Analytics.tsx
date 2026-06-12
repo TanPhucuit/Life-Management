@@ -24,7 +24,7 @@ import { useAppStore } from '@/app/lib/store';
 
 type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success' | 'cycle_ticks';
 type ChartPoint = { name: string; value: number | null };
-type CycleChartPoint = { name: string; count: number; cumulative: number };
+type CycleChartPoint = { name: string; count: number | null; cumulative: number | null };
 
 const monthNames = [
   'Tháng 1',
@@ -185,10 +185,11 @@ export default function Analytics() {
       const day = index + 1;
       const count = countByDay.get(day) || 0;
       cumulative += count;
+      const shouldShowValue = !isFutureDate(day, currentMonth, currentYear);
       return {
         name: String(day),
-        count,
-        cumulative,
+        count: shouldShowValue ? count : null,
+        cumulative: shouldShowValue ? cumulative : null,
       };
     });
   }, [cycleTicks, currentMonth, currentYear]);
