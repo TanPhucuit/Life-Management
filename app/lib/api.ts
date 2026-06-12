@@ -63,6 +63,18 @@ export interface ApiDate {
   updated_at?: string;
 }
 
+export interface ApiCycleTick {
+  id: string;
+  user_id: string;
+  day: number;
+  month: number;
+  year: number;
+  hour: number;
+  is_checked: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface TaskTreeStats {
   completedTasks: number;
   incompleteTasks: number;
@@ -198,6 +210,23 @@ export const api = {
   }) {
     return requestJson<ApiDate>('/api/dates', {
       method: 'PUT',
+      body: JSON.stringify(input),
+    });
+  },
+  getCycleTicks(userId: string, month: number, year: number) {
+    const params = new URLSearchParams({ userId, month: String(month), year: String(year) });
+    return requestJson<ApiCycleTick[]>(`/api/cycles?${params.toString()}`);
+  },
+  setCycleTick(input: {
+    userId: string;
+    day: number;
+    month: number;
+    year: number;
+    hour: number;
+    checked: boolean;
+  }) {
+    return requestJson<ApiCycleTick>('/api/cycles', {
+      method: 'POST',
       body: JSON.stringify(input),
     });
   },

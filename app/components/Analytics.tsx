@@ -9,6 +9,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
   Pie,
   PieChart,
   ReferenceLine,
@@ -18,11 +19,12 @@ import {
   YAxis,
 } from 'recharts';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { api, ApiDate } from '@/app/lib/api';
+import { api, ApiCycleTick, ApiDate } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 
-type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success';
+type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success' | 'cycle_ticks';
 type ChartPoint = { name: string; value: number | null };
+type CycleChartPoint = { name: string; count: number; cumulative: number };
 
 const monthNames = [
   'Tháng 1',
@@ -40,6 +42,7 @@ const monthNames = [
 ];
 
 const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const cycleTarget = 240;
 
 export default function Analytics() {
   const { selectedMonth, selectedYear, currentMonth: storeMonth, currentYear: storeYear, user } = useAppStore();
@@ -48,6 +51,7 @@ export default function Analytics() {
   const [analyticsView, setAnalyticsView] = useState<AnalyticsView>('month_overview');
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [allDates, setAllDates] = useState<ApiDate[]>([]);
+  const [cycleTicks, setCycleTicks] = useState<ApiCycleTick[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
@@ -65,6 +69,22 @@ export default function Analytics() {
 
     void loadDates();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const loadCycleTicks = async () => {
+      try {
+        setErrorMessage('');
+        const rows = await api.getCycleTicks(user.id, currentMonth, currentYear);
+        setCycleTicks(rows);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu chu kỳ.');
+      }
+    };
+
+    void loadCycleTicks();
+  }, [currentMonth, currentYear, user?.id]);
 
   const studyHoursByDate = useMemo(() => {
     const hoursByDate: Record<string, number> = {};
@@ -151,13 +171,37 @@ export default function Analytics() {
     return trendData;
   }, [allDates, currentMonth, currentYear]);
 
+  const cycleMonthlyData = useMemo<CycleChartPoint[]>(() => {
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    const countByDay = new Map<number, number>();
+
+    cycleTicks.forEach((tick) => {
+      if (!tick.is_checked) return;
+      countByDay.set(tick.day, (countByDay.get(tick.day) || 0) + 1);
+    });
+
+    let cumulative = 0;
+    return Array.from({ length: daysInMonth }, (_, index) => {
+      const day = index + 1;
+      const count = countByDay.get(day) || 0;
+      cumulative += count;
+      return {
+        name: String(day),
+        count,
+        cumulative,
+      };
+    });
+  }, [cycleTicks, currentMonth, currentYear]);
+
   const monthlyTotalHours = weeklyData.reduce((sum, week) => sum + week.hours, 0);
+  const monthlyCycleCount = cycleTicks.filter((tick) => tick.is_checked).length;
   const monthlyRecordCount = allDates.filter((date) => date.year === currentYear && date.month === currentMonth).length;
   const monthlyKosTotal = allDates
     .filter((date) => date.year === currentYear && date.month === currentMonth)
     .reduce((sum, date) => sum + (Number(date.key_of_success) || 0), 0);
   const weeklyProgressMax = Math.max(0, ...weeklyProgressData.map((point) => point.value || 0));
   const weeklyProgressDomain: [number, number] = weeklyProgressMax > 50 ? [0, 90] : [0, 45];
+  const cycleDomainMax = Math.max(cycleTarget + 20, monthlyCycleCount + 20);
 
   const moveMonth = (direction: -1 | 1) => {
     setCurrentMonth((month) => {
@@ -209,10 +253,11 @@ export default function Analytics() {
         )}
       </section>
 
-      <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <MetricCard label="Tổng giờ học" value={`${roundOneDecimal(monthlyTotalHours)}h`} />
         <MetricCard label="Ngày có dữ liệu" value={monthlyRecordCount} />
         <MetricCard label="Tổng Key of Success" value={monthlyKosTotal} />
+        <MetricCard label="Tổng ô chu kỳ" value={monthlyCycleCount} />
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-2">
@@ -228,6 +273,9 @@ export default function Analytics() {
           </ViewButton>
           <ViewButton active={analyticsView === 'key_of_success'} onClick={() => setAnalyticsView('key_of_success')}>
             Key of Success
+          </ViewButton>
+          <ViewButton active={analyticsView === 'cycle_ticks'} onClick={() => setAnalyticsView('cycle_ticks')}>
+            Chu kỳ
           </ViewButton>
         </div>
       </section>
@@ -347,6 +395,41 @@ export default function Analytics() {
                 connectNulls={false}
               />
             </AreaChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+      )}
+
+      {analyticsView === 'cycle_ticks' && (
+        <ChartPanel title={`Ô chu kỳ đã tick - ${monthNames[currentMonth - 1]} ${currentYear}`}>
+          <ResponsiveContainer width="100%" height={360}>
+            <ComposedChart data={cycleMonthlyData}>
+              <defs>
+                <linearGradient id="cycleGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#eab308" stopOpacity={0.28} />
+                  <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+              <XAxis dataKey="name" stroke="#64748b" />
+              <YAxis stroke="#64748b" domain={[0, cycleDomainMax]} />
+              <Tooltip
+                formatter={(value, name) => [
+                  value,
+                  name === 'cumulative' ? 'Lũy kế' : 'Trong ngày',
+                ]}
+              />
+              <ReferenceLine y={cycleTarget} label={{ value: '240', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeWidth={2} />
+              <Area
+                type="monotone"
+                dataKey="cumulative"
+                stroke="#ca8a04"
+                strokeWidth={3}
+                fill="url(#cycleGradient)"
+                dot={{ fill: '#ca8a04', r: 3 }}
+                activeDot={{ r: 5 }}
+              />
+              <Bar dataKey="count" fill="#facc15" maxBarSize={24} radius={[4, 4, 0, 0]} />
+            </ComposedChart>
           </ResponsiveContainer>
         </ChartPanel>
       )}

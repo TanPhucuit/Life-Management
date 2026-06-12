@@ -103,6 +103,20 @@ CREATE TABLE sessions (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Cycle Ticks Table
+CREATE TABLE cycle_ticks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day INTEGER NOT NULL CHECK (day >= 1 AND day <= 31),
+  month INTEGER NOT NULL CHECK (month >= 1 AND month <= 12),
+  year INTEGER NOT NULL,
+  hour INTEGER NOT NULL CHECK (hour >= 8 AND hour <= 21),
+  is_checked BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, day, month, year, hour)
+);
+
 -- Create Indexes for better performance
 CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_topics_user_id ON topics(user_id);
@@ -121,6 +135,8 @@ CREATE INDEX idx_tasks_archived_at ON tasks(archived_at);
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX idx_sessions_task_id ON sessions(task_id);
 CREATE INDEX idx_sessions_date ON sessions(session_date);
+CREATE INDEX idx_cycle_ticks_user_id ON cycle_ticks(user_id);
+CREATE INDEX idx_cycle_ticks_year_month_day ON cycle_ticks(user_id, year, month, day);
 
 -- Non-destructive migration for existing Supabase projects.
 -- Run this block if your database was created before task tree support.
@@ -136,9 +152,24 @@ ALTER TABLE tasks ADD CONSTRAINT tasks_status_check CHECK (status IN ('not_compl
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS focused_minutes INTEGER;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS key_of_success INTEGER DEFAULT 0 CHECK (key_of_success >= 0 AND key_of_success <= 3);
 
+CREATE TABLE IF NOT EXISTS cycle_ticks (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day INTEGER NOT NULL CHECK (day >= 1 AND day <= 31),
+  month INTEGER NOT NULL CHECK (month >= 1 AND month <= 12),
+  year INTEGER NOT NULL,
+  hour INTEGER NOT NULL CHECK (hour >= 8 AND hour <= 21),
+  is_checked BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, day, month, year, hour)
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_topic_parent ON tasks(user_id, topic_id, parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_archived_at ON tasks(archived_at);
+CREATE INDEX IF NOT EXISTS idx_cycle_ticks_user_id ON cycle_ticks(user_id);
+CREATE INDEX IF NOT EXISTS idx_cycle_ticks_year_month_day ON cycle_ticks(user_id, year, month, day);
 
 -- Recursive task tree view for reporting. The application also computes this
 -- in the API so the UI keeps working if the view has not been deployed yet.

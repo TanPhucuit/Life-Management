@@ -1,14 +1,15 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { BarChart3, Calendar, CheckCircle2, ChevronLeft, Home, LogOut, Settings, UserCircle } from 'lucide-react';
+import { BarChart3, Calendar, CheckCircle2, ChevronLeft, Home, LogOut, Repeat2, Settings, UserCircle } from 'lucide-react';
 import { useAppStore } from '@/app/lib/store';
 import CalendarView from './CalendarView';
 import TaskManager from './TaskManager';
+import CycleTracker from './CycleTracker';
 import Analytics from './Analytics';
 import DayDetailsPage from './DayDetailsPage';
 
-type TabType = 'overview' | 'calendar' | 'tasks' | 'analytics' | 'settings';
+type TabType = 'overview' | 'calendar' | 'tasks' | 'cycles' | 'analytics' | 'settings';
 
 interface SelectedDay {
   day: number;
@@ -20,6 +21,7 @@ const navItems = [
   { id: 'overview' as TabType, label: 'Tổng quan', icon: Home },
   { id: 'calendar' as TabType, label: 'Lịch', icon: Calendar },
   { id: 'tasks' as TabType, label: 'Nhiệm vụ', icon: CheckCircle2 },
+  { id: 'cycles' as TabType, label: 'Chu kỳ', icon: Repeat2 },
   { id: 'analytics' as TabType, label: 'Phân tích', icon: BarChart3 },
   { id: 'settings' as TabType, label: 'Cài đặt', icon: Settings },
 ];
@@ -122,6 +124,8 @@ export default function Dashboard() {
               />
             ) : activeTab === 'tasks' ? (
               <TaskManager />
+            ) : activeTab === 'cycles' ? (
+              <CycleTracker />
             ) : activeTab === 'analytics' ? (
               <Analytics />
             ) : (
@@ -129,7 +133,7 @@ export default function Dashboard() {
             )}
           </div>
 
-          <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-5 border-t border-slate-200 bg-white lg:hidden">
+          <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-6 border-t border-slate-200 bg-white lg:hidden">
             {navItems.map((item) => {
               const Icon = item.icon;
               return (
