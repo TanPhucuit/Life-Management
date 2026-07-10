@@ -15,12 +15,14 @@ import {
   Pencil,
   Plus,
   Search,
+  Table2,
   Trash2,
   X,
 } from 'lucide-react';
 import { api, ApiTask, ApiTaskStatus, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
+import TaskTableView from './TaskTableView';
 
 type TaskDraft = {
   title: string;
@@ -34,6 +36,7 @@ type TaskDraft = {
 type NodePosition = { x: number; y: number };
 type DragState = { taskId: string; offsetX: number; offsetY: number };
 type TaskContextMenu = { taskId: string; x: number; y: number };
+type TaskWorkspaceView = 'tree' | 'table';
 type DiagramNodeKind = 'topic' | 'task';
 type DiagramNode = {
   id: string;
@@ -200,6 +203,7 @@ export default function TaskManager() {
   const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenu | null>(null);
   const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
   const [canvasZoom, setCanvasZoom] = useState(1);
+  const [workspaceView, setWorkspaceView] = useState<TaskWorkspaceView>('tree');
 
   const loadData = async () => {
     if (!user?.id) return;
@@ -762,9 +766,37 @@ export default function TaskManager() {
         <main className="flex min-w-0 flex-col">
           <header className="border-b border-slate-200 bg-white px-3 py-3 sm:px-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <h1 className="text-xl font-semibold">Nhiệm vụ</h1>
-                <p className="text-sm text-slate-500">Canvas task tree kéo thả tự do, có đường nối trực tiếp giữa node cha và node con.</p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                <div>
+                  <h1 className="text-xl font-semibold">Nhiệm vụ</h1>
+                  <p className="text-sm text-slate-500">
+                    {workspaceView === 'tree'
+                      ? 'Canvas task tree kéo thả tự do, có đường nối trực tiếp giữa node cha và node con.'
+                      : 'Mỗi root task là một sheet, các task con được sắp xếp theo cấu trúc phân cấp.'}
+                  </p>
+                </div>
+                <div className="inline-flex w-fit shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Kiểu hiển thị task">
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceView('tree')}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
+                      workspaceView === 'tree' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    <GitBranch className="h-3.5 w-3.5" />
+                    Cây
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceView('table')}
+                    className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
+                      workspaceView === 'table' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    <Table2 className="h-3.5 w-3.5" />
+                    Bảng
+                  </button>
+                </div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <form onSubmit={handleCreateTopic} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex">
@@ -813,6 +845,7 @@ export default function TaskManager() {
             </div>
           </header>
 
+          {workspaceView === 'tree' ? (
           <section
             ref={canvasRef}
             onPointerMove={handleCanvasPointerMove}
@@ -951,6 +984,17 @@ export default function TaskManager() {
               </div>
             )}
           </section>
+          ) : (
+            <TaskTableView
+              tasks={tasks}
+              topics={topics}
+              searchTerm={searchTerm}
+              isLoading={isLoading}
+              onToggleTask={handleToggleLeaf}
+              onOpenTask={openTaskDetails}
+              onAddChild={(taskId) => openTaskModal(taskId)}
+            />
+          )}
         </main>
       </div>
 
