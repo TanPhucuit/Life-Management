@@ -117,6 +117,18 @@ CREATE TABLE cycle_ticks (
   UNIQUE(user_id, day, month, year, hour)
 );
 
+-- IELTS Hours Table
+CREATE TABLE ielts_hours (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  reading_hours DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (reading_hours >= 0),
+  listening_hours DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (listening_hours >= 0),
+  writing_hours DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (writing_hours >= 0),
+  speaking_hours DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (speaking_hours >= 0),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create Indexes for better performance
 CREATE INDEX idx_users_username ON users(username);
 CREATE INDEX idx_topics_user_id ON topics(user_id);
@@ -137,6 +149,7 @@ CREATE INDEX idx_sessions_task_id ON sessions(task_id);
 CREATE INDEX idx_sessions_date ON sessions(session_date);
 CREATE INDEX idx_cycle_ticks_user_id ON cycle_ticks(user_id);
 CREATE INDEX idx_cycle_ticks_year_month_day ON cycle_ticks(user_id, year, month, day);
+CREATE INDEX idx_ielts_hours_user_id ON ielts_hours(user_id);
 
 -- Non-destructive migration for existing Supabase projects.
 -- Run this block if your database was created before task tree support.
@@ -165,11 +178,23 @@ CREATE TABLE IF NOT EXISTS cycle_ticks (
   UNIQUE(user_id, day, month, year, hour)
 );
 
+CREATE TABLE IF NOT EXISTS ielts_hours (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  reading_hours DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (reading_hours >= 0),
+  listening_hours DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (listening_hours >= 0),
+  writing_hours DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (writing_hours >= 0),
+  speaking_hours DECIMAL(10, 2) NOT NULL DEFAULT 0 CHECK (speaking_hours >= 0),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_topic_parent ON tasks(user_id, topic_id, parent_task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_archived_at ON tasks(archived_at);
 CREATE INDEX IF NOT EXISTS idx_cycle_ticks_user_id ON cycle_ticks(user_id);
 CREATE INDEX IF NOT EXISTS idx_cycle_ticks_year_month_day ON cycle_ticks(user_id, year, month, day);
+CREATE INDEX IF NOT EXISTS idx_ielts_hours_user_id ON ielts_hours(user_id);
 
 -- Recursive task tree view for reporting. The application also computes this
 -- in the API so the UI keeps working if the view has not been deployed yet.

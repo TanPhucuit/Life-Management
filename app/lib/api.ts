@@ -75,6 +75,17 @@ export interface ApiCycleTick {
   updated_at?: string;
 }
 
+export interface ApiIeltsHours {
+  id: string | null;
+  user_id: string;
+  reading_hours: number;
+  listening_hours: number;
+  writing_hours: number;
+  speaking_hours: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface TaskTreeStats {
   completedTasks: number;
   incompleteTasks: number;
@@ -226,6 +237,21 @@ export const api = {
     checked: boolean;
   }) {
     return requestJson<ApiCycleTick>('/api/cycles', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  },
+  getIeltsHours(userId: string) {
+    return requestJson<ApiIeltsHours>(`/api/ielts?userId=${encodeURIComponent(userId)}`);
+  },
+  setIeltsHours(input: {
+    userId: string;
+    readingHours: number;
+    listeningHours: number;
+    writingHours: number;
+    speakingHours: number;
+  }) {
+    return requestJson<ApiIeltsHours>('/api/ielts', {
       method: 'POST',
       body: JSON.stringify(input),
     });

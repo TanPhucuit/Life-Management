@@ -1,15 +1,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { BarChart3, Calendar, CheckCircle2, ChevronLeft, Home, LogOut, Repeat2, Settings, UserCircle } from 'lucide-react';
+import { BarChart3, Calendar, CheckCircle2, ChevronLeft, Home, Languages, LogOut, Repeat2, Settings, UserCircle } from 'lucide-react';
 import { useAppStore } from '@/app/lib/store';
 import CalendarView from './CalendarView';
 import TaskManager from './TaskManager';
 import CycleTracker from './CycleTracker';
+import IeltsTracker from './IeltsTracker';
 import Analytics from './Analytics';
 import DayDetailsPage from './DayDetailsPage';
 
-type TabType = 'overview' | 'calendar' | 'tasks' | 'cycles' | 'analytics' | 'settings';
+type TabType = 'overview' | 'calendar' | 'tasks' | 'cycles' | 'ielts' | 'analytics' | 'settings';
 
 interface SelectedDay {
   day: number;
@@ -22,6 +23,7 @@ const navItems = [
   { id: 'calendar' as TabType, label: 'Lịch', icon: Calendar },
   { id: 'tasks' as TabType, label: 'Nhiệm vụ', icon: CheckCircle2 },
   { id: 'cycles' as TabType, label: 'Chu kỳ', icon: Repeat2 },
+  { id: 'ielts' as TabType, label: 'IELTS', icon: Languages },
   { id: 'analytics' as TabType, label: 'Phân tích', icon: BarChart3 },
   { id: 'settings' as TabType, label: 'Cài đặt', icon: Settings },
 ];
@@ -126,6 +128,8 @@ export default function Dashboard() {
               <TaskManager />
             ) : activeTab === 'cycles' ? (
               <CycleTracker />
+            ) : activeTab === 'ielts' ? (
+              <IeltsTracker />
             ) : activeTab === 'analytics' ? (
               <Analytics />
             ) : (
@@ -133,7 +137,7 @@ export default function Dashboard() {
             )}
           </div>
 
-          <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-6 border-t border-slate-200 bg-white lg:hidden">
+          <nav className="fixed bottom-0 left-0 right-0 z-30 grid grid-cols-7 border-t border-slate-200 bg-white lg:hidden">
             {navItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -143,10 +147,10 @@ export default function Dashboard() {
                     setSelectedDay(null);
                     setActiveTab(item.id);
                   }}
-                  className={`flex flex-col items-center gap-1 px-1 py-2 text-[11px] ${activeTab === item.id ? 'text-blue-700' : 'text-slate-500'}`}
+                  className={`flex min-w-0 flex-col items-center gap-1 px-0.5 py-2 text-[10px] ${activeTab === item.id ? 'text-blue-700' : 'text-slate-500'}`}
                 >
                   <Icon className="h-4 w-4" />
-                  {item.label}
+                  <span className="w-full truncate text-center">{item.label}</span>
                 </button>
               );
             })}
