@@ -47,8 +47,6 @@ type DiagramNode = {
   topic?: ApiTopic;
 };
 
-const topicNodeId = (topicId: string) => `topic:${topicId}`;
-
 const emptyTaskDraft: TaskDraft = { title: '', description: '', startDate: '', deadline: '', parentTaskId: null, topicId: null };
 
 const nodeWidth = 220;
@@ -189,6 +187,7 @@ export default function TaskManager() {
   const [topics, setTopics] = useState<ApiTopic[]>([]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('');
+  const [selectedRootTaskId, setSelectedRootTaskId] = useState<string | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [newTopicName, setNewTopicName] = useState('');
@@ -222,9 +221,11 @@ export default function TaskManager() {
       const nextTopicId = selectedTopicId && topicRows.some((topic) => topic.id === selectedTopicId) ? selectedTopicId : topicRows[0]?.id || '';
       if (nextTopicId !== selectedTopicId) setSelectedTopicId(nextTopicId);
 
-      setSelectedTaskId((current) => {
-        if (current && taskRows.some((task) => task.id === current && task.topic_id === nextTopicId)) return current;
-        return taskRows.find((task) => !task.parent_task_id && task.topic_id === nextTopicId)?.id || null;
+      setSelectedRootTaskId((current) => {
+        if (current && taskRows.some((task) => task.id === current && !task.parent_task_id)) return current;
+        return taskRows.find((task) => !task.parent_task_id && task.topic_id === nextTopicId)?.id
+          || taskRows.find((task) => !task.parent_task_id)?.id
+          || null;
       });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu nhiệm vụ.');
@@ -269,28 +270,42 @@ export default function TaskManager() {
   }, [tasks]);
 
   const rootTasks = childrenByParent.get(null) || [];
+  const selectedRootTask = selectedRootTaskId ? taskById.get(selectedRootTaskId) || null : null;
 
   const selectedTask = selectedTaskId ? taskById.get(selectedTaskId) || null : null;
   const selectedTaskChildren = selectedTask ? childrenByParent.get(selectedTask.id) || [] : [];
 
+  useEffect(() => {
+    if (!selectedRootTaskId) {
+      setSelectedTaskId(null);
+      return;
+    }
+
+    const rootTask = taskById.get(selectedRootTaskId);
+    if (!rootTask) return;
+
+    setSelectedTopicId(rootTask.topic_id);
+    setSelectedTaskId((current) => {
+      const currentTask = current ? taskById.get(current) : null;
+      return currentTask && currentTask.root_task_id === selectedRootTaskId ? current : selectedRootTaskId;
+    });
+  }, [selectedRootTaskId, taskById]);
+
   const diagramNodes = useMemo<DiagramNode[]>(() => {
     const search = searchTerm.trim().toLowerCase();
     const visibleTaskIds = new Set<string>();
-    const visibleTopicIds = new Set<string>();
+    const tasksInSelectedTree = selectedRootTaskId
+      ? tasks.filter((task) => task.root_task_id === selectedRootTaskId)
+      : [];
 
     if (search) {
-      topics.forEach((topic) => {
-        if (topic.name.toLowerCase().includes(search)) visibleTopicIds.add(topic.id);
-      });
-
-      tasks.forEach((task) => {
+      tasksInSelectedTree.forEach((task) => {
         const matches = task.title.toLowerCase().includes(search) || task.description?.toLowerCase().includes(search);
         if (!matches) return;
 
         visibleTaskIds.add(task.id);
-        visibleTopicIds.add(task.topic_id);
         let current = task;
-        while (current.parent_task_id) {
+        while (current.parent_task_id && current.id !== selectedRootTaskId) {
           visibleTaskIds.add(current.parent_task_id);
           const parent = taskById.get(current.parent_task_id);
           if (!parent) break;
@@ -298,30 +313,25 @@ export default function TaskManager() {
         }
       });
     } else {
-      topics.forEach((topic) => visibleTopicIds.add(topic.id));
-      tasks.forEach((task) => visibleTaskIds.add(task.id));
+      tasksInSelectedTree.forEach((task) => visibleTaskIds.add(task.id));
     }
 
     const nodes: DiagramNode[] = [];
 
-    topics
-      .filter((topic) => visibleTopicIds.has(topic.id))
-      .forEach((topic) => nodes.push({ id: topicNodeId(topic.id), kind: 'topic', title: topic.name, depth: 0, topic }));
-
-    tasks
+    tasksInSelectedTree
       .filter((task) => visibleTaskIds.has(task.id))
       .forEach((task) => {
         nodes.push({
           id: task.id,
           kind: 'task',
           title: task.title,
-          depth: (task.depth || 0) + 1,
+          depth: task.depth || 0,
           task,
         });
       });
 
     return nodes;
-  }, [searchTerm, taskById, tasks, topics]);
+  }, [searchTerm, selectedRootTaskId, taskById, tasks]);
 
   const diagramNodeById = useMemo(() => new Map(diagramNodes.map((node) => [node.id, node])), [diagramNodes]);
   const canvasNodeIds = useMemo(() => new Set(diagramNodes.map((node) => node.id)), [diagramNodes]);
@@ -331,23 +341,17 @@ export default function TaskManager() {
   const diagramChildrenByParent = useMemo(() => {
     const map = new Map<string, string[]>();
 
-    rootTasks.forEach((task) => {
-      if (!canvasNodeIds.has(task.id)) return;
-      const parentTopicNodeId = topicNodeId(task.topic_id);
-      map.set(parentTopicNodeId, [...(map.get(parentTopicNodeId) || []), task.id]);
-    });
-
     tasks.forEach((task) => {
       if (!task.parent_task_id || !canvasNodeIds.has(task.id)) return;
       map.set(task.parent_task_id, [...(map.get(task.parent_task_id) || []), task.id]);
     });
 
     return map;
-  }, [canvasNodeIds, rootTasks, tasks]);
+  }, [canvasNodeIds, tasks]);
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};
-    const rootNodes = diagramNodes.filter((node) => node.kind === 'topic');
+    const rootNodes = diagramNodes.filter((node) => node.id === selectedRootTaskId);
     if (rootNodes.length === 0) return positions;
 
     let leafIndex = 0;
@@ -376,7 +380,7 @@ export default function TaskManager() {
       place(rootNode, canvasPadding);
     });
     return positions;
-  }, [diagramChildrenByParent, diagramNodeById, diagramNodes]);
+  }, [diagramChildrenByParent, diagramNodeById, diagramNodes, selectedRootTaskId]);
 
   useEffect(() => {
     setNodePositions((current) => {
@@ -701,6 +705,7 @@ export default function TaskManager() {
     if (!user?.id || !taskDraft.title.trim()) return;
 
     const parentTask = taskDraft.parentTaskId ? taskById.get(taskDraft.parentTaskId) : null;
+    const isCreatingRootTask = !taskDraft.parentTaskId;
     const fallbackTopicId = topics[0]?.id || '';
     const topicId = parentTask?.topic_id || taskDraft.topicId || selectedTopicId || fallbackTopicId;
     if (!topicId) {
@@ -722,6 +727,7 @@ export default function TaskManager() {
       setIsTaskModalOpen(false);
       setTaskDraft(emptyTaskDraft);
       await loadData();
+      if (isCreatingRootTask) setSelectedRootTaskId(created.id);
       setSelectedTaskId(created.id);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Không tạo được nhiệm vụ.');
@@ -771,7 +777,7 @@ export default function TaskManager() {
                   <h1 className="text-xl font-semibold">Nhiệm vụ</h1>
                   <p className="text-sm text-slate-500">
                     {workspaceView === 'tree'
-                      ? 'Canvas task tree kéo thả tự do, có đường nối trực tiếp giữa node cha và node con.'
+                      ? 'Chọn một root task để tập trung vào toàn bộ cây nhiệm vụ của root đó.'
                       : 'Mỗi root task là một sheet, các task con được sắp xếp theo cấu trúc phân cấp.'}
                   </p>
                 </div>
@@ -858,6 +864,27 @@ export default function TaskManager() {
           >
             <div className="sticky left-0 top-0 z-20 w-full border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:px-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
+                <label className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
+                  <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">Root task</span>
+                  <select
+                    value={selectedRootTaskId || ''}
+                    onChange={(event) => setSelectedRootTaskId(event.target.value || null)}
+                    disabled={rootTasks.length === 0}
+                    aria-label="Chọn root task để hiển thị"
+                    className="h-8 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:w-64 sm:flex-none"
+                  >
+                    {rootTasks.length === 0 && <option value="">Chưa có root task</option>}
+                    {topics.map((topic) => {
+                      const topicRootTasks = rootTasks.filter((task) => task.topic_id === topic.id);
+                      if (topicRootTasks.length === 0) return null;
+                      return (
+                        <optgroup key={topic.id} label={topic.name}>
+                          {topicRootTasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}
+                        </optgroup>
+                      );
+                    })}
+                  </select>
+                </label>
                 <button
                   type="button"
                   onClick={resetCanvasLayout}
@@ -880,7 +907,9 @@ export default function TaskManager() {
 
             {diagramNodes.length === 0 ? (
               <div className="m-4 flex min-h-[420px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-center text-sm text-slate-500">
-                Chưa có chủ đề hoặc task trong cây.
+                {selectedRootTask
+                  ? 'Không có task nào trong cây phù hợp với tìm kiếm.'
+                  : 'Chưa có root task. Hãy tạo root task đầu tiên để bắt đầu.'}
               </div>
             ) : (
               <div className="relative" style={{ width: scaledCanvasSize.width, height: scaledCanvasSize.height }}>
