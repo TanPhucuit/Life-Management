@@ -91,54 +91,54 @@ function getNodeSize(node: Pick<DiagramNode, 'depth' | 'title'>) {
 }
 const taskThemes = {
   incomplete: {
-    background: '#FFFFFF',
-    border: '#E2E8F0',
-    text: '#334155',
-    muted: '#64748B',
-    chipBackground: '#F1F5F9',
-    chipText: '#64748B',
-    progress: '#94A3B8',
-    connector: '#94A3B8',
-    selected: '#2563EB',
+    background: 'var(--surface-raised)',
+    border: 'var(--border-strong)',
+    text: 'var(--foreground)',
+    muted: 'var(--foreground-muted)',
+    chipBackground: 'var(--surface-soft)',
+    chipText: 'var(--foreground-muted)',
+    progress: 'var(--foreground-subtle)',
+    connector: 'var(--foreground-subtle)',
+    selected: 'var(--primary)',
     shadow: 'rgba(15, 23, 42, 0.06)',
     markerId: 'task-arrow-slate',
   },
   inProgress: {
-    background: '#EFF6FF',
-    border: '#93C5FD',
-    text: '#1E3A8A',
-    muted: '#475569',
-    chipBackground: '#DBEAFE',
-    chipText: '#1D4ED8',
-    progress: '#3B82F6',
-    connector: '#3B82F6',
-    selected: '#2563EB',
+    background: 'var(--primary-soft)',
+    border: 'var(--primary)',
+    text: 'var(--foreground)',
+    muted: 'var(--foreground-muted)',
+    chipBackground: 'var(--surface-raised)',
+    chipText: 'var(--primary)',
+    progress: 'var(--primary)',
+    connector: 'var(--primary)',
+    selected: 'var(--primary)',
     shadow: 'rgba(59, 130, 246, 0.12)',
     markerId: 'task-arrow-blue',
   },
   completed: {
-    background: '#ECFDF5',
-    border: '#86EFAC',
-    text: '#14532D',
-    muted: '#475569',
-    chipBackground: '#DCFCE7',
-    chipText: '#15803D',
-    progress: '#22C55E',
-    connector: '#22C55E',
-    selected: '#16A34A',
+    background: 'var(--accent-soft)',
+    border: 'var(--accent)',
+    text: 'var(--foreground)',
+    muted: 'var(--foreground-muted)',
+    chipBackground: 'var(--surface-raised)',
+    chipText: 'var(--accent)',
+    progress: 'var(--accent)',
+    connector: 'var(--accent)',
+    selected: 'var(--accent)',
     shadow: 'rgba(34, 197, 94, 0.12)',
     markerId: 'task-arrow-green',
   },
   overdue: {
-    background: '#FEF2F2',
-    border: '#FCA5A5',
-    text: '#7F1D1D',
-    muted: '#64748B',
-    chipBackground: '#FEE2E2',
-    chipText: '#DC2626',
-    progress: '#EF4444',
-    connector: '#EF4444',
-    selected: '#DC2626',
+    background: 'var(--danger-soft)',
+    border: 'var(--danger)',
+    text: 'var(--foreground)',
+    muted: 'var(--foreground-muted)',
+    chipBackground: 'var(--surface-raised)',
+    chipText: 'var(--danger)',
+    progress: 'var(--danger)',
+    connector: 'var(--danger)',
+    selected: 'var(--danger)',
     shadow: 'rgba(239, 68, 68, 0.12)',
     markerId: 'task-arrow-red',
   },
@@ -148,7 +148,7 @@ type TaskTheme = (typeof taskThemes)[keyof typeof taskThemes];
 const inputClass =
   'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 
-const formatDate = (value?: string | null, emptyLabel = 'Chưa có hạn') => {
+const formatDate = (value?: string | null, emptyLabel = 'No deadline') => {
   if (!value) return emptyLabel;
   return new Date(value).toLocaleDateString('vi-VN');
 };
@@ -168,9 +168,9 @@ const getTaskTone = (task: ApiTask): keyof typeof taskThemes => {
 };
 
 const getTaskStatusLabel = (status?: ApiTaskStatus) => {
-  if (status === 'completed') return 'Hoàn thành';
-  if (status === 'in_progress') return 'Đang thực hiện';
-  return 'Chưa hoàn thành';
+  if (status === 'completed') return 'Completed';
+  if (status === 'in_progress') return 'In progress';
+  return 'Not completed';
 };
 
 const toDateTimeInputValue = (value?: string | null) => {
@@ -227,7 +227,7 @@ export default function TaskManager() {
         return taskRows.find((task) => !task.parent_task_id && task.topic_id === nextTopicId)?.id || null;
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu nhiệm vụ.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not load tasks.');
     } finally {
       setIsLoading(false);
     }
@@ -654,7 +654,7 @@ export default function TaskManager() {
           })
         );
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Không lưu được thứ tự task.');
+        setErrorMessage(error instanceof Error ? error.message : 'Could not save task order.');
       }
     }
   };
@@ -671,7 +671,7 @@ export default function TaskManager() {
       setSelectedTaskId(null);
       setNewTopicName('');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không tạo được chủ đề.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not create the root.');
     } finally {
       setIsLoading(false);
     }
@@ -683,7 +683,7 @@ export default function TaskManager() {
 
     const nextName = topicNameDraft.trim();
     if (!nextName) {
-      setErrorMessage('Tên chủ đề không được để trống.');
+      setErrorMessage('Root name cannot be empty.');
       return;
     }
 
@@ -699,7 +699,7 @@ export default function TaskManager() {
       setEditingTopic(null);
       setTopicNameDraft('');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không cập nhật được chủ đề.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not update the root.');
     } finally {
       setIsLoading(false);
     }
@@ -713,7 +713,7 @@ export default function TaskManager() {
     const fallbackTopicId = topics[0]?.id || '';
     const topicId = parentTask?.topic_id || taskDraft.topicId || selectedTopicId || fallbackTopicId;
     if (!topicId) {
-      setErrorMessage('Hãy tạo ít nhất một chủ đề trước khi thêm nhiệm vụ.');
+      setErrorMessage('Create at least one root before adding a task.');
       return;
     }
 
@@ -733,7 +733,7 @@ export default function TaskManager() {
       await loadData();
       setSelectedTaskId(created.id);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không tạo được nhiệm vụ.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not create the task.');
     } finally {
       setIsLoading(false);
     }
@@ -751,12 +751,12 @@ export default function TaskManager() {
       await api.updateTask({ id: taskId, ...input });
       await loadData();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không cập nhật được trạng thái.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not update task status.');
     }
   };
 
   const handleArchiveTask = async (taskId: string) => {
-    if (!window.confirm('Lưu trữ nhiệm vụ này?')) return;
+    if (!window.confirm('Archive this task and its subtree?')) return;
 
     try {
       await api.deleteTask(taskId);
@@ -765,26 +765,26 @@ export default function TaskManager() {
       setIsTaskDetailsOpen(false);
       await loadData();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không lưu trữ được nhiệm vụ.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not archive the task.');
     }
   };
 
   return (
-    <div className="overflow-visible rounded-lg border border-slate-200 bg-white text-slate-950 shadow-sm lg:min-h-[calc(100vh-120px)] lg:overflow-hidden">
+    <div className="premium-card overflow-visible text-slate-950 lg:min-h-[calc(100vh-140px)] lg:overflow-hidden">
       <div className="grid grid-cols-1 lg:min-h-[calc(100vh-120px)]">
         <main className="flex min-w-0 flex-col">
-          <header className="border-b border-slate-200 bg-white px-3 py-3 sm:px-4">
+          <header className="border-b border-slate-200 bg-transparent px-3 py-4 sm:px-5">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                 <div>
-                  <h1 className="text-xl font-semibold">Nhiệm vụ</h1>
+                  <h1 className="text-xl font-semibold tracking-[-.025em]">Task workspace</h1>
                   <p className="text-sm text-slate-500">
                     {workspaceView === 'tree'
-                      ? 'Chọn một root task để tập trung vào toàn bộ cây nhiệm vụ của root đó.'
-                      : 'Mỗi root task là một sheet, các task con được sắp xếp theo cấu trúc phân cấp.'}
+                      ? 'Choose one life root and focus on its complete task tree.'
+                      : 'Each root becomes a sheet with tasks arranged by hierarchy.'}
                   </p>
                 </div>
-                <div className="inline-flex w-fit shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5" role="group" aria-label="Kiểu hiển thị task">
+                <div className="inline-flex w-fit shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Task view">
                   <button
                     type="button"
                     onClick={() => setWorkspaceView('tree')}
@@ -793,7 +793,7 @@ export default function TaskManager() {
                     }`}
                   >
                     <GitBranch className="h-3.5 w-3.5" />
-                    Cây
+                    Tree
                   </button>
                   <button
                     type="button"
@@ -803,7 +803,7 @@ export default function TaskManager() {
                     }`}
                   >
                     <Table2 className="h-3.5 w-3.5" />
-                    Bảng
+                    Table
                   </button>
                 </div>
               </div>
@@ -812,12 +812,12 @@ export default function TaskManager() {
                   <input
                     value={newTopicName}
                     onChange={(event) => setNewTopicName(event.target.value)}
-                    placeholder="Chủ đề mới"
+                    placeholder="New root"
                     className="h-9 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 sm:w-36"
                   />
                   <button className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50">
                     <FolderPlus className="h-4 w-4" />
-                    Tạo
+                    Create
                   </button>
                 </form>
                 <div className="relative">
@@ -825,7 +825,7 @@ export default function TaskManager() {
                   <input
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
-                    placeholder="Tìm nhiệm vụ, mô tả"
+                    placeholder="Search tasks or notes"
                     className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500 sm:w-64"
                   />
                 </div>
@@ -834,7 +834,7 @@ export default function TaskManager() {
                   className="flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
                   <Plus className="h-4 w-4" />
-                  Thêm task
+                  Add task
                 </button>
               </div>
             </div>
@@ -847,10 +847,10 @@ export default function TaskManager() {
             )}
 
             <div className="mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-              <StatCard label="Task hoàn thành" value={stats.completedLeafTasks} icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} />
-              <StatCard label="Chưa hoàn thành" value={stats.incompleteLeafTasks} icon={<Circle className="h-4 w-4 text-slate-500" />} />
-              <StatCard label="Đang thực hiện" value={stats.inProgressTasks} icon={<GitBranch className="h-4 w-4 text-blue-600" />} />
-              <StatCard label="Leaf quá hạn" value={stats.overdueLeafTasks} icon={<AlertCircle className="h-4 w-4 text-orange-600" />} />
+              <StatCard label="Completed" value={stats.completedLeafTasks} icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} />
+              <StatCard label="Open" value={stats.incompleteLeafTasks} icon={<Circle className="h-4 w-4 text-slate-500" />} />
+              <StatCard label="In progress" value={stats.inProgressTasks} icon={<GitBranch className="h-4 w-4 text-blue-600" />} />
+              <StatCard label="Overdue leaves" value={stats.overdueLeafTasks} icon={<AlertCircle className="h-4 w-4 text-orange-600" />} />
             </div>
           </header>
 
@@ -865,7 +865,7 @@ export default function TaskManager() {
             className="relative h-[58vh] min-h-[360px] select-none overflow-auto bg-slate-50 sm:h-[64vh] sm:min-h-[460px] lg:min-h-0 lg:flex-1"
             style={{ touchAction: dragState ? 'none' : 'pan-x pan-y' }}
           >
-            <div className="sticky left-0 top-0 z-20 w-full border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:px-4">
+            <div className="sticky left-0 top-0 z-20 w-full border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur-xl sm:px-4">
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <label className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
                   <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">Root task</span>
@@ -876,10 +876,10 @@ export default function TaskManager() {
                       setSelectedTaskId(null);
                     }}
                     disabled={topics.length === 0}
-                    aria-label="Chọn root task để hiển thị"
-                    className="h-8 min-w-0 flex-1 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:w-64 sm:flex-none"
+                    aria-label="Choose a root to display"
+                    className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:w-64 sm:flex-none"
                   >
-                    {topics.length === 0 && <option value="">Chưa có root task</option>}
+                    {topics.length === 0 && <option value="">No roots yet</option>}
                     {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
                   </select>
                 </label>
@@ -896,7 +896,7 @@ export default function TaskManager() {
                   <button type="button" onClick={() => updateCanvasZoom(1)} className="border-x border-slate-200 px-3 py-1.5 font-medium text-slate-700">{Math.round(canvasZoom * 100)}%</button>
                   <button type="button" onClick={() => updateCanvasZoom(canvasZoom + 0.1)} className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">+</button>
                 </div>
-                <span className="hidden text-xs text-slate-500 sm:inline">Ctrl + - / Ctrl + + để zoom. Kéo node tự do để rút ngắn đường nối hoặc sắp xếp cây.</span>
+                <span className="hidden text-xs text-slate-500 sm:inline">Use Ctrl + / − to zoom. Drag nodes to organize the tree.</span>
               </div>
               <div ref={topScrollRef} onScroll={handleTopScroll} className="h-4 w-full overflow-x-auto overflow-y-hidden">
                 <div style={{ width: scaledCanvasSize.width, height: 1 }} />
@@ -905,7 +905,7 @@ export default function TaskManager() {
 
             {diagramNodes.length === 0 ? (
               <div className="m-4 flex min-h-[420px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-center text-sm text-slate-500">
-                Chưa có root task. Hãy tạo root task đầu tiên để bắt đầu.
+                No roots yet. Create your first life root to begin.
               </div>
             ) : (
               <div className="relative" style={{ width: scaledCanvasSize.width, height: scaledCanvasSize.height }}>
@@ -1035,7 +1035,7 @@ export default function TaskManager() {
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"
           >
             <Pencil className="h-4 w-4" />
-            Chỉnh sửa
+            Edit
           </button>
           <button
             type="button"
@@ -1043,13 +1043,13 @@ export default function TaskManager() {
             className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
           >
             <Trash2 className="h-4 w-4" />
-            Xóa task
+            Archive task
           </button>
         </div>
       )}
 
       {isTaskDetailsOpen && selectedTask && (
-        <Modal title="Chi tiết task" onClose={() => setIsTaskDetailsOpen(false)}>
+        <Modal title="Task details" onClose={() => setIsTaskDetailsOpen(false)}>
           <TaskDetailsContent
             selectedTask={selectedTask}
             selectedTaskChildren={selectedTaskChildren}
@@ -1063,34 +1063,34 @@ export default function TaskManager() {
       )}
 
       {isTaskModalOpen && (
-        <Modal title={taskDraft.parentTaskId ? 'Tạo task con' : 'Tạo root task'} onClose={() => setIsTaskModalOpen(false)}>
+        <Modal title={taskDraft.parentTaskId ? 'Create child task' : 'Create top-level task'} onClose={() => setIsTaskModalOpen(false)}>
           <form onSubmit={handleCreateTask} className="space-y-3">
-            <Field label="Tiêu đề">
+            <Field label="Title">
               <input value={taskDraft.title} onChange={(event) => setTaskDraft({ ...taskDraft, title: event.target.value })} className={inputClass} required />
             </Field>
-            <Field label="Mô tả">
+            <Field label="Description">
               <textarea
                 value={taskDraft.description}
                 onChange={(event) => setTaskDraft({ ...taskDraft, description: event.target.value })}
                 className={`${inputClass} min-h-20 resize-none py-2`}
               />
             </Field>
-            <Field label="Ngày thực hiện">
+            <Field label="Start date">
               <input type="datetime-local" value={taskDraft.startDate} onChange={(event) => setTaskDraft({ ...taskDraft, startDate: event.target.value })} className={inputClass} />
             </Field>
             <Field label="Deadline">
               <input type="datetime-local" value={taskDraft.deadline} onChange={(event) => setTaskDraft({ ...taskDraft, deadline: event.target.value })} className={inputClass} />
             </Field>
-            {taskDraft.parentTaskId && <p className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700">Task con sẽ nằm dưới: {taskById.get(taskDraft.parentTaskId)?.title}</p>}
-            <button disabled={isLoading} className="w-full rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Lưu task</button>
+            {taskDraft.parentTaskId && <p className="rounded-xl bg-blue-50 px-3 py-2 text-xs text-blue-700">This task will be created under: {taskById.get(taskDraft.parentTaskId)?.title}</p>}
+            <button disabled={isLoading} className="btn-primary w-full">Save task</button>
           </form>
         </Modal>
       )}
 
       {editingTopic && (
-        <Modal title="Chỉnh sửa chủ đề" onClose={() => setEditingTopic(null)}>
+        <Modal title="Edit root" onClose={() => setEditingTopic(null)}>
           <form onSubmit={handleUpdateTopic} className="space-y-3">
-            <Field label="Tên chủ đề">
+            <Field label="Root name">
               <input
                 value={topicNameDraft}
                 onChange={(event) => setTopicNameDraft(event.target.value)}
@@ -1105,13 +1105,13 @@ export default function TaskManager() {
                 onClick={() => setEditingTopic(null)}
                 className="rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                Hủy
+                Cancel
               </button>
               <button
                 disabled={isLoading || !topicNameDraft.trim()}
                 className="rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
               >
-                Lưu
+                Save
               </button>
             </div>
           </form>
@@ -1184,7 +1184,7 @@ function TopicDiagramNode({
                   onAddTask();
                 }}
                 className="grid h-5 w-5 place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 transition hover:bg-white hover:text-slate-900"
-                title="Thêm task"
+                title="Add task"
               >
                 <Plus className="h-2.5 w-2.5" />
               </button>
@@ -1197,7 +1197,7 @@ function TopicDiagramNode({
                   onEditTopic();
                 }}
                 className="grid h-5 w-5 place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 transition hover:bg-white hover:text-slate-900"
-                title="Chỉnh sửa chủ đề"
+                title="Edit root"
               >
                 <Pencil className="h-2.5 w-2.5" />
               </button>
@@ -1206,7 +1206,7 @@ function TopicDiagramNode({
               type="button"
               onPointerDown={onDragStart}
               className="grid h-5 w-5 cursor-grab touch-none place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing"
-              title="Kéo node"
+              title="Drag node"
             >
               <Move className="h-2.5 w-2.5" />
             </button>
@@ -1261,14 +1261,14 @@ function TaskDiagramNode({
             background: theme.background,
             borderColor: isSelected ? theme.selected : theme.border,
             color: theme.text,
-            boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 24px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
+            boxShadow: isSelected ? `0 0 0 2px color-mix(in srgb, ${theme.selected} 22%, transparent), 0 10px 24px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
           }}
         >
           <div className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full" style={{ background: theme.progress }} />
 
           <div className="flex h-full min-w-0 items-center gap-1 pl-0.5">
             {hasChildren ? (
-              <span className="grid h-[16px] w-[16px] shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+              <span className="grid h-[16px] w-[16px] shrink-0 place-items-center rounded-full" style={{ background: theme.chipBackground, color: theme.chipText }} title="Parent status is calculated automatically">
                 {taskDone ? <CheckCircle2 className="h-2.5 w-2.5" /> : <GitBranch className="h-2.5 w-2.5" />}
               </span>
             ) : (
@@ -1280,7 +1280,7 @@ function TaskDiagramNode({
                 }}
                 className="grid h-[16px] w-[16px] shrink-0 place-items-center rounded-full transition hover:scale-105"
                 style={{ background: theme.chipBackground, color: theme.chipText }}
-                title="Đổi trạng thái"
+                title="Change status"
               >
                 {taskDone ? <CheckCircle2 className="h-2.5 w-2.5" /> : <Circle className="h-2.5 w-2.5" />}
               </button>
@@ -1295,7 +1295,7 @@ function TaskDiagramNode({
                 onAddChild();
               }}
               className="grid h-[16px] w-[16px] shrink-0 place-items-center rounded border border-slate-200/80 bg-white/70 text-slate-500 opacity-60 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100"
-              title="Thêm task con"
+              title="Add child task"
             >
               <Plus className="h-2 w-2" />
             </button>
@@ -1303,7 +1303,7 @@ function TaskDiagramNode({
               type="button"
               onPointerDown={onDragStart}
               className="grid h-[18px] w-[18px] shrink-0 cursor-grab touch-none place-items-center rounded border border-slate-200/80 bg-white/80 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing sm:h-[16px] sm:w-[16px] sm:opacity-0 sm:group-hover:opacity-100"
-              title="Kéo node"
+              title="Drag node"
             >
               <Move className="h-2.5 w-2.5 sm:h-2 sm:w-2" />
             </button>
@@ -1326,7 +1326,7 @@ function TaskDiagramNode({
           background: theme.background,
           borderColor: isSelected ? theme.selected : theme.border,
           color: theme.text,
-          boxShadow: isSelected ? `0 0 0 2px ${theme.selected}22, 0 10px 26px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
+          boxShadow: isSelected ? `0 0 0 2px color-mix(in srgb, ${theme.selected} 22%, transparent), 0 10px 26px ${theme.shadow}` : `0 1px 2px ${theme.shadow}`,
         }}
       >
         <div className={`${isLevelTwo ? 'absolute inset-y-1.5 left-0 w-0.5 rounded-r-full' : 'absolute inset-y-2 left-0 w-0.5 rounded-r-full'}`} style={{ background: theme.progress }} />
@@ -1334,7 +1334,7 @@ function TaskDiagramNode({
         <div className={`flex items-start justify-between gap-1.5 pl-1 ${isLevelTwo ? 'mb-1' : 'mb-1.5'}`}>
           <div className={`flex min-w-0 items-start ${isLevelTwo ? 'gap-1.5' : 'gap-2'}`}>
             {hasChildren ? (
-              <span className={`${isLevelTwo ? 'mt-0.5 grid h-4 w-4' : 'mt-0.5 grid h-[18px] w-[18px]'} place-items-center rounded-full`} style={{ background: theme.chipBackground, color: theme.chipText }} title="Task cha tự tính trạng thái">
+              <span className={`${isLevelTwo ? 'mt-0.5 grid h-4 w-4' : 'mt-0.5 grid h-[18px] w-[18px]'} place-items-center rounded-full`} style={{ background: theme.chipBackground, color: theme.chipText }} title="Parent status is calculated automatically">
                 {taskDone ? <CheckCircle2 className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} /> : <GitBranch className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />}
               </span>
             ) : (
@@ -1346,7 +1346,7 @@ function TaskDiagramNode({
                 }}
                 className={`${isLevelTwo ? 'mt-0.5 grid h-4 w-4' : 'mt-0.5 grid h-[18px] w-[18px]'} place-items-center rounded-full transition hover:scale-105`}
                 style={{ background: theme.chipBackground, color: theme.chipText }}
-                title="Đổi trạng thái"
+                title="Change status"
               >
                 {taskDone ? <CheckCircle2 className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} /> : <Circle className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />}
               </button>
@@ -1363,7 +1363,7 @@ function TaskDiagramNode({
                 onAddChild();
               }}
               className={`${isLevelTwo ? 'grid h-5 w-5' : 'grid h-6 w-6'} place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-500 opacity-80 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100`}
-              title="Thêm task con"
+              title="Add child task"
             >
               <Plus className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
             </button>
@@ -1371,14 +1371,14 @@ function TaskDiagramNode({
               type="button"
               onPointerDown={onDragStart}
               className={`${isLevelTwo ? 'grid h-5 w-5' : 'grid h-6 w-6'} cursor-grab touch-none place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 opacity-90 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing sm:opacity-80 sm:group-hover:opacity-100`}
-              title="Kéo node"
+              title="Drag node"
             >
               <Move className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
             </button>
             <button
               type="button"
               className={`${isLevelTwo ? 'hidden' : 'grid h-6 w-6'} place-items-center rounded-md border border-slate-200/80 bg-white/70 text-slate-400 opacity-0 transition hover:bg-white hover:text-slate-900 group-hover:opacity-100`}
-              title="Tùy chọn"
+              title="Options"
               onClick={(event) => event.stopPropagation()}
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
@@ -1387,8 +1387,8 @@ function TaskDiagramNode({
         </div>
 
         <div className={`flex flex-wrap pl-1 ${isLevelTwo ? 'mb-0.5 gap-1' : 'mb-1 gap-1'}`}>
-          <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Hạn: ${formatDate(task.deadline)}`} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} compact={isLevelTwo} />
-          {task.start_date && <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Bắt đầu: ${formatDate(task.start_date)}`} theme={taskThemes.inProgress} compact={isLevelTwo} />}
+          <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Due: ${formatDate(task.deadline)}`} theme={taskOverdue ? taskThemes.overdue : taskThemes.incomplete} compact={isLevelTwo} />
+          {task.start_date && <TaskMetaChip icon={<CalendarDays className={isLevelTwo ? 'h-2.5 w-2.5' : 'h-3 w-3'} />} label={`Start: ${formatDate(task.start_date)}`} theme={taskThemes.inProgress} compact={isLevelTwo} />}
         </div>
 
       </div>
@@ -1450,24 +1450,24 @@ function TaskDetailsContent({
         <div className="flex h-full flex-col">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Chi tiết task</p>
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Task details</p>
               <h2 className="text-lg font-semibold">{selectedTask.title}</h2>
-              <p className="mt-1 text-sm text-slate-500">{selectedTask.description || 'Chưa có mô tả.'}</p>
+              <p className="mt-1 text-sm text-slate-500">{selectedTask.description || 'No description yet.'}</p>
             </div>
-            <button onClick={() => onArchive(selectedTask.id)} className="rounded-md border border-red-200 p-2 text-red-600 hover:bg-red-50" title="Lưu trữ">
+            <button onClick={() => onArchive(selectedTask.id)} className="rounded-md border border-red-200 p-2 text-red-600 hover:bg-red-50" title="Archive">
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
 
           <div className="mb-4 space-y-2 rounded-md border border-slate-200 p-3 text-sm">
-            <InfoRow label="Ngày thực hiện" value={formatDate(selectedTask.start_date, 'Chưa có ngày')} />
+            <InfoRow label="Start date" value={formatDate(selectedTask.start_date, 'No start date')} />
             <InfoRow label="Deadline" value={formatDate(selectedTask.deadline)} />
-            <InfoRow label="Trạng thái" value={getTaskStatusLabel(selectedTask.effective_status)} />
+            <InfoRow label="Status" value={getTaskStatusLabel(selectedTask.effective_status)} />
             <InfoRow label="Task con" value={String(selectedTaskChildren.length)} />
           </div>
 
           <div className="mb-4 space-y-3 rounded-md border border-slate-200 p-3">
-            <Field label="Tên task">
+            <Field label="Task name">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <input
                   value={titleDraft}
@@ -1486,11 +1486,11 @@ function TaskDetailsContent({
                   disabled={!titleChanged}
                   className="h-10 rounded-md bg-slate-950 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
                 >
-                  Lưu
+                  Save
                 </button>
               </div>
             </Field>
-            <Field label="Ngày thực hiện">
+            <Field label="Start date">
               <input
                 type="datetime-local"
                 value={toDateTimeInputValue(selectedTask.start_date)}
@@ -1510,7 +1510,7 @@ function TaskDetailsContent({
 
           <div className="mb-4 rounded-md border border-slate-200 p-3">
             <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Trạng thái task</h3>
+              <h3 className="text-sm font-semibold">Task status</h3>
               <span className={'rounded-full px-2 py-1 text-xs font-medium ' + (selectedTask.effective_status === 'completed' ? 'bg-emerald-50 text-emerald-700' : selectedTask.effective_status === 'in_progress' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600')}>
                 {getTaskStatusLabel(selectedTask.effective_status)}
               </span>
@@ -1522,28 +1522,28 @@ function TaskDetailsContent({
                   onChange={(event) => onUpdateTask(selectedTask.id, { status: event.target.value as ApiTaskStatus })}
                   className={inputClass}
                 >
-                  <option value="not_completed">Chưa hoàn thành</option>
-                  <option value="in_progress">Đang thực hiện</option>
-                  <option value="completed">Hoàn thành</option>
+                  <option value="not_completed">Not completed</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="completed">Completed</option>
                 </select>
                 <button
                   type="button"
                   onClick={() => onToggleTask(selectedTask)}
                   className={'w-full rounded-md px-3 py-2 text-sm font-semibold transition ' + (selectedTask.status === 'completed' ? 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50' : 'bg-emerald-600 text-white hover:bg-emerald-700')}
                 >
-                  {selectedTask.status === 'completed' ? 'Mở lại task' : 'Đánh dấu hoàn thành'}
+                  {selectedTask.status === 'completed' ? 'Reopen task' : 'Mark completed'}
                 </button>
               </div>
             ) : (
               <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                Task cha tự hoàn thành khi toàn bộ task con hoàn thành.
+                Parent tasks complete automatically when every child is complete.
               </p>
             )}
           </div>
 
           <div className="mb-4">
             <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Tiến độ cây</h3>
+              <h3 className="text-sm font-semibold">Tree progress</h3>
               <span className="text-sm font-medium text-blue-600">{completion}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
@@ -1552,14 +1552,14 @@ function TaskDetailsContent({
           </div>
 
           <button onClick={onAddChild} className="rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800">
-            Thêm task con
+            Add child task
           </button>
         </div>
       ) : (
         <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed border-slate-300 p-6 text-center text-slate-500">
           <Folder className="mb-3 h-8 w-8" />
-          <p className="text-sm font-medium">Chọn một task để xem chi tiết</p>
-          <p className="mt-1 text-xs">Menu chuột phải sẽ mở chỉnh sửa hoặc xóa task.</p>
+          <p className="text-sm font-medium">Select a task to view details</p>
+          <p className="mt-1 text-xs">Right-click a task to edit or archive it.</p>
         </div>
       )}
     </div>
@@ -1597,12 +1597,21 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const modalRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const firstFocusable = modalRef.current?.querySelector<HTMLElement>('input, button, select, textarea, [tabindex]:not([tabindex="-1"])');
+    firstFocusable?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => { window.removeEventListener('keydown', handleKeyDown); previouslyFocused?.focus(); };
+  }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-3 sm:p-4">
-      <div className="max-h-[calc(100vh-1.5rem)] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-4 shadow-xl sm:max-h-[calc(100vh-2rem)] sm:p-5">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4" onMouseDown={onClose}>
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="task-modal-title" onMouseDown={(event) => event.stopPropagation()} className="glass-panel max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-[28px] p-4 shadow-xl sm:max-h-[calc(100vh-2rem)] sm:rounded-[28px] sm:p-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <button onClick={onClose} className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
+          <h2 id="task-modal-title" className="text-lg font-semibold">{title}</h2>
+          <button onClick={onClose} className="grid h-11 w-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="Close dialog">
             <X className="h-5 w-5" />
           </button>
         </div>

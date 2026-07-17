@@ -53,7 +53,7 @@ export default function IeltsTracker() {
         const record = await api.getIeltsHours(user.id);
         setDraft(toDraft(record));
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu IELTS.');
+        setErrorMessage(error instanceof Error ? error.message : 'Could not load IELTS data.');
       } finally {
         setIsLoading(false);
       }
@@ -81,7 +81,7 @@ export default function IeltsTracker() {
 
     const values = Object.values(draft).map(Number);
     if (values.some((value) => !Number.isFinite(value) || value < 0)) {
-      setErrorMessage('Số giờ phải là số không âm.');
+      setErrorMessage('Practice hours must be a non-negative number.');
       return;
     }
 
@@ -97,9 +97,9 @@ export default function IeltsTracker() {
         speakingHours: Number(draft.speaking),
       });
       setDraft(toDraft(saved));
-      setSuccessMessage('Đã lưu tổng giờ IELTS.');
+      setSuccessMessage('IELTS practice hours saved.');
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không lưu được dữ liệu IELTS.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not save IELTS data.');
     } finally {
       setIsSaving(false);
     }
@@ -107,7 +107,7 @@ export default function IeltsTracker() {
 
   return (
     <div className="space-y-4 pb-20 lg:pb-0">
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <section className="premium-card p-4 sm:p-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-blue-50 text-blue-700">
@@ -115,16 +115,16 @@ export default function IeltsTracker() {
             </div>
             <div>
               <h2 className="text-xl font-semibold text-slate-950">IELTS</h2>
-              <p className="mt-1 text-sm text-slate-500">Tổng thời gian luyện tập theo bốn kỹ năng.</p>
+              <p className="mt-1 text-sm text-slate-500">Total practice time across all four skills.</p>
             </div>
           </div>
           <div className="flex items-center gap-4 border-l-0 border-slate-200 sm:border-l sm:pl-4">
             <div>
-              <p className="text-xs text-slate-500">Tổng thời gian</p>
+              <p className="text-xs text-slate-500">Total time</p>
               <p className="mt-0.5 text-2xl font-semibold text-slate-950">{formatHours(totalHours)}h</p>
             </div>
             <div>
-              <p className="text-xs text-slate-500">Kỹ năng cao nhất</p>
+              <p className="text-xs text-slate-500">Strongest skill</p>
               <p className="mt-0.5 text-sm font-semibold" style={{ color: highestSkill.color }}>{highestSkill.label}</p>
             </div>
           </div>
@@ -139,18 +139,18 @@ export default function IeltsTracker() {
         )}
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <section className="premium-card p-4 sm:p-5">
         <div className="mb-4">
-          <h3 className="font-semibold text-slate-950">Phân bổ thời gian</h3>
-          <p className="text-sm text-slate-500">Đơn vị: giờ</p>
+          <h3 className="font-semibold text-slate-950">Practice distribution</h3>
+          <p className="text-sm text-slate-500">Measured in hours</p>
         </div>
         <div className="h-[320px] w-full sm:h-[380px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 28, right: 10, left: -18, bottom: 4 }} barCategoryGap="24%">
-              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={{ stroke: '#cbd5e1' }} />
               <YAxis stroke="#64748b" tickLine={false} axisLine={false} allowDecimals />
-              <Tooltip formatter={(value) => [`${formatHours(Number(value))} giờ`, 'Thời gian']} cursor={{ fill: '#f8fafc' }} />
+              <Tooltip formatter={(value) => [`${formatHours(Number(value))} hours`, 'Practice']} cursor={{ fill: 'var(--surface-soft)' }} contentStyle={{ background: 'var(--surface-raised)', border: '1px solid var(--border)', borderRadius: 14, color: 'var(--foreground)' }} />
               <Bar dataKey="hours" maxBarSize={104} radius={[5, 5, 0, 0]}>
                 {chartData.map((item) => <Cell key={item.key} fill={item.color} />)}
                 <LabelList dataKey="hours" position="top" formatter={(value: unknown) => `${formatHours(Number(value))}h`} className="fill-slate-600 text-xs" />
@@ -160,11 +160,11 @@ export default function IeltsTracker() {
         </div>
       </section>
 
-      <form onSubmit={handleSave} className="rounded-lg border border-slate-200 bg-white p-4">
+      <form onSubmit={handleSave} className="premium-card p-4 sm:p-5">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="font-semibold text-slate-950">Cập nhật tổng giờ</h3>
-            <p className="text-sm text-slate-500">Giá trị lưu mới sẽ thay thế giá trị hiện tại.</p>
+            <h3 className="font-semibold text-slate-950">Update total hours</h3>
+            <p className="text-sm text-slate-500">Saved values replace the current totals.</p>
           </div>
           <button
             type="submit"
@@ -172,7 +172,7 @@ export default function IeltsTracker() {
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {isSaving ? 'Đang lưu...' : 'Lưu tổng giờ'}
+            {isSaving ? 'Saving…' : 'Save hours'}
           </button>
         </div>
 
@@ -197,9 +197,9 @@ export default function IeltsTracker() {
                       if (draft[skill.key] === '') updateDraft(skill.key, '0');
                     }}
                     className="h-full min-w-0 flex-1 bg-transparent px-3 text-base font-semibold text-slate-950 outline-none"
-                    aria-label={`Tổng giờ ${skill.label}`}
+                    aria-label={`Total ${skill.label} hours`}
                   />
-                  <span className="border-l border-slate-200 px-3 text-sm text-slate-500">giờ</span>
+                  <span className="border-l border-slate-200 px-3 text-sm text-slate-500">hours</span>
                 </span>
               </label>
             );

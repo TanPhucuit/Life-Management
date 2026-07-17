@@ -197,7 +197,7 @@ export default function TaskTableView({
       <section className="flex min-h-[420px] flex-1 items-center justify-center bg-slate-50 p-4">
         <div className="max-w-sm rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
           <Table2 className="mx-auto mb-3 h-8 w-8 text-slate-400" />
-          <p className="text-sm font-medium text-slate-700">Chưa có root task để hiển thị.</p>
+          <p className="text-sm font-medium text-slate-700">No root tasks to display.</p>
         </div>
       </section>
     );
@@ -224,7 +224,7 @@ export default function TaskTableView({
       {levelOneSheets.length > 0 ? (
         <>
           <SheetTabs
-            label="Sheet cấp 1"
+            label="Level 1 sheet"
             tasks={levelOneSheets}
             activeTaskId={activeLevelOneId}
             topics={topics}
@@ -233,7 +233,7 @@ export default function TaskTableView({
 
           {activeLevelOne && levelTwoSheets.length > 0 && (
             <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 sm:px-4">
-              <p className="mb-2 text-[11px] font-semibold uppercase text-slate-400">Sheet cấp 2</p>
+              <p className="mb-2 text-[11px] font-semibold uppercase text-slate-400">Level 2 sheet</p>
               <div className="overflow-x-auto">
                 <div className="flex min-w-max gap-1.5">
                   <button
@@ -244,7 +244,7 @@ export default function TaskTableView({
                     }`}
                   >
                     <ListTree className="h-4 w-4" />
-                    Task trực tiếp ({directLevelTwoTasks.length})
+                    Direct tasks ({directLevelTwoTasks.length})
                   </button>
                   {levelTwoSheets.map((task) => (
                     <button
@@ -271,10 +271,10 @@ export default function TaskTableView({
           )}
 
           <div className="grid grid-cols-2 border-b border-slate-200 bg-white sm:grid-cols-4">
-            <SheetMetric label="Đang xem" value={activeLevelTwoSheet ? activeLevelTwoSheet.title : 'Task trực tiếp'} />
-            <SheetMetric label="Số task" value={tableTasks.length} />
-            <SheetMetric label="Tiến độ" value={tableContext ? `${getCompletionPercent(tableContext)}%` : '0%'} />
-            <SheetMetric label="Quá hạn" value={overdueCount} danger={overdueCount > 0} />
+            <SheetMetric label="Viewing" value={activeLevelTwoSheet ? activeLevelTwoSheet.title : 'Direct tasks'} />
+            <SheetMetric label="Tasks" value={tableTasks.length} />
+            <SheetMetric label="Progress" value={tableContext ? `${getCompletionPercent(tableContext)}%` : '0%'} />
+            <SheetMetric label="Overdue" value={overdueCount} danger={overdueCount > 0} />
           </div>
 
           <TaskRowsTable
@@ -288,15 +288,15 @@ export default function TaskTableView({
             onAddChild={onAddChild}
           />
 
-          {isLoading && <div className="border-t border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">Đang cập nhật dữ liệu task...</div>}
+          {isLoading && <div className="border-t border-slate-200 bg-white px-4 py-2 text-xs text-slate-500">Updating task data…</div>}
         </>
       ) : (
         <div className="flex min-h-[360px] flex-1 items-center justify-center p-4">
           <div className="max-w-sm rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
             <Layers className="mx-auto mb-3 h-8 w-8 text-slate-400" />
-            <p className="text-sm font-medium text-slate-700">Root task này chưa có task cấp 1.</p>
+            <p className="text-sm font-medium text-slate-700">This root does not have any level 1 tasks yet.</p>
             <button type="button" onClick={() => activeRoot && onAddChild(activeRoot.id)} className="mt-4 inline-flex items-center gap-2 rounded-md bg-slate-950 px-3 py-2 text-sm font-medium text-white">
-              <Plus className="h-4 w-4" />Thêm task cấp 1
+              <Plus className="h-4 w-4" />Add level 1 task
             </button>
           </div>
         </div>
@@ -375,15 +375,31 @@ function TaskRowsTable({
 }) {
   return (
     <div className="min-h-0 flex-1 overflow-auto">
-      <table className="min-w-[940px] w-full border-collapse bg-white text-sm">
+      <div className="space-y-2 p-3 md:hidden">
+        {rows.map(({ task, depth }) => {
+          const hasChildren = (childrenByParent.get(task.id) || []).length > 0;
+          const completed = isTaskDone(task);
+          const overdue = isTaskOverdue(task);
+          return (
+            <div key={task.id} className="rounded-2xl border border-slate-200 bg-white p-3" style={{ marginLeft: Math.min(depth, 3) * 8 }}>
+              <div className="flex items-start gap-2">
+                {hasChildren ? <button type="button" onClick={() => onToggleCollapsed(task.id)} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-50" aria-label={collapsedTaskIds.has(task.id) ? 'Expand children' : 'Collapse children'}>{collapsedTaskIds.has(task.id) ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button> : <button type="button" onClick={() => void onToggleTask(task)} className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl border ${completed ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200'}`} aria-label={completed ? 'Reopen task' : 'Mark completed'}><Check className="h-4 w-4" /></button>}
+                <button type="button" onClick={() => onOpenTask(task.id)} className="min-w-0 flex-1 py-1 text-left"><p className={`font-semibold ${completed ? 'text-slate-500 line-through' : ''}`}>{task.title}</p>{task.description && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{task.description}</p>}</button>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2"><StatusBadge task={task} overdue={overdue} /><span className="text-xs text-slate-500">Due {formatTableDate(task.deadline)}</span><button type="button" onClick={() => onAddChild(task.id)} className="ml-auto grid h-11 w-11 place-items-center rounded-xl bg-slate-50" aria-label="Add child task"><Plus className="h-4 w-4" /></button></div>
+            </div>
+          );
+        })}
+      </div>
+      <table className="hidden min-w-[940px] w-full border-collapse bg-white text-sm md:table">
         <thead className="sticky top-0 z-20 bg-slate-100 text-xs font-semibold uppercase text-slate-500">
           <tr>
-            <th className="sticky left-0 z-30 w-[42%] min-w-[360px] border-b border-r border-slate-200 bg-slate-100 px-3 py-2.5 text-left">Nhiệm vụ</th>
-            <th className="w-32 border-b border-r border-slate-200 px-3 py-2.5 text-left">Trạng thái</th>
-            <th className="w-28 border-b border-r border-slate-200 px-3 py-2.5 text-left">Bắt đầu</th>
+            <th className="sticky left-0 z-30 w-[42%] min-w-[360px] border-b border-r border-slate-200 bg-slate-100 px-3 py-2.5 text-left">Task</th>
+            <th className="w-32 border-b border-r border-slate-200 px-3 py-2.5 text-left">Status</th>
+            <th className="w-28 border-b border-r border-slate-200 px-3 py-2.5 text-left">Start</th>
             <th className="w-28 border-b border-r border-slate-200 px-3 py-2.5 text-left">Deadline</th>
-            <th className="w-32 border-b border-r border-slate-200 px-3 py-2.5 text-left">Tiến độ</th>
-            <th className="w-24 border-b border-slate-200 px-3 py-2.5 text-center">Thao tác</th>
+            <th className="w-32 border-b border-r border-slate-200 px-3 py-2.5 text-left">Progress</th>
+            <th className="w-24 border-b border-slate-200 px-3 py-2.5 text-center">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -399,11 +415,11 @@ function TaskRowsTable({
                 <td className={`sticky left-0 z-10 border-b border-r border-slate-200 p-0 ${rowBackground} group-hover:bg-blue-50/70`}>
                   <div className="flex min-h-12 items-center gap-2 px-3 py-2" style={{ paddingLeft: 12 + Math.min(depth, 8) * 24 }}>
                     {hasChildren ? (
-                      <button type="button" onClick={() => onToggleCollapsed(task.id)} className="grid h-6 w-6 shrink-0 place-items-center text-slate-500 hover:text-slate-950" aria-label={collapsed ? 'Mở task con' : 'Thu gọn task con'}>
+                      <button type="button" onClick={() => onToggleCollapsed(task.id)} className="grid h-8 w-8 shrink-0 place-items-center text-slate-500 hover:text-slate-950" aria-label={collapsed ? 'Expand children' : 'Collapse children'}>
                         {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </button>
                     ) : (
-                      <button type="button" onClick={() => void onToggleTask(task)} className={`grid h-5 w-5 shrink-0 place-items-center border transition ${completed ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-transparent hover:border-emerald-500 hover:text-emerald-500'}`} aria-label={completed ? 'Mở lại task' : 'Đánh dấu hoàn thành'}>
+                      <button type="button" onClick={() => void onToggleTask(task)} className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border transition ${completed ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-transparent hover:border-emerald-500 hover:text-emerald-500'}`} aria-label={completed ? 'Reopen task' : 'Mark completed'}>
                         <Check className="h-3.5 w-3.5 stroke-[3]" />
                       </button>
                     )}
@@ -427,8 +443,8 @@ function TaskRowsTable({
                 </td>
                 <td className="border-b border-slate-200 px-2 py-2">
                   <div className="flex items-center justify-center gap-1">
-                    <button type="button" onClick={() => onOpenTask(task.id)} className="grid h-8 w-8 place-items-center border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:text-blue-700" title="Chỉnh sửa task"><Pencil className="h-3.5 w-3.5" /></button>
-                    <button type="button" onClick={() => onAddChild(task.id)} className="grid h-8 w-8 place-items-center border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:text-blue-700" title="Thêm task con"><Plus className="h-3.5 w-3.5" /></button>
+                    <button type="button" onClick={() => onOpenTask(task.id)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:text-blue-700" title="Edit task"><Pencil className="h-3.5 w-3.5" /></button>
+                    <button type="button" onClick={() => onAddChild(task.id)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:text-blue-700" title="Add child task"><Plus className="h-3.5 w-3.5" /></button>
                   </div>
                 </td>
               </tr>
@@ -438,7 +454,7 @@ function TaskRowsTable({
       </table>
       {rows.length === 0 && (
         <div className="flex min-h-56 items-center justify-center bg-white px-4 text-center text-sm text-slate-500">
-          {searchTerm.trim() ? 'Không có task nào khớp với từ khóa tìm kiếm.' : 'Sheet này chưa có task dạng list.'}
+          {searchTerm.trim() ? 'No tasks match your search.' : 'This sheet does not have list tasks yet.'}
         </div>
       )}
     </div>
@@ -455,8 +471,8 @@ function SheetMetric({ label, value, danger = false }: { label: string; value: s
 }
 
 function StatusBadge({ task, overdue }: { task: ApiTask; overdue: boolean }) {
-  if (overdue) return <span className="inline-flex items-center gap-1 border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700"><AlertCircle className="h-3 w-3" />Quá hạn</span>;
-  if (isTaskDone(task)) return <span className="inline-flex items-center gap-1 border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"><Check className="h-3 w-3" />Hoàn thành</span>;
-  if (task.status === 'in_progress' || task.effective_status === 'in_progress') return <span className="inline-flex items-center gap-1 border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"><GitBranch className="h-3 w-3" />Đang làm</span>;
-  return <span className="inline-flex items-center gap-1 border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600"><Circle className="h-3 w-3" />Chưa làm</span>;
+  if (overdue) return <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700"><AlertCircle className="h-3 w-3" />Overdue</span>;
+  if (isTaskDone(task)) return <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"><Check className="h-3 w-3" />Completed</span>;
+  if (task.status === 'in_progress' || task.effective_status === 'in_progress') return <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"><GitBranch className="h-3 w-3" />In progress</span>;
+  return <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600"><Circle className="h-3 w-3" />Not started</span>;
 }

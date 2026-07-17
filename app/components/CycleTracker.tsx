@@ -8,20 +8,10 @@ import { useAppStore } from '@/app/lib/store';
 
 const cycleHours = Array.from({ length: 14 }, (_, index) => index + 8);
 const monthNames = [
-  'Tháng 1',
-  'Tháng 2',
-  'Tháng 3',
-  'Tháng 4',
-  'Tháng 5',
-  'Tháng 6',
-  'Tháng 7',
-  'Tháng 8',
-  'Tháng 9',
-  'Tháng 10',
-  'Tháng 11',
-  'Tháng 12',
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
-const weekdayNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+const weekdayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function formatDateKey(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -73,7 +63,7 @@ export default function CycleTracker() {
         const rows = await api.getCycleTicks(user.id, currentMonth, currentYear);
         setTicks(rows);
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu chu kỳ.');
+        setErrorMessage(error instanceof Error ? error.message : 'Could not load cycle data.');
       } finally {
         setIsLoading(false);
       }
@@ -167,7 +157,7 @@ export default function CycleTracker() {
         return [...withoutCurrent, saved];
       });
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Không lưu được ô chu kỳ.');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not save this cycle block.');
       const rows = await api.getCycleTicks(user.id, currentMonth, currentYear).catch(() => null);
       if (rows) setTicks(rows);
     } finally {
@@ -181,14 +171,14 @@ export default function CycleTracker() {
 
   return (
     <div className="space-y-4 pb-16 lg:pb-0">
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <section className="premium-card p-4 sm:p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-3">
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-yellow-50 text-yellow-700">
               <CalendarCheck2 className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-slate-950">Chu kỳ</h2>
+              <h2 className="text-xl font-semibold text-slate-950">Cycles</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {selected.day} {monthNames[selected.month - 1]} {selected.year}
               </p>
@@ -200,7 +190,7 @@ export default function CycleTracker() {
               type="button"
               onClick={() => moveMonth(-1)}
               className="grid h-9 w-9 place-items-center rounded-md text-slate-600 transition hover:bg-white hover:text-slate-950"
-              aria-label="Tháng trước"
+              aria-label="Previous month"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -211,7 +201,7 @@ export default function CycleTracker() {
               type="button"
               onClick={() => moveMonth(1)}
               className="grid h-9 w-9 place-items-center rounded-md text-slate-600 transition hover:bg-white hover:text-slate-950"
-              aria-label="Tháng sau"
+              aria-label="Next month"
             >
               <ChevronRight className="h-5 w-5" />
             </button>
@@ -226,16 +216,16 @@ export default function CycleTracker() {
       </section>
 
       <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <MetricCard label="Ngày đang chọn" value={`${selectedDayCount}/14`} />
-        <MetricCard label="Tổng tháng" value={monthlyCount} />
-        <MetricCard label="Mốc phân tích" value="240" />
+        <MetricCard label="Selected day" value={`${selectedDayCount}/14`} />
+        <MetricCard label="Monthly total" value={monthlyCount} />
+        <MetricCard label="Monthly target" value="240" />
       </section>
 
       <main className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <section className="premium-card p-4 sm:p-5">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="font-semibold text-slate-950">Chọn ngày</h3>
+              <h3 className="font-semibold text-slate-950">Choose a day</h3>
               <p className="text-sm text-slate-500">{monthNames[currentMonth - 1]} {currentYear}</p>
             </div>
             <input
@@ -280,16 +270,16 @@ export default function CycleTracker() {
           </div>
         </section>
 
-        <section className="rounded-lg border border-slate-200 bg-white p-4">
+        <section className="premium-card p-4 sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <h3 className="font-semibold text-slate-950">Khung giờ</h3>
-              <p className="text-sm text-slate-500">{selectedDayCount} ô đã tick</p>
+              <h3 className="font-semibold text-slate-950">Focus blocks</h3>
+              <p className="text-sm text-slate-500">{selectedDayCount} blocks checked</p>
             </div>
             {isLoading && (
               <div className="flex items-center gap-2 text-sm text-slate-500">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Đang tải
+                Loading
               </div>
             )}
           </div>
@@ -341,9 +331,9 @@ export default function CycleTracker() {
 
 function MetricCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="premium-card p-4">
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </div>
+    </motion.div>
   );
 }

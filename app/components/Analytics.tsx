@@ -27,18 +27,8 @@ type ChartPoint = { name: string; value: number | null };
 type CycleChartPoint = { name: string; count: number | null; cumulative: number | null };
 
 const monthNames = [
-  'Tháng 1',
-  'Tháng 2',
-  'Tháng 3',
-  'Tháng 4',
-  'Tháng 5',
-  'Tháng 6',
-  'Tháng 7',
-  'Tháng 8',
-  'Tháng 9',
-  'Tháng 10',
-  'Tháng 11',
-  'Tháng 12',
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
 const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
@@ -63,7 +53,7 @@ export default function Analytics() {
         const dates = await api.getDates(user.id);
         setAllDates(dates);
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu phân tích.');
+        setErrorMessage(error instanceof Error ? error.message : 'Could not load analytics data.');
       }
     };
 
@@ -79,7 +69,7 @@ export default function Analytics() {
         const rows = await api.getCycleTicks(user.id, currentMonth, currentYear);
         setCycleTicks(rows);
       } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Không tải được dữ liệu chu kỳ.');
+        setErrorMessage(error instanceof Error ? error.message : 'Could not load cycle data.');
       }
     };
 
@@ -111,7 +101,7 @@ export default function Analytics() {
       const week = index + 1;
       const days = getDaysInWeek(currentMonth, currentYear, week);
       const hours = days.reduce((sum, day) => sum + (studyHoursByDate[day.date] || 0), 0);
-      return { name: `Tuần ${week}`, hours: roundOneDecimal(hours) };
+      return { name: `Week ${week}`, hours: roundOneDecimal(hours) };
     });
   }, [currentMonth, currentYear, studyHoursByDate, weeksCount]);
 
@@ -131,8 +121,8 @@ export default function Analytics() {
     const noSuccessDays = monthData.filter((date) => Number(date.key_of_success) === 0).length;
 
     return [
-      { name: 'Có Key of Success', value: successDays, color: '#2563eb' },
-      { name: 'Chưa có Key of Success', value: noSuccessDays, color: '#f97316' },
+      { name: 'With Key of Success', value: successDays, color: 'var(--chart-1)' },
+      { name: 'Without Key of Success', value: noSuccessDays, color: 'var(--chart-4)' },
     ];
   }, [allDates, currentMonth, currentYear]);
 
@@ -221,18 +211,18 @@ export default function Analytics() {
 
   return (
     <div className="space-y-4 pb-16 lg:pb-0">
-      <section className="rounded-lg border border-slate-200 bg-white p-4">
+      <section className="premium-card p-4 sm:p-5">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-slate-950">Phân tích</h2>
-            <p className="mt-1 text-sm text-slate-500">Khôi phục biểu đồ cũ theo giờ học, tuần và Key of Success.</p>
+            <h2 className="text-xl font-semibold text-slate-950">Progress analytics</h2>
+            <p className="mt-1 text-sm text-slate-500">Study time, weekly momentum, success keys, and cycle consistency.</p>
           </div>
           <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
             <button
               type="button"
               onClick={() => moveMonth(-1)}
               className="grid h-9 w-9 place-items-center rounded-md text-slate-600 transition hover:bg-white hover:text-slate-950"
-              aria-label="Tháng trước"
+              aria-label="Previous month"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -243,7 +233,7 @@ export default function Analytics() {
               type="button"
               onClick={() => moveMonth(1)}
               className="grid h-9 w-9 place-items-center rounded-md text-slate-600 transition hover:bg-white hover:text-slate-950"
-              aria-label="Tháng sau"
+              aria-label="Next month"
             >
               <ChevronRight className="h-5 w-5" />
             </button>
@@ -255,47 +245,47 @@ export default function Analytics() {
       </section>
 
       <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
-        <MetricCard label="Tổng giờ học" value={`${roundOneDecimal(monthlyTotalHours)}h`} />
-        <MetricCard label="Ngày có dữ liệu" value={monthlyRecordCount} />
-        <MetricCard label="Tổng Key of Success" value={monthlyKosTotal} />
-        <MetricCard label="Tổng ô chu kỳ" value={monthlyCycleCount} />
+        <MetricCard label="Study hours" value={`${roundOneDecimal(monthlyTotalHours)}h`} />
+        <MetricCard label="Tracked days" value={monthlyRecordCount} />
+        <MetricCard label="Success keys" value={monthlyKosTotal} />
+        <MetricCard label="Cycle blocks" value={monthlyCycleCount} />
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white p-2">
+      <section className="glass-panel rounded-2xl p-2">
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <ViewButton active={analyticsView === 'month_overview'} onClick={() => setAnalyticsView('month_overview')}>
-            Tổng quan tháng
+            Month overview
           </ViewButton>
           <ViewButton active={analyticsView === 'week_daily'} onClick={() => setAnalyticsView('week_daily')}>
-            Chi tiết tuần
+            Week details
           </ViewButton>
           <ViewButton active={analyticsView === 'weekly_progress'} onClick={() => setAnalyticsView('weekly_progress')}>
-            Tiến độ tuần
+            Weekly progress
           </ViewButton>
           <ViewButton active={analyticsView === 'key_of_success'} onClick={() => setAnalyticsView('key_of_success')}>
             Key of Success
           </ViewButton>
           <ViewButton active={analyticsView === 'cycle_ticks'} onClick={() => setAnalyticsView('cycle_ticks')}>
-            Chu kỳ
+            Cycles
           </ViewButton>
         </div>
       </section>
 
       {analyticsView === 'month_overview' && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <ChartPanel title={`Giờ học theo tuần - ${monthNames[currentMonth - 1]}`}>
+          <ChartPanel title={`Study hours by week — ${monthNames[currentMonth - 1]}`}>
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={weeklyData} barCategoryGap="22%">
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
                 <XAxis dataKey="name" stroke="#64748b" />
                 <YAxis stroke="#64748b" />
-                <Tooltip formatter={(value) => [`${value}h`, 'Giờ học']} />
-                <Bar dataKey="hours" fill="#2563eb" maxBarSize={52} radius={[6, 6, 0, 0]} />
+                <Tooltip formatter={(value) => [`${value}h`, 'Study time']} />
+                <Bar dataKey="hours" fill="var(--chart-1)" maxBarSize={52} radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartPanel>
 
-          <ChartPanel title="Phân bổ Key of Success">
+          <ChartPanel title="Key of Success distribution">
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie data={kosDistribution} dataKey="value" nameKey="name" outerRadius={92} labelLine={false}>
@@ -320,15 +310,15 @@ export default function Analytics() {
 
       {analyticsView === 'week_daily' && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-          <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Chọn tuần" />
-          <ChartPanel title={`Giờ học từng ngày - Tuần ${selectedWeek}`}>
+          <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week" />
+          <ChartPanel title={`Daily study hours — Week ${selectedWeek}`}>
             <ResponsiveContainer width="100%" height={320}>
               <BarChart data={dailyData} barCategoryGap="22%">
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
                 <XAxis dataKey="name" stroke="#64748b" angle={-35} textAnchor="end" height={70} />
                 <YAxis stroke="#64748b" />
-                <Tooltip formatter={(value) => [`${value}h`, 'Giờ học']} />
-                <Bar dataKey="hours" fill="#7c3aed" maxBarSize={46} radius={[6, 6, 0, 0]} />
+                <Tooltip formatter={(value) => [`${value}h`, 'Study time']} />
+                <Bar dataKey="hours" fill="var(--chart-2)" maxBarSize={46} radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartPanel>
@@ -337,8 +327,8 @@ export default function Analytics() {
 
       {analyticsView === 'weekly_progress' && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-          <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Chọn tuần để xem tiến độ" />
-          <ChartPanel title={`Tích lũy giờ học - Tuần ${selectedWeek}`}>
+          <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week to view progress" />
+          <ChartPanel title={`Cumulative study time — Week ${selectedWeek}`}>
             <ResponsiveContainer width="100%" height={340}>
               <AreaChart data={weeklyProgressData}>
                 <defs>
@@ -347,10 +337,10 @@ export default function Analytics() {
                     <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
                 <XAxis dataKey="name" stroke="#64748b" angle={-35} textAnchor="end" height={70} />
                 <YAxis stroke="#64748b" domain={weeklyProgressDomain} allowDataOverflow={false} />
-                <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Tích lũy'])} />
+                <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])} />
                 <ReferenceLine y={40} label={{ value: '40h', fill: '#d97706', fontSize: 12 }} stroke="#d97706" strokeDasharray="4 4" />
                 {weeklyProgressMax > 50 && (
                   <ReferenceLine y={80} label={{ value: '80h', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeDasharray="4 4" />
@@ -372,7 +362,7 @@ export default function Analytics() {
       )}
 
       {analyticsView === 'key_of_success' && (
-        <ChartPanel title={`Tiến độ Key of Success - ${monthNames[currentMonth - 1]} ${currentYear}`}>
+        <ChartPanel title={`Key of Success progress — ${monthNames[currentMonth - 1]} ${currentYear}`}>
           <ResponsiveContainer width="100%" height={340}>
             <AreaChart data={kosTrend}>
               <defs>
@@ -381,7 +371,7 @@ export default function Analytics() {
                   <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
               <XAxis dataKey="name" stroke="#64748b" />
               <YAxis stroke="#64748b" domain={[0, 'dataMax + 5']} />
               <Tooltip formatter={(value) => (value == null ? [] : [value, 'Key of Success'])} />
@@ -401,7 +391,7 @@ export default function Analytics() {
       )}
 
       {analyticsView === 'cycle_ticks' && (
-        <ChartPanel title={`Ô chu kỳ đã tick - ${monthNames[currentMonth - 1]} ${currentYear}`}>
+        <ChartPanel title={`Checked cycle blocks — ${monthNames[currentMonth - 1]} ${currentYear}`}>
           <ResponsiveContainer width="100%" height={360}>
             <ComposedChart data={cycleMonthlyData}>
               <defs>
@@ -410,13 +400,13 @@ export default function Analytics() {
                   <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
               <XAxis dataKey="name" stroke="#64748b" />
               <YAxis stroke="#64748b" domain={[0, cycleDomainMax]} />
               <Tooltip
                 formatter={(value, name) => [
                   value,
-                  name === 'cumulative' ? 'Lũy kế' : 'Trong ngày',
+                  name === 'cumulative' ? 'Cumulative' : 'Daily',
                 ]}
               />
               <ReferenceLine y={cycleTarget} label={{ value: '240', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeWidth={2} />
@@ -481,10 +471,10 @@ function getDaysInWeek(month: number, year: number, weekNumber: number) {
 
 function MetricCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="premium-card p-4">
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-    </div>
+    </motion.div>
   );
 }
 
@@ -528,7 +518,7 @@ function WeekSelector({
                 : 'border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50'
             }`}
           >
-            Tuần {week}
+            Week {week}
           </button>
         ))}
       </div>
@@ -538,7 +528,7 @@ function WeekSelector({
 
 function ChartPanel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="rounded-lg border border-slate-200 bg-white p-4">
+    <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="premium-card p-4 sm:p-5">
       <h3 className="mb-4 text-base font-semibold text-slate-950">{title}</h3>
       {children}
     </motion.section>

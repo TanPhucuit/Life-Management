@@ -14,21 +14,11 @@ interface DayDetailsPageProps {
 }
 
 const monthNames = [
-  'Tháng 1',
-  'Tháng 2',
-  'Tháng 3',
-  'Tháng 4',
-  'Tháng 5',
-  'Tháng 6',
-  'Tháng 7',
-  'Tháng 8',
-  'Tháng 9',
-  'Tháng 10',
-  'Tháng 11',
-  'Tháng 12',
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-const dayNames = ['Chủ nhật', 'Thứ hai', 'Thứ ba', 'Thứ tư', 'Thứ năm', 'Thứ sáu', 'Thứ bảy'];
+const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps) {
   const router = useRouter();
@@ -142,13 +132,13 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
   const dayName = dayNames[new Date(year, month - 1, day).getDay()];
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
-      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
+    <div className="text-[var(--foreground)]">
+      <div className="mx-auto flex w-full flex-col gap-4">
         <motion.header
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25 }}
-          className="rounded-lg border border-slate-200 bg-white px-4 py-4"
+          className="premium-card px-4 py-4 sm:px-5"
         >
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 items-start gap-3">
@@ -156,7 +146,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                 type="button"
                 onClick={() => router.back()}
                 className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 hover:text-slate-950"
-                aria-label="Quay lại"
+                aria-label="Back to calendar"
               >
                 <ChevronLeft className="h-5 w-5" />
               </button>
@@ -166,29 +156,29 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                     {dayName}, {day} {monthNames[month - 1]} {year}
                   </h1>
                   {isToday() && (
-                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">Hôm nay</span>
+                    <span className="rounded-full bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)]">Today</span>
                   )}
                 </div>
                 <p className="mt-1 text-sm text-slate-500">
-                  {focusedHours}h / {targetHours}h tập trung
+                  {focusedHours}h of {targetHours}h focused
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-3 gap-2 md:w-[420px]">
-              <SummaryTile label="Hoàn thành" value={`${progressPercent.toFixed(0)}%`} />
-              <SummaryTile label="Còn lại" value={`${remainingHours}h`} />
+              <SummaryTile label="Complete" value={`${progressPercent.toFixed(0)}%`} />
+              <SummaryTile label="Remaining" value={`${remainingHours}h`} />
               <SummaryTile label="Key" value={keyOfSuccess} />
             </div>
           </div>
         </motion.header>
 
         <main className="grid gap-4 xl:grid-cols-[1fr_1.15fr]">
-          <section className="rounded-lg border border-slate-200 bg-white p-4">
+          <section className="premium-card p-4 sm:p-5">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="font-semibold text-slate-950">Tiến độ ngày</h2>
-                <p className="text-sm text-slate-500">Mục tiêu tập trung và chất lượng trong ngày.</p>
+                <h2 className="font-semibold text-slate-950">Daily progress</h2>
+                <p className="text-sm text-slate-500">Focus target and quality for this day.</p>
               </div>
               <div className="grid h-10 w-10 place-items-center rounded-md bg-blue-50 text-blue-600">
                 <Target className="h-5 w-5" />
@@ -198,11 +188,11 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
-                  <p className="text-sm text-slate-500">Đã tập trung</p>
+                  <p className="text-sm text-slate-500">Focused</p>
                   <p className="text-4xl font-semibold tracking-tight text-slate-950">{focusedHours}h</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm text-slate-500">Mục tiêu</p>
+                  <p className="text-sm text-slate-500">Target</p>
                   <p className="text-2xl font-semibold text-blue-600">{targetHours}h</p>
                 </div>
               </div>
@@ -210,13 +200,13 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                 <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${progressPercent}%` }} />
               </div>
               <div className="mt-2 flex justify-between text-xs text-slate-500">
-                <span>{focusedMinutes} phút</span>
-                <span>{remainingHours}h còn lại</span>
+                <span>{focusedMinutes} minutes</span>
+                <span>{remainingHours}h remaining</span>
               </div>
             </div>
 
             <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-              <ControlPanel title="Mục tiêu ngày" icon={<Target className="h-4 w-4" />}>
+              <ControlPanel title="Daily target" icon={<Target className="h-4 w-4" />}>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-slate-500">Target</span>
@@ -262,7 +252,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
             <ControlPanel title="Stopwatch" icon={<Clock3 className="h-4 w-4" />}>
               <div className="flex min-h-[220px] flex-col justify-between rounded-lg border border-blue-100 bg-blue-50 p-4">
                 <div className="text-center">
-                  <p className="text-sm font-medium text-blue-700">Thời gian đang đo</p>
+                  <p className="text-sm font-medium text-blue-700">Current session</p>
                   <p className="mt-4 font-mono text-5xl font-semibold tracking-tight text-blue-700">{formatTime(stopwatchTime)}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-2 2xl:grid-cols-4">
@@ -272,7 +262,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                     className="inline-flex items-center justify-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-blue-700"
                   >
                     {isRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                    {isRunning ? 'Tạm dừng' : 'Bắt đầu'}
+                    {isRunning ? 'Pause' : 'Start'}
                   </button>
                   <button
                     type="button"
@@ -291,17 +281,17 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                     className="col-span-2 inline-flex items-center justify-center gap-2 rounded-md border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 sm:col-span-2 lg:col-span-2 2xl:col-span-2"
                   >
                     <Save className="h-4 w-4" />
-                    Lưu stopwatch
+                    Save session
                   </button>
                 </div>
               </div>
             </ControlPanel>
 
-            <ControlPanel title="Điều chỉnh thủ công" icon={<SlidersHorizontal className="h-4 w-4" />}>
+            <ControlPanel title="Manual adjustment" icon={<SlidersHorizontal className="h-4 w-4" />}>
               <div className="flex min-h-[220px] flex-col justify-between gap-4">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
-                    <label className="text-sm font-medium text-slate-700">Phút tập trung</label>
+                    <label className="text-sm font-medium text-slate-700">Focused minutes</label>
                     <input
                       type="number"
                       min="0"
@@ -331,7 +321,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                   className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Save className="h-4 w-4" />
-                  {isSaving ? 'Đang lưu...' : 'Lưu chi tiết ngày'}
+                  {isSaving ? 'Saving…' : 'Save day details'}
                 </button>
               </div>
             </ControlPanel>
@@ -345,7 +335,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
 
 function SummaryTile({ label, value }: { label: string; value: number | string }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
       <p className="text-xs text-slate-500">{label}</p>
       <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
     </div>
@@ -354,7 +344,7 @@ function SummaryTile({ label, value }: { label: string; value: number | string }
 
 function ControlPanel({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-4">
+    <section className="premium-card p-4">
       <div className="mb-4 flex items-center gap-2">
         <div className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 text-slate-600">{icon}</div>
         <h3 className="font-semibold text-slate-950">{title}</h3>

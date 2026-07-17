@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
+import { ThemeProvider } from '@/app/components/ThemeProvider';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -14,8 +15,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'Life Management',
-  description: 'Manage your tasks, deadlines, and track your success',
+  description: 'A premium workspace for tasks, focus, learning, and personal progress.',
 };
+
+const themeBootstrap = `(function(){try{var t=localStorage.getItem('life-manager-theme')||'system';var d=t==='dark'||(t==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.dataset.theme=d?'dark':'light'}catch(e){document.documentElement.dataset.theme='light'}})()`;
 
 export default function RootLayout({
   children,
@@ -23,9 +26,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning data-theme="light">
+      <head><script dangerouslySetInnerHTML={{ __html: themeBootstrap }} /></head>
       <body suppressHydrationWarning className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

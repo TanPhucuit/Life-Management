@@ -1,15 +1,16 @@
 module.exports = {
+  darkMode: ['class', '[data-theme="dark"]'],
   content: [
     './app/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
     extend: {
       colors: {
-        primary: '#3B82F6',
-        secondary: '#8B5CF6',
-        success: '#10B981',
-        danger: '#EF4444',
-        warning: '#F59E0B',
+        primary: 'var(--primary)',
+        secondary: 'var(--secondary)',
+        success: 'var(--accent)',
+        danger: 'var(--danger)',
+        warning: 'var(--warning)',
       },
       animation: {
         'fade-in': 'fadeIn 0.5s ease-in-out',
