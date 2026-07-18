@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/app/lib/store';
 import Login from '@/app/components/Login';
+import { DesktopExperienceGate } from '@/app/components/desktop-v2/core';
 
 export default function Home() {
   const { user } = useAppStore();
@@ -12,5 +13,11 @@ export default function Home() {
   useEffect(() => setMounted(true), []);
   useEffect(() => { if (mounted && user) router.replace('/overview'); }, [mounted, router, user]);
   if (!mounted || user) return <div className="grid min-h-dvh place-items-center bg-[var(--background)]"><div className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--primary)]" aria-label="Loading" /></div>;
-  return <Login />;
+  return (
+    <DesktopExperienceGate<Record<string, never>>
+      legacy={<Login />}
+      loadDesktop={() => import('@/app/components/desktop-v2/DesktopLogin')}
+      desktopProps={{}}
+    />
+  );
 }

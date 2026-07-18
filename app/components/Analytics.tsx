@@ -92,10 +92,6 @@ export default function Analytics() {
     if (selectedWeek > weeksCount) setSelectedWeek(1);
   }, [selectedWeek, weeksCount]);
 
-  const hasDateRecord = (day: number, month: number, year: number) => {
-    return allDates.some((date) => date.year === year && date.month === month && date.day === day);
-  };
-
   const weeklyData = useMemo(() => {
     return Array.from({ length: weeksCount }, (_, index) => {
       const week = index + 1;
@@ -133,7 +129,7 @@ export default function Analytics() {
     return days.map((day) => {
       cumulativeSum += studyHoursByDate[day.date] || 0;
       const dayOfWeek = new Date(day.year, day.month - 1, day.day).getDay();
-      const shouldShowValue = hasDateRecord(day.day, day.month, day.year) && !isFutureDate(day.day, day.month, day.year);
+      const shouldShowValue = allDates.some((date) => date.year === day.year && date.month === day.month && date.day === day.day) && !isFutureDate(day.day, day.month, day.year);
 
       return {
         name: `${dayNames[dayOfWeek]} ${day.day}`,
@@ -454,7 +450,7 @@ function getDaysInWeek(month: number, year: number, weekNumber: number) {
   const firstDay = new Date(year, month - 1, 1);
   const daysInMonth = new Date(year, month, 0).getDate();
   const adjustedFirstDay = (firstDay.getDay() + 6) % 7;
-  let dayCounter = 1 - adjustedFirstDay;
+  const dayCounter = 1 - adjustedFirstDay;
   let currentWeek = 1;
   const weekDays: Array<{ day: number; date: string; month: number; year: number }> = [];
 

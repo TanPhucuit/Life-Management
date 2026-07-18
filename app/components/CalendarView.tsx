@@ -18,12 +18,12 @@ export default function CalendarView({ month, year, onMonthChange, onSelectDay }
   const { user } = useAppStore();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [direction, setDirection] = useState(1);
-  const today = new Date();
+  const today = useMemo(() => new Date(), []);
   const fallbackDay = today.getMonth() + 1 === month && today.getFullYear() === year ? today.getDate() : 1;
   const [selectedDay, setSelectedDay] = useState(fallbackDay);
   const calendarData = calendarUtils.getMonthCalendar(year, month);
 
-  useEffect(() => { setSelectedDay(today.getMonth() + 1 === month && today.getFullYear() === year ? today.getDate() : 1); }, [month, year]);
+  useEffect(() => { setSelectedDay(today.getMonth() + 1 === month && today.getFullYear() === year ? today.getDate() : 1); }, [month, today, year]);
   useEffect(() => { if (!user?.id) return; void api.getTasks(user.id, { view: 'tree' }).then(setTasks).catch(() => setTasks([])); }, [user?.id]);
 
   const eventsByDate = useMemo(() => {

@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(data, { headers: corsHeaders });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(data, { status: 201, headers: corsHeaders });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
@@ -96,7 +96,7 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json(data, { headers: corsHeaders });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }
@@ -123,7 +123,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     return NextResponse.json({ success: true }, { headers: corsHeaders });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500, headers: corsHeaders });
   }
 }

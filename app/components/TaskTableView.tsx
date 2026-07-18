@@ -95,11 +95,23 @@ export default function TaskTableView({
   }, [childrenByParent, topics]);
 
   const activeRoot = activeRootId ? taskById.get(activeRootId) || null : null;
-  const levelOneSheets = activeRoot ? childrenByParent.get(activeRoot.id) || [] : [];
+  const levelOneSheets = useMemo(
+    () => activeRoot ? childrenByParent.get(activeRoot.id) || [] : [],
+    [activeRoot, childrenByParent],
+  );
   const activeLevelOne = activeLevelOneId ? taskById.get(activeLevelOneId) || null : null;
-  const levelTwoTasks = activeLevelOne ? childrenByParent.get(activeLevelOne.id) || [] : [];
-  const levelTwoSheets = levelTwoTasks.filter((task) => (childrenByParent.get(task.id) || []).length > 0);
-  const directLevelTwoTasks = levelTwoTasks.filter((task) => (childrenByParent.get(task.id) || []).length === 0);
+  const levelTwoTasks = useMemo(
+    () => activeLevelOne ? childrenByParent.get(activeLevelOne.id) || [] : [],
+    [activeLevelOne, childrenByParent],
+  );
+  const levelTwoSheets = useMemo(
+    () => levelTwoTasks.filter((task) => (childrenByParent.get(task.id) || []).length > 0),
+    [childrenByParent, levelTwoTasks],
+  );
+  const directLevelTwoTasks = useMemo(
+    () => levelTwoTasks.filter((task) => (childrenByParent.get(task.id) || []).length === 0),
+    [childrenByParent, levelTwoTasks],
+  );
   const activeLevelTwoSheet = activeLevelTwoSheetId ? taskById.get(activeLevelTwoSheetId) || null : null;
 
   useEffect(() => {
@@ -128,7 +140,10 @@ export default function TaskTableView({
     }
   }, [activeLevelTwoSheetId, levelTwoSheets]);
 
-  const baseTableTasks = activeLevelTwoSheet ? childrenByParent.get(activeLevelTwoSheet.id) || [] : directLevelTwoTasks;
+  const baseTableTasks = useMemo(
+    () => activeLevelTwoSheet ? childrenByParent.get(activeLevelTwoSheet.id) || [] : directLevelTwoTasks,
+    [activeLevelTwoSheet, childrenByParent, directLevelTwoTasks],
+  );
   const normalizedSearch = searchTerm.trim().toLocaleLowerCase('vi-VN');
 
   const visibleRows = useMemo<TaskRow[]>(() => {

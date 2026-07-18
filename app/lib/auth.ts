@@ -21,7 +21,7 @@ const getApiUrl = (endpoint: string): string => {
   }
 
   // Remove trailing slash from API_URL if present
-  let baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
+  const baseUrl = API_URL.endsWith('/') ? API_URL.slice(0, -1) : API_URL;
   let path = normalizedEndpoint;
 
   // If API_URL already ends with /api, don't add /api again

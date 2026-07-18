@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Clock, Target, Play, Pause, RotateCcw, Save, X, ChevronLeft } from 'lucide-react';
+import { Clock, Target, Play, Pause, RotateCcw, Save, X, ChevronLeft, type LucideIcon } from 'lucide-react';
 import { TestTubeStudyHours } from './TestTubeStudyHours';
 import { RainbowCelebration } from './RainbowCelebration';
 import { useRouter } from 'next/navigation';
@@ -130,7 +130,7 @@ function ActionBtn({
   onClick,
   color = 'default',
 }: {
-  icon: React.ElementType;
+  icon: LucideIcon;
   label: string;
   onClick: () => void;
   color?: 'default' | 'green' | 'red' | 'purple';

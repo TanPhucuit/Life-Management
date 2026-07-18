@@ -268,7 +268,7 @@ export default function TaskManager() {
     return map;
   }, [tasks]);
 
-  const rootTasks = childrenByParent.get(null) || [];
+  const rootTasks = useMemo(() => childrenByParent.get(null) || [], [childrenByParent]);
   const selectedRootTopic = topics.find((topic) => topic.id === selectedTopicId) || null;
 
   const selectedTask = selectedTaskId ? taskById.get(selectedTaskId) || null : null;

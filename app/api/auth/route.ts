@@ -145,7 +145,7 @@ export async function POST(request: NextRequest) {
       { error: 'Invalid action' },
       { status: 400, headers: corsHeaders }
     );
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: corsHeaders }

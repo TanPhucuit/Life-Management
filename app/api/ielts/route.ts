@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       },
       { headers: corsHeaders }
     );
-  } catch (error) {
+  } catch {
     return jsonError('Internal server error', 500);
   }
 }
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
 
     if (error) return jsonError(error.message, 400);
     return NextResponse.json(data, { headers: corsHeaders });
-  } catch (error) {
+  } catch {
     return jsonError('Internal server error', 500);
   }
 }

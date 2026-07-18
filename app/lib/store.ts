@@ -56,7 +56,7 @@ const getUserFromStorage = () => {
     }
     localStorage.removeItem('user');
     return null;
-  } catch (e) {
+  } catch {
     return null;
   }
 };

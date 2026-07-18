@@ -136,8 +136,7 @@ export function BentoCard({
   );
 }
 
-interface BentoCard3DProps extends BentoCardProps {
-}
+type BentoCard3DProps = BentoCardProps;
 
 export function BentoCard3D({
   children,

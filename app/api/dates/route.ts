@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json(data, { headers: corsHeaders });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: corsHeaders }
@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json(data?.[0], { status: 201, headers: corsHeaders });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: corsHeaders }
@@ -162,7 +162,10 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const updateData: any = {};
+    const updateData: {
+      focused_minutes?: number;
+      key_of_success?: number;
+    } = {};
     if (focusedMinutes !== undefined) updateData.focused_minutes = focusedMinutes;
     if (keyOfSuccess !== undefined) updateData.key_of_success = keyOfSuccess;
 
@@ -180,7 +183,7 @@ export async function PUT(request: NextRequest) {
     }
 
     return NextResponse.json(data?.[0], { headers: corsHeaders });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500, headers: corsHeaders }
