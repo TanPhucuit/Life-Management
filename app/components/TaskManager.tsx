@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
@@ -35,10 +35,19 @@ type TaskDraft = {
 };
 
 type NodePosition = { x: number; y: number };
-type DragState = { taskId: string; offsetX: number; offsetY: number };
+type TreeViewport = { left: number; top: number; width: number; height: number };
+type DragState = {
+  taskId: string;
+  offsetX: number;
+  offsetY: number;
+  origin: NodePosition;
+  originPositions: Record<string, NodePosition>;
+};
+type DropFeedback = { taskId: string; tone: 'success' | 'error'; nonce: number };
 type TaskContextMenu = { taskId: string; x: number; y: number };
 export type TaskWorkspaceView = 'tree' | 'table';
 export type TaskWorkspaceVariant = 'legacy' | 'desktop-cinematic';
+type TreeMotionMode = 'cinematic' | 'balanced' | 'minimal';
 type DiagramNodeKind = 'topic' | 'task';
 type DiagramNode = {
   id: string;
@@ -71,9 +80,27 @@ const connectorSpineOffset = 56;
 const connectorChildInset = 24;
 const connectorRadius = 10;
 
-function getNodeSize(node: Pick<DiagramNode, 'depth' | 'title'>) {
+function getNodeSize(node: Pick<DiagramNode, 'depth' | 'title'>, cinematic = false) {
   const depth = node.depth || 0;
   const titleLength = Math.max(node.title?.length || 0, 1);
+  if (cinematic) {
+    if (depth === 0) {
+      return {
+        width: Math.min(330, 264 + Math.max(0, titleLength - 18) * 4.2),
+        height: titleLength > 36 ? 112 : 98,
+      };
+    }
+    if (depth === 1) {
+      return {
+        width: Math.min(318, 246 + Math.max(0, titleLength - 18) * 4),
+        height: titleLength > 42 ? 98 : 86,
+      };
+    }
+    return {
+      width: Math.min(286, 214 + Math.max(0, titleLength - 18) * 3.6),
+      height: titleLength > 44 ? 88 : 74,
+    };
+  }
   if (depth >= 2) {
     const width = Math.min(180, compactNodeWidth + Math.max(0, titleLength - 4) * 6);
     const charsPerLine = titleLength <= 12 ? titleLength : Math.max(12, Math.floor((width - 42) / 6));
@@ -196,6 +223,12 @@ export default function TaskManager({
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const titleLayoutSignatureRef = useRef('');
+  const centeredLargeTreeKeyRef = useRef('');
+  const dragFrameRef = useRef<number | null>(null);
+  const pendingDragPositionsRef = useRef<Record<string, NodePosition> | null>(null);
+  const dropFeedbackTimerRef = useRef<number | null>(null);
+  const completionTimerRef = useRef<number | null>(null);
+  const viewportFrameRef = useRef<number | null>(null);
   const [topics, setTopics] = useState<ApiTopic[]>([]);
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<string>('');
@@ -210,12 +243,27 @@ export default function TaskManager({
   const [errorMessage, setErrorMessage] = useState('');
   const [nodePositions, setNodePositions] = useState<Record<string, NodePosition>>({});
   const [dragState, setDragState] = useState<DragState | null>(null);
+  const [dropFeedback, setDropFeedback] = useState<DropFeedback | null>(null);
+  const [completionPulseId, setCompletionPulseId] = useState<string | null>(null);
+  const [isCommittingDrag, setIsCommittingDrag] = useState(false);
+  const [shouldReflowAfterDrop, setShouldReflowAfterDrop] = useState(false);
+  const [treeViewport, setTreeViewport] = useState<TreeViewport>({ left: 0, top: 0, width: 1600, height: 1000 });
   const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenu | null>(null);
   const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
   const [canvasZoom, setCanvasZoom] = useState(1);
   const [workspaceView, setWorkspaceView] = useState<TaskWorkspaceView>(
     () => initialView ?? (isDesktopCinematic ? 'table' : 'tree'),
   );
+  const treeCanvasPadding = isDesktopCinematic ? 72 : canvasPadding;
+  const treeLevelGap = isDesktopCinematic ? 124 : levelGap;
+  const treeSiblingGap = isDesktopCinematic ? 34 : siblingGap;
+
+  useEffect(() => () => {
+    if (dragFrameRef.current !== null) window.cancelAnimationFrame(dragFrameRef.current);
+    if (dropFeedbackTimerRef.current !== null) window.clearTimeout(dropFeedbackTimerRef.current);
+    if (completionTimerRef.current !== null) window.clearTimeout(completionTimerRef.current);
+    if (viewportFrameRef.current !== null) window.cancelAnimationFrame(viewportFrameRef.current);
+  }, []);
 
   useEffect(() => {
     if (isDesktopCinematic && initialView) setWorkspaceView(initialView);
@@ -240,6 +288,7 @@ export default function TaskManager({
 
       setSelectedTaskId((current) => {
         if (current && taskRows.some((task) => task.id === current && task.topic_id === nextTopicId)) return current;
+        if (isDesktopCinematic && taskRows.filter((task) => task.topic_id === nextTopicId).length > 240) return null;
         return taskRows.find((task) => !task.parent_task_id && task.topic_id === nextTopicId)?.id || null;
       });
     } catch (error) {
@@ -352,7 +401,7 @@ export default function TaskManager({
   const canvasNodeIds = useMemo(() => new Set(diagramNodes.map((node) => node.id)), [diagramNodes]);
   const titleLayoutSignature = useMemo(() => diagramNodes.map((node) => `${node.id}:${node.title}`).join('|'), [diagramNodes]);
   const layoutStorageKey = user?.id && selectedTopicId
-    ? `life-manager-task-layout:v8:${user.id}:topic:${selectedTopicId}`
+    ? `life-manager-task-layout:${isDesktopCinematic ? 'v9-cinematic' : 'v8'}:${user.id}:topic:${selectedTopicId}`
     : null;
 
   const diagramChildrenByParent = useMemo(() => {
@@ -364,13 +413,52 @@ export default function TaskManager({
       map.set(parentTopicNodeId, [...(map.get(parentTopicNodeId) || []), task.id]);
     });
 
-    tasks.forEach((task) => {
-      if (!task.parent_task_id || !canvasNodeIds.has(task.id)) return;
-      map.set(task.parent_task_id, [...(map.get(task.parent_task_id) || []), task.id]);
+    childrenByParent.forEach((children, parentId) => {
+      if (!parentId) return;
+      children.forEach((task) => {
+        if (!canvasNodeIds.has(task.id)) return;
+        map.set(parentId, [...(map.get(parentId) || []), task.id]);
+      });
     });
 
     return map;
-  }, [canvasNodeIds, rootTasks, selectedTopicId, tasks]);
+  }, [canvasNodeIds, childrenByParent, rootTasks, selectedTopicId]);
+
+  const selectedBranchIds = useMemo(() => {
+    const branch = new Set<string>();
+    if (!selectedTaskId || !canvasNodeIds.has(selectedTaskId)) return branch;
+
+    let current = taskById.get(selectedTaskId);
+    while (current) {
+      branch.add(current.id);
+      if (!current.parent_task_id) {
+        branch.add(topicNodeId(current.topic_id));
+        break;
+      }
+      current = taskById.get(current.parent_task_id);
+    }
+
+    const descendants = [selectedTaskId];
+    const descendantLimit = diagramNodes.length > 160 ? 120 : Number.POSITIVE_INFINITY;
+    let descendantCount = 0;
+    while (descendants.length > 0 && descendantCount < descendantLimit) {
+      const parentId = descendants.pop();
+      if (!parentId) continue;
+      (diagramChildrenByParent.get(parentId) || []).forEach((childId) => {
+        if (branch.has(childId) || descendantCount >= descendantLimit) return;
+        branch.add(childId);
+        descendants.push(childId);
+        descendantCount += 1;
+      });
+    }
+    return branch;
+  }, [canvasNodeIds, diagramChildrenByParent, diagramNodes.length, selectedTaskId, taskById]);
+
+  const treeMotionMode: TreeMotionMode = reducedMotion || diagramNodes.length > 160
+    ? 'minimal'
+    : diagramNodes.length > 80
+      ? 'balanced'
+      : 'cinematic';
 
   const autoLayoutPositions = useMemo(() => {
     const positions: Record<string, NodePosition> = {};
@@ -378,20 +466,22 @@ export default function TaskManager({
     if (rootNodes.length === 0) return positions;
 
     let leafIndex = 0;
+    let nextLeafY = treeCanvasPadding;
     const place = (node: DiagramNode, x: number): number => {
-      const currentSize = getNodeSize(node);
+      const currentSize = getNodeSize(node, isDesktopCinematic);
       const visibleChildren = (diagramChildrenByParent.get(node.id) || [])
         .map((childId) => diagramNodeById.get(childId))
         .filter((child): child is DiagramNode => Boolean(child));
 
       if (visibleChildren.length === 0) {
-        const y = canvasPadding + leafIndex * siblingGap;
+        const y = isDesktopCinematic ? nextLeafY : treeCanvasPadding + leafIndex * treeSiblingGap;
         positions[node.id] = { x, y };
+        if (isDesktopCinematic) nextLeafY += currentSize.height + treeSiblingGap;
         leafIndex += 1;
         return y + currentSize.height / 2;
       }
 
-      const childX = x + currentSize.width + levelGap;
+      const childX = x + currentSize.width + treeLevelGap;
       const childCenters = visibleChildren.map((child) => place(child, childX));
       const y = childCenters.reduce((sum, value) => sum + value, 0) / childCenters.length - currentSize.height / 2;
       positions[node.id] = { x, y };
@@ -399,11 +489,20 @@ export default function TaskManager({
     };
 
     rootNodes.forEach((rootNode, index) => {
-      if (index > 0) leafIndex += 1;
-      place(rootNode, canvasPadding);
+      if (index > 0) {
+        leafIndex += 1;
+        if (isDesktopCinematic) nextLeafY += treeSiblingGap;
+      }
+      place(rootNode, treeCanvasPadding);
     });
     return positions;
-  }, [diagramChildrenByParent, diagramNodeById, diagramNodes]);
+  }, [diagramChildrenByParent, diagramNodeById, diagramNodes, isDesktopCinematic, treeCanvasPadding, treeLevelGap, treeSiblingGap]);
+
+  useEffect(() => {
+    if (!shouldReflowAfterDrop) return;
+    setNodePositions(autoLayoutPositions);
+    setShouldReflowAfterDrop(false);
+  }, [autoLayoutPositions, shouldReflowAfterDrop]);
 
   useEffect(() => {
     setNodePositions((current) => {
@@ -418,21 +517,40 @@ export default function TaskManager({
 
       const next: Record<string, NodePosition> = {};
       diagramNodes.forEach((node) => {
-        next[node.id] = current[node.id] || savedPositions[node.id] || autoLayoutPositions[node.id] || { x: canvasPadding, y: canvasPadding };
+        next[node.id] = current[node.id] || savedPositions[node.id] || autoLayoutPositions[node.id] || { x: treeCanvasPadding, y: treeCanvasPadding };
       });
       return next;
     });
-  }, [autoLayoutPositions, diagramNodes, layoutStorageKey]);
+  }, [autoLayoutPositions, diagramNodes, layoutStorageKey, treeCanvasPadding]);
 
   useEffect(() => {
-    if (!layoutStorageKey || diagramNodes.length === 0 || typeof window === 'undefined') return;
+    if (!isDesktopCinematic || workspaceView !== 'tree' || diagramNodes.length <= 240 || !selectedTopicId) return;
+    const centerKey = selectedTopicId;
+    if (centeredLargeTreeKeyRef.current === centerKey) return;
+    const rootNode = diagramNodeById.get(topicNodeId(selectedTopicId));
+    const rootPosition = nodePositions[topicNodeId(selectedTopicId)] || autoLayoutPositions[topicNodeId(selectedTopicId)];
+    if (!rootNode || !rootPosition) return;
+
+    window.requestAnimationFrame(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rootSize = getNodeSize(rootNode, true);
+      canvas.scrollLeft = Math.max(0, (rootPosition.x - 36) * canvasZoom);
+      canvas.scrollTop = Math.max(0, (rootPosition.y + rootSize.height / 2) * canvasZoom - canvas.clientHeight / 2);
+      if (topScrollRef.current) topScrollRef.current.scrollLeft = canvas.scrollLeft;
+      centeredLargeTreeKeyRef.current = centerKey;
+    });
+  }, [autoLayoutPositions, canvasZoom, diagramNodeById, diagramNodes.length, isDesktopCinematic, nodePositions, selectedTopicId, workspaceView]);
+
+  useEffect(() => {
+    if (!layoutStorageKey || diagramNodes.length === 0 || dragState || isCommittingDrag || shouldReflowAfterDrop || searchTerm.trim() || typeof window === 'undefined') return;
 
     const savedPositions: Record<string, NodePosition> = {};
     diagramNodes.forEach((node) => {
       if (nodePositions[node.id]) savedPositions[node.id] = nodePositions[node.id];
     });
     localStorage.setItem(layoutStorageKey, JSON.stringify(savedPositions));
-  }, [diagramNodes, layoutStorageKey, nodePositions]);
+  }, [diagramNodes, dragState, isCommittingDrag, layoutStorageKey, nodePositions, searchTerm, shouldReflowAfterDrop]);
 
   useEffect(() => {
     if (!titleLayoutSignature) return;
@@ -442,8 +560,31 @@ export default function TaskManager({
     }
     if (titleLayoutSignatureRef.current === titleLayoutSignature) return;
     titleLayoutSignatureRef.current = titleLayoutSignature;
+    if (isDesktopCinematic) return;
     setNodePositions(autoLayoutPositions);
-  }, [autoLayoutPositions, titleLayoutSignature]);
+  }, [autoLayoutPositions, isDesktopCinematic, titleLayoutSignature]);
+
+  const visibleDiagramNodes = useMemo(() => {
+    if (!isDesktopCinematic || diagramNodes.length <= 240) return diagramNodes;
+    const overscan = 420;
+    const left = treeViewport.left - overscan;
+    const top = treeViewport.top - overscan;
+    const right = treeViewport.left + treeViewport.width + overscan;
+    const bottom = treeViewport.top + treeViewport.height + overscan;
+
+    return diagramNodes.filter((node) => {
+      if (node.kind === 'topic' || node.id === dragState?.taskId || selectedBranchIds.has(node.id)) return true;
+      const position = nodePositions[node.id] || autoLayoutPositions[node.id];
+      if (!position) return false;
+      const size = getNodeSize(node, true);
+      return position.x + size.width >= left && position.x <= right && position.y + size.height >= top && position.y <= bottom;
+    });
+  }, [autoLayoutPositions, diagramNodes, dragState?.taskId, isDesktopCinematic, nodePositions, selectedBranchIds, treeViewport]);
+
+  const visibleDiagramNodeIds = useMemo(
+    () => new Set(visibleDiagramNodes.map((node) => node.id)),
+    [visibleDiagramNodes],
+  );
 
   const connectorGroups = useMemo(() => {
     return diagramNodes
@@ -456,20 +597,59 @@ export default function TaskManager({
       .filter((group) => group.childIds.length > 0);
   }, [canvasNodeIds, diagramChildrenByParent, diagramNodes, nodePositions]);
 
+  const dragDropPreview = useMemo(() => {
+    if (!isDesktopCinematic || !dragState) return null;
+    const draggedTask = taskById.get(dragState.taskId);
+    const draggedPosition = nodePositions[dragState.taskId];
+    if (!draggedTask || !draggedPosition) return null;
+
+    const siblings = (childrenByParent.get(draggedTask.parent_task_id || null) || [])
+      .filter((task) => task.id !== draggedTask.id && task.topic_id === draggedTask.topic_id && canvasNodeIds.has(task.id))
+      .sort((a, b) => (nodePositions[a.id]?.y || 0) - (nodePositions[b.id]?.y || 0));
+    const draggedNode = diagramNodeById.get(draggedTask.id);
+    const draggedCenter = draggedPosition.y + (draggedNode ? getNodeSize(draggedNode, true).height / 2 : 0);
+    const insertionIndex = siblings.findIndex((sibling) => {
+      const siblingNode = diagramNodeById.get(sibling.id);
+      const siblingPosition = nodePositions[sibling.id];
+      if (!siblingNode || !siblingPosition) return false;
+      return draggedCenter < siblingPosition.y + getNodeSize(siblingNode, true).height / 2;
+    });
+    const order = insertionIndex === -1 ? siblings.length : insertionIndex;
+    const beforeTask = siblings[order - 1];
+    const afterTask = siblings[order];
+    const beforePosition = beforeTask ? nodePositions[beforeTask.id] : null;
+    const afterPosition = afterTask ? nodePositions[afterTask.id] : null;
+    const beforeNode = beforeTask ? diagramNodeById.get(beforeTask.id) : null;
+    const guideY = beforePosition && beforeNode && afterPosition
+      ? (beforePosition.y + getNodeSize(beforeNode, true).height + afterPosition.y) / 2
+      : afterPosition
+        ? afterPosition.y - 17
+        : beforePosition && beforeNode
+          ? beforePosition.y + getNodeSize(beforeNode, true).height + 17
+          : draggedPosition.y + getNodeSize(draggedNode || { depth: 1, title: '' }, true).height + 17;
+
+    return {
+      x: Math.max(24, draggedPosition.x - 10),
+      y: Math.max(20, guideY),
+      order: order + 1,
+      total: siblings.length + 1,
+    };
+  }, [canvasNodeIds, childrenByParent, diagramNodeById, dragState, isDesktopCinematic, nodePositions, taskById]);
+
   const canvasSize = useMemo(() => {
     const positionedNodes = diagramNodes
       .map((node) => ({ node, position: nodePositions[node.id] }))
       .filter((item): item is { node: DiagramNode; position: NodePosition } => Boolean(item.position));
     const maxX = Math.max(
-      canvasMinWidth,
-      ...positionedNodes.map(({ node, position }) => position.x + getNodeSize(node).width + canvasExpansionPadding)
+      isDesktopCinematic ? 1800 : canvasMinWidth,
+      ...positionedNodes.map(({ node, position }) => position.x + getNodeSize(node, isDesktopCinematic).width + (isDesktopCinematic ? 360 : canvasExpansionPadding))
     );
     const maxY = Math.max(
-      canvasMinHeight,
-      ...positionedNodes.map(({ node, position }) => position.y + getNodeSize(node).height + canvasExpansionPadding)
+      isDesktopCinematic ? 1050 : canvasMinHeight,
+      ...positionedNodes.map(({ node, position }) => position.y + getNodeSize(node, isDesktopCinematic).height + (isDesktopCinematic ? 300 : canvasExpansionPadding))
     );
     return { width: maxX, height: maxY };
-  }, [diagramNodes, nodePositions]);
+  }, [diagramNodes, isDesktopCinematic, nodePositions]);
 
   const scaledCanvasSize = useMemo(
     () => ({
@@ -483,7 +663,74 @@ export default function TaskManager({
     setCanvasZoom(Math.min(1.6, Math.max(0.5, Math.round(nextZoom * 10) / 10)));
   };
 
+  const handleDesktopTreeWheel = (event: ReactWheelEvent<HTMLElement>) => {
+    if (!isDesktopCinematic || dragState || (!event.ctrlKey && !event.metaKey) || !canvasRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    const contentX = (canvas.scrollLeft + pointerX) / canvasZoom;
+    const contentY = (canvas.scrollTop + pointerY) / canvasZoom;
+    const nextZoom = Math.min(1.6, Math.max(0.5, Math.round((canvasZoom + (event.deltaY > 0 ? -0.1 : 0.1)) * 10) / 10));
+    if (nextZoom === canvasZoom) return;
+    setCanvasZoom(nextZoom);
+    window.requestAnimationFrame(() => {
+      canvas.scrollLeft = Math.max(0, contentX * nextZoom - pointerX);
+      canvas.scrollTop = Math.max(0, contentY * nextZoom - pointerY);
+      if (topScrollRef.current) topScrollRef.current.scrollLeft = canvas.scrollLeft;
+    });
+  };
+
+  const handleDesktopTreeKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (!isDesktopCinematic || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('input, select, textarea, button')) return;
+    if (event.key === '+' || event.key === '=') {
+      event.preventDefault();
+      updateCanvasZoom(canvasZoom + 0.1);
+    } else if (event.key === '-' || event.key === '_') {
+      event.preventDefault();
+      updateCanvasZoom(canvasZoom - 0.1);
+    } else if (event.key === '0') {
+      event.preventDefault();
+      updateCanvasZoom(1);
+    } else if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      const topicId = selectedRootTopic ? topicNodeId(selectedRootTopic.id) : null;
+      const currentId = selectedTaskId || topicId;
+      if (!currentId) return;
+      const visuallyOrdered = [...diagramNodes].sort((a, b) => {
+        const aPosition = nodePositions[a.id] || autoLayoutPositions[a.id];
+        const bPosition = nodePositions[b.id] || autoLayoutPositions[b.id];
+        return (aPosition?.y || 0) - (bPosition?.y || 0) || (aPosition?.x || 0) - (bPosition?.x || 0);
+      });
+      const currentIndex = visuallyOrdered.findIndex((node) => node.id === currentId);
+      let nextId: string | null = null;
+      if (event.key === 'ArrowUp') nextId = visuallyOrdered[Math.max(0, currentIndex - 1)]?.id || null;
+      if (event.key === 'ArrowDown') nextId = visuallyOrdered[Math.min(visuallyOrdered.length - 1, currentIndex + 1)]?.id || null;
+      if (event.key === 'Home') nextId = visuallyOrdered[0]?.id || null;
+      if (event.key === 'End') nextId = visuallyOrdered[visuallyOrdered.length - 1]?.id || null;
+      if (event.key === 'ArrowLeft') {
+        const currentTask = taskById.get(currentId);
+        nextId = currentTask?.parent_task_id || (currentTask ? topicNodeId(currentTask.topic_id) : currentId);
+      }
+      if (event.key === 'ArrowRight') {
+        nextId = (diagramChildrenByParent.get(currentId) || [])[0] || currentId;
+      }
+      if (!nextId || nextId === currentId) return;
+      event.preventDefault();
+      const nextNode = diagramNodeById.get(nextId);
+      setSelectedTaskId(nextNode?.kind === 'task' ? nextId : null);
+      window.requestAnimationFrame(() => {
+        const selector = `[data-tree-node-id="${CSS.escape(nextId || '')}"]`;
+        canvasRef.current?.querySelector<HTMLElement>(selector)?.focus({ preventScroll: false });
+      });
+    }
+  };
+
   useEffect(() => {
+    if (isDesktopCinematic) return;
     const isZoomOutShortcut = (event: KeyboardEvent) => event.code === 'Minus' || event.code === 'NumpadSubtract' || event.key === '-' || event.key === '_';
     const isZoomInShortcut = (event: KeyboardEvent) => event.code === 'Equal' || event.code === 'NumpadAdd' || event.key === '+' || event.key === '=';
     const isZoomResetShortcut = (event: KeyboardEvent) => event.code === 'Digit0' || event.code === 'Numpad0' || event.key === '0';
@@ -513,9 +760,10 @@ export default function TaskManager({
       window.removeEventListener('keydown', handleKeyDown, { capture: true });
       document.removeEventListener('keydown', handleKeyDown, { capture: true });
     };
-  }, []);
+  }, [isDesktopCinematic]);
 
   useEffect(() => {
+    if (isDesktopCinematic) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -531,7 +779,7 @@ export default function TaskManager({
 
     canvas.addEventListener('wheel', handleCanvasWheel, { passive: false, capture: true });
     return () => canvas.removeEventListener('wheel', handleCanvasWheel, { capture: true });
-  }, [workspaceView]);
+  }, [isDesktopCinematic, workspaceView]);
 
   const stats = useMemo(() => {
     const leafTasks = tasks.filter((task) => (task.child_count || 0) === 0);
@@ -569,7 +817,13 @@ export default function TaskManager({
     event.preventDefault();
     event.stopPropagation();
     setSelectedTaskId(taskId);
-    setTaskContextMenu({ taskId, x: event.clientX, y: event.clientY });
+    const menuWidth = 176;
+    const menuHeight = 104;
+    setTaskContextMenu({
+      taskId,
+      x: Math.min(event.clientX, Math.max(8, window.innerWidth - menuWidth - 8)),
+      y: Math.min(event.clientY, Math.max(8, window.innerHeight - menuHeight - 8)),
+    });
   };
 
   const getCompletionPercent = (task: ApiTask) => {
@@ -580,6 +834,53 @@ export default function TaskManager({
   const resetCanvasLayout = () => {
     if (layoutStorageKey && typeof window !== 'undefined') localStorage.removeItem(layoutStorageKey);
     setNodePositions(autoLayoutPositions);
+    if (isDesktopCinematic) {
+      setCanvasZoom(1);
+      window.requestAnimationFrame(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const rootId = selectedTopicId ? topicNodeId(selectedTopicId) : '';
+        const rootNode = rootId ? diagramNodeById.get(rootId) : null;
+        const rootPosition = rootId ? autoLayoutPositions[rootId] : null;
+        const largeTreeTop = rootNode && rootPosition && diagramNodes.length > 240
+          ? Math.max(0, rootPosition.y + getNodeSize(rootNode, true).height / 2 - canvas.clientHeight / 2)
+          : 0;
+        canvas.scrollTo({ left: 0, top: largeTreeTop, behavior: reducedMotion ? 'auto' : 'smooth' });
+        if (topScrollRef.current) topScrollRef.current.scrollLeft = 0;
+      });
+    }
+  };
+
+  const scheduleTreeViewportSync = () => {
+    if (!isDesktopCinematic || diagramNodes.length <= 240 || viewportFrameRef.current !== null) return;
+    viewportFrameRef.current = window.requestAnimationFrame(() => {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        setTreeViewport({
+          left: canvas.scrollLeft / canvasZoom,
+          top: canvas.scrollTop / canvasZoom,
+          width: canvas.clientWidth / canvasZoom,
+          height: canvas.clientHeight / canvasZoom,
+        });
+      }
+      viewportFrameRef.current = null;
+    });
+  };
+
+  useEffect(() => {
+    scheduleTreeViewportSync();
+    // The sync is intentionally tied to zoom/view changes; scroll events use
+    // the rAF-coalesced handler below instead of adding another listener.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasZoom, workspaceView, diagramNodes.length]);
+
+  const showDropFeedback = (taskId: string, tone: DropFeedback['tone']) => {
+    if (dropFeedbackTimerRef.current !== null) window.clearTimeout(dropFeedbackTimerRef.current);
+    setDropFeedback({ taskId, tone, nonce: Date.now() });
+    dropFeedbackTimerRef.current = window.setTimeout(() => {
+      setDropFeedback(null);
+      dropFeedbackTimerRef.current = null;
+    }, tone === 'success' ? 620 : 780);
   };
 
   const handleTopScroll = () => {
@@ -592,27 +893,47 @@ export default function TaskManager({
     if (topScrollRef.current.scrollLeft !== canvasRef.current.scrollLeft) {
       topScrollRef.current.scrollLeft = canvasRef.current.scrollLeft;
     }
+    scheduleTreeViewportSync();
   };
 
   const startDrag = (event: ReactPointerEvent<HTMLElement>, taskId: string) => {
     event.preventDefault();
     event.stopPropagation();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
     const canvasRect = canvasRef.current?.getBoundingClientRect();
     const currentPosition = nodePositions[taskId];
     if (!canvasRect || !currentPosition) return;
 
     const draggedNode = diagramNodeById.get(taskId);
+    if (isDesktopCinematic && draggedNode?.kind === 'task' && searchTerm.trim()) {
+      setErrorMessage('Clear the search filter before reordering so hidden siblings keep their correct order.');
+      return;
+    }
+
+    event.currentTarget.setPointerCapture?.(event.pointerId);
     if (draggedNode?.kind === 'task') {
       setSelectedTaskId(taskId);
     } else {
       setSelectedTaskId(null);
       if (draggedNode?.topic) setSelectedTopicId(draggedNode.topic.id);
     }
+    const movingIds = [taskId];
+    if (isDesktopCinematic) {
+      for (let index = 0; index < movingIds.length; index += 1) {
+        (diagramChildrenByParent.get(movingIds[index]) || []).forEach((childId) => movingIds.push(childId));
+      }
+    }
+    const originPositions = movingIds.reduce<Record<string, NodePosition>>((positions, nodeId) => {
+      if (nodePositions[nodeId]) positions[nodeId] = { ...nodePositions[nodeId] };
+      return positions;
+    }, {});
+
+    pendingDragPositionsRef.current = null;
     setDragState({
       taskId,
       offsetX: (event.clientX - canvasRect.left + (canvasRef.current?.scrollLeft || 0)) / canvasZoom - currentPosition.x,
       offsetY: (event.clientY - canvasRect.top + (canvasRef.current?.scrollTop || 0)) / canvasZoom - currentPosition.y,
+      origin: { ...currentPosition },
+      originPositions,
     });
   };
 
@@ -635,21 +956,41 @@ export default function TaskManager({
       topScrollRef.current.scrollLeft = canvas.scrollLeft;
     }
 
-    const nextX = (event.clientX - canvasRect.left + canvas.scrollLeft) / canvasZoom - dragState.offsetX;
-    const nextY = (event.clientY - canvasRect.top + canvas.scrollTop) / canvasZoom - dragState.offsetY;
+    const pointerX = (event.clientX - canvasRect.left + canvas.scrollLeft) / canvasZoom - dragState.offsetX;
+    const pointerY = (event.clientY - canvasRect.top + canvas.scrollTop) / canvasZoom - dragState.offsetY;
+    const rawDeltaX = pointerX - dragState.origin.x;
+    const rawDeltaY = pointerY - dragState.origin.y;
+    const minOriginY = Math.min(...Object.values(dragState.originPositions).map((position) => position.y));
+    const deltaY = Math.max(rawDeltaY, 16 - minOriginY);
+    const deltaX = isDesktopCinematic ? 0 : Math.max(rawDeltaX, 16 - dragState.origin.x);
+    const nextPositions = Object.entries(dragState.originPositions).reduce<Record<string, NodePosition>>((positions, [nodeId, origin]) => {
+      positions[nodeId] = {
+        x: Math.max(16, origin.x + deltaX),
+        y: Math.max(16, origin.y + deltaY),
+      };
+      return positions;
+    }, {});
 
-    setNodePositions((current) => ({
-      ...current,
-      [dragState.taskId]: {
-        x: Math.max(16, nextX),
-        y: Math.max(16, nextY),
-      },
-    }));
+    pendingDragPositionsRef.current = nextPositions;
+    if (dragFrameRef.current !== null) return;
+    dragFrameRef.current = window.requestAnimationFrame(() => {
+      const pending = pendingDragPositionsRef.current;
+      if (pending) setNodePositions((current) => ({ ...current, ...pending }));
+      dragFrameRef.current = null;
+    });
   };
 
   const handleCanvasPointerUp = async () => {
     if (!dragState) return;
     const draggedId = dragState.taskId;
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    const pendingPositions = pendingDragPositionsRef.current;
+    pendingDragPositionsRef.current = null;
+    const positionSnapshot = pendingPositions ? { ...nodePositions, ...pendingPositions } : nodePositions;
+    if (pendingPositions) setNodePositions(positionSnapshot);
     setDragState(null);
 
     const draggedTask = taskById.get(draggedId);
@@ -657,12 +998,13 @@ export default function TaskManager({
 
     const siblings = (childrenByParent.get(draggedTask.parent_task_id || null) || [])
       .filter((task) => task.topic_id === draggedTask.topic_id && canvasNodeIds.has(task.id));
-    const ordered = [...siblings].sort((a, b) => (nodePositions[a.id]?.y || 0) - (nodePositions[b.id]?.y || 0));
+    const ordered = [...siblings].sort((a, b) => (positionSnapshot[a.id]?.y || 0) - (positionSnapshot[b.id]?.y || 0));
     const changedOrders = ordered
       .map((task, index) => ({ task, sortOrder: index }))
-      .filter(({ task, sortOrder }) => sortOrder !== (task.sort_order || 0));
+      .filter(({ task, sortOrder }) => sortOrder !== (task.sort_order ?? 0));
 
     if (changedOrders.length > 0) {
+      if (isDesktopCinematic) setIsCommittingDrag(true);
       try {
         await Promise.all(changedOrders.map(({ task, sortOrder }) => api.updateTask({ id: task.id, sortOrder })));
         setTasks((current) =>
@@ -671,10 +1013,32 @@ export default function TaskManager({
             return changed ? { ...task, sort_order: changed.sortOrder } : task;
           })
         );
+        if (isDesktopCinematic) setShouldReflowAfterDrop(true);
+        showDropFeedback(draggedId, 'success');
       } catch (error) {
+        setNodePositions((current) => ({ ...current, ...dragState.originPositions }));
+        showDropFeedback(draggedId, 'error');
         setErrorMessage(error instanceof Error ? error.message : 'Could not save task order.');
+      } finally {
+        if (isDesktopCinematic) setIsCommittingDrag(false);
       }
+    } else {
+      if (isDesktopCinematic) {
+        setNodePositions((current) => ({ ...current, ...dragState.originPositions }));
+      }
+      showDropFeedback(draggedId, 'success');
     }
+  };
+
+  const handleCanvasPointerCancel = () => {
+    if (!dragState) return;
+    if (dragFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragFrameRef.current);
+      dragFrameRef.current = null;
+    }
+    pendingDragPositionsRef.current = null;
+    setNodePositions((current) => ({ ...current, ...dragState.originPositions }));
+    setDragState(null);
   };
 
   const handleCreateTopic = async (event: FormEvent<HTMLFormElement>) => {
@@ -757,19 +1121,47 @@ export default function TaskManager({
     }
   };
 
-  const handleToggleLeaf = async (task: ApiTask) => {
+  const handleToggleLeaf = async (task: ApiTask, clickEvent?: ReactMouseEvent<HTMLButtonElement>) => {
     if ((childrenByParent.get(task.id) || []).length > 0) return;
 
     const status: ApiTaskStatus = task.status === 'completed' ? 'not_completed' : 'completed';
-    await handleUpdateTask(task.id, { status });
+    const clickOrigin = clickEvent
+      ? { x: clickEvent.clientX / window.innerWidth, y: clickEvent.clientY / window.innerHeight }
+      : { x: 0.5, y: 0.5 };
+    const updated = await handleUpdateTask(task.id, { status });
+    if (!updated || !isDesktopCinematic || status !== 'completed') return;
+
+    setCompletionPulseId(task.id);
+    if (completionTimerRef.current !== null) window.clearTimeout(completionTimerRef.current);
+    completionTimerRef.current = window.setTimeout(() => {
+      setCompletionPulseId(null);
+      completionTimerRef.current = null;
+    }, 760);
+
+    if (!reducedMotion) {
+      const { default: confetti } = await import('canvas-confetti');
+      confetti({
+        particleCount: 16,
+        spread: 46,
+        startVelocity: 18,
+        gravity: 0.72,
+        scalar: 0.62,
+        ticks: 76,
+        origin: clickOrigin,
+        colors: ['#67e8f9', '#34d399', '#a78bfa', '#f8fafc'],
+        disableForReducedMotion: true,
+      });
+    }
   };
 
   const handleUpdateTask = async (taskId: string, input: { status?: ApiTaskStatus; title?: string; startDate?: string | null; deadline?: string | null }) => {
     try {
       await api.updateTask({ id: taskId, ...input });
       await loadData();
+      return true;
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not update task status.');
+      return false;
     }
   };
 
@@ -902,18 +1294,26 @@ export default function TaskManager({
           {workspaceView === 'tree' ? (
           <section
             ref={canvasRef}
+            role={isDesktopCinematic ? 'tree' : undefined}
+            aria-label={isDesktopCinematic ? 'Task hierarchy' : undefined}
+            tabIndex={isDesktopCinematic ? 0 : undefined}
             onPointerMove={handleCanvasPointerMove}
             onPointerUp={handleCanvasPointerUp}
-            onPointerCancel={handleCanvasPointerUp}
-            onPointerLeave={handleCanvasPointerUp}
+            onPointerCancel={handleCanvasPointerCancel}
             onScroll={handleCanvasScroll}
-            className="relative h-[58vh] min-h-[360px] select-none overflow-auto bg-slate-50 sm:h-[64vh] sm:min-h-[460px] lg:min-h-0 lg:flex-1"
+            onWheelCapture={handleDesktopTreeWheel}
+            onKeyDown={handleDesktopTreeKeyDown}
+            className={`relative h-[58vh] min-h-[360px] select-none overflow-auto sm:h-[64vh] sm:min-h-[460px] lg:min-h-0 lg:flex-1 ${isDesktopCinematic ? 'desktop-task-tree-shell' : 'bg-slate-50'}`}
             style={{ touchAction: dragState ? 'none' : 'pan-x pan-y' }}
+            data-tree-motion={treeMotionMode}
+            data-tree-dragging={dragState ? 'true' : 'false'}
           >
-            <div className="sticky left-0 top-0 z-20 w-full border-b border-slate-200 bg-white/95 px-3 py-3 backdrop-blur-xl sm:px-4">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
+            <div className={`sticky left-0 top-0 z-20 w-full px-3 py-3 backdrop-blur-xl sm:px-4 ${isDesktopCinematic ? 'desktop-task-tree-toolbar' : 'border-b border-slate-200 bg-white/95'}`}>
+              <div className={`mb-2 flex flex-wrap items-center gap-2 ${isDesktopCinematic ? 'min-h-11' : ''}`}>
                 <label className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
-                  <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-slate-500">Root task</span>
+                  <span className={`shrink-0 text-xs font-semibold uppercase ${isDesktopCinematic ? 'tracking-[.16em] text-cyan-100/55' : 'tracking-wide text-slate-500'}`}>
+                    {isDesktopCinematic ? 'Life root' : 'Root task'}
+                  </span>
                   <select
                     value={selectedTopicId}
                     onChange={(event) => {
@@ -922,39 +1322,67 @@ export default function TaskManager({
                     }}
                     disabled={topics.length === 0}
                     aria-label="Choose a root to display"
-                    className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 sm:w-64 sm:flex-none"
+                    className={`h-10 min-w-0 flex-1 rounded-xl px-3 text-sm font-medium outline-none disabled:cursor-not-allowed sm:w-64 sm:flex-none ${isDesktopCinematic ? 'desktop-task-tree-select border border-white/10 bg-white/[.07] text-slate-100 focus:border-cyan-300/55 focus:ring-2 focus:ring-cyan-300/10 disabled:text-slate-500' : 'border border-slate-200 bg-white text-slate-700 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-400'}`}
                   >
                     {topics.length === 0 && <option value="">No roots yet</option>}
                     {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
                   </select>
                 </label>
+                {isDesktopCinematic && (
+                  <div className="desktop-task-tree-context hidden min-w-0 items-center gap-2 xl:flex">
+                    <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,.85)]" />
+                    <span className="max-w-48 truncate text-xs text-slate-300">
+                      {selectedTask ? selectedTask.title : `${Math.max(0, diagramNodes.length - 1)} tasks mapped`}
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[.14em] text-slate-500">
+                      {Math.max(0, diagramNodes.length - 1)} nodes
+                    </span>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={resetCanvasLayout}
-                  className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-medium transition ${isDesktopCinematic ? 'desktop-task-tree-control border-white/10 bg-white/[.06] text-slate-200 hover:border-cyan-300/30 hover:bg-cyan-300/10 hover:text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
                 >
                   <LocateFixed className="h-4 w-4" />
-                  Auto layout
+                  {isDesktopCinematic ? 'Reflow tree' : 'Auto layout'}
                 </button>
-                <div className="inline-flex overflow-hidden rounded-md border border-slate-200 bg-white text-sm">
-                  <button type="button" onClick={() => updateCanvasZoom(canvasZoom - 0.1)} className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">-</button>
-                  <button type="button" onClick={() => updateCanvasZoom(1)} className="border-x border-slate-200 px-3 py-1.5 font-medium text-slate-700">{Math.round(canvasZoom * 100)}%</button>
-                  <button type="button" onClick={() => updateCanvasZoom(canvasZoom + 0.1)} className="px-2.5 py-1.5 text-slate-600 hover:bg-slate-50">+</button>
+                <div className={`inline-flex h-9 overflow-hidden rounded-lg border text-sm ${isDesktopCinematic ? 'border-white/10 bg-white/[.06]' : 'border-slate-200 bg-white'}`}>
+                  <button type="button" onClick={() => updateCanvasZoom(canvasZoom - 0.1)} aria-label="Zoom out" className={isDesktopCinematic ? 'px-2.5 text-slate-300 transition hover:bg-white/10 hover:text-white' : 'px-2.5 text-slate-600 hover:bg-slate-50'}>−</button>
+                  <button type="button" onClick={() => updateCanvasZoom(1)} aria-label="Reset zoom" className={isDesktopCinematic ? 'border-x border-white/10 px-3 font-medium text-cyan-100' : 'border-x border-slate-200 px-3 font-medium text-slate-700'}>{Math.round(canvasZoom * 100)}%</button>
+                  <button type="button" onClick={() => updateCanvasZoom(canvasZoom + 0.1)} aria-label="Zoom in" className={isDesktopCinematic ? 'px-2.5 text-slate-300 transition hover:bg-white/10 hover:text-white' : 'px-2.5 text-slate-600 hover:bg-slate-50'}>+</button>
                 </div>
-                <span className="hidden text-xs text-slate-500 sm:inline">Use Ctrl + / − to zoom. Drag nodes to organize the tree.</span>
+                <span className={`hidden text-xs sm:inline ${isDesktopCinematic ? 'text-slate-400' : 'text-slate-500'}`}>
+                  {isDesktopCinematic
+                    ? searchTerm.trim() ? 'Clear search to reorder. Hidden siblings stay protected.' : 'Drag vertically to reorder a branch. Double-click for details.'
+                    : 'Use Ctrl + / − to zoom. Drag nodes to organize the tree.'}
+                </span>
               </div>
-              <div ref={topScrollRef} onScroll={handleTopScroll} className="h-4 w-full overflow-x-auto overflow-y-hidden">
+              <div ref={topScrollRef} onScroll={handleTopScroll} className={`h-4 w-full overflow-x-auto overflow-y-hidden ${isDesktopCinematic ? 'desktop-task-tree-minimap-scroll' : ''}`}>
                 <div style={{ width: scaledCanvasSize.width, height: 1 }} />
               </div>
             </div>
 
             {diagramNodes.length === 0 ? (
-              <div className="m-4 flex min-h-[420px] items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-center text-sm text-slate-500">
+              <div className={`m-4 flex min-h-[420px] items-center justify-center rounded-2xl border border-dashed text-center text-sm ${isDesktopCinematic ? 'border-white/15 bg-white/[.035] text-slate-400' : 'border-slate-300 bg-white text-slate-500'}`}>
                 No roots yet. Create your first life root to begin.
               </div>
             ) : (
               <div className="relative" style={{ width: scaledCanvasSize.width, height: scaledCanvasSize.height }}>
-                <div className="absolute left-0 top-0" style={{ width: canvasSize.width, height: canvasSize.height, transform: `scale(${canvasZoom})`, transformOrigin: '0 0' }}>
+                <div className={`absolute left-0 top-0 ${isDesktopCinematic ? 'desktop-task-tree-stage' : ''}`} style={{ width: canvasSize.width, height: canvasSize.height, transform: `scale(${canvasZoom})`, transformOrigin: '0 0' }}>
+                {isDesktopCinematic ? (
+                  <DesktopTreeConnectors
+                    canvasSize={canvasSize}
+                    connectorGroups={connectorGroups}
+                    diagramNodeById={diagramNodeById}
+                    nodePositions={nodePositions}
+                    visibleNodeIds={visibleDiagramNodeIds}
+                    selectedBranchIds={selectedBranchIds}
+                    selectedTaskId={selectedTaskId}
+                    draggedTaskId={dragState?.taskId || null}
+                    motionMode={treeMotionMode}
+                  />
+                ) : (
                 <svg className="pointer-events-none absolute inset-0 z-0" width={canvasSize.width} height={canvasSize.height}>
                   <defs>
                     {[
@@ -1011,22 +1439,38 @@ export default function TaskManager({
                     );
                   })}
                 </svg>
+                )}
 
-                {diagramNodes.map((node) => {
-                  const position = nodePositions[node.id] || autoLayoutPositions[node.id] || { x: canvasPadding, y: canvasPadding };
+                {dragDropPreview && (
+                  <motion.div
+                    className="desktop-task-tree-drop-slot pointer-events-none absolute z-[8]"
+                    initial={treeMotionMode === 'cinematic' ? { opacity: 0, scaleX: 0.72 } : false}
+                    animate={{ opacity: 1, scaleX: 1, x: dragDropPreview.x, y: dragDropPreview.y }}
+                    transition={treeMotionMode === 'minimal' ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 32, mass: 0.8 }}
+                  >
+                    <span>Position {dragDropPreview.order} / {dragDropPreview.total}</span>
+                  </motion.div>
+                )}
+
+                {visibleDiagramNodes.map((node) => {
+                  const position = nodePositions[node.id] || autoLayoutPositions[node.id] || { x: treeCanvasPadding, y: treeCanvasPadding };
+                  const nodeSize = getNodeSize(node, isDesktopCinematic);
                   if (node.kind !== 'task') {
                     return (
                       <TopicDiagramNode
                         key={node.id}
                         node={node}
                         position={position}
+                        nodeSize={nodeSize}
+                        variant={variant}
                         isSelected={selectedTaskId === null && node.topic?.id === selectedTopicId}
+                        isBranchActive={selectedBranchIds.has(node.id)}
                         taskCount={tasks.filter((task) => task.topic_id === node.topic?.id).length}
                         onSelect={() => {
                           setSelectedTaskId(null);
                           setSelectedTopicId(node.topic?.id || '');
                         }}
-                        onDragStart={(event) => startDrag(event, node.id)}
+                        onDragStart={isDesktopCinematic ? undefined : (event) => startDrag(event, node.id)}
                         onEditTopic={node.topic ? () => openTopicEditor(node.topic as ApiTopic) : undefined}
                         onAddTask={node.topic ? () => openTaskModal(null, node.topic?.id) : undefined}
                       />
@@ -1040,13 +1484,22 @@ export default function TaskManager({
                       task={task}
                       visualDepth={node.depth}
                       position={position}
+                      nodeSize={nodeSize}
+                      variant={variant}
                       isSelected={selectedTaskId === task.id}
+                      isDragging={dragState?.taskId === task.id}
+                      isMuted={Boolean(selectedTaskId && !selectedBranchIds.has(task.id))}
+                      isBranchActive={selectedBranchIds.has(task.id)}
+                      motionMode={treeMotionMode}
+                      feedbackTone={dropFeedback?.taskId === task.id ? dropFeedback.tone : null}
+                      completionPulse={completionPulseId === task.id}
                       hasChildren={(childrenByParent.get(task.id) || []).length > 0}
                       onSelect={() => setSelectedTaskId(task.id)}
                       onContextMenu={(event) => openTaskContextMenu(event, task.id)}
                       onDragStart={(event) => startDrag(event, node.id)}
-                      onToggle={() => handleToggleLeaf(task)}
+                      onToggle={(event) => handleToggleLeaf(task, event)}
                       onAddChild={() => openTaskModal(task.id)}
+                      onOpen={() => openTaskDetails(task.id)}
                     />
                   );
                 })}
@@ -1072,14 +1525,17 @@ export default function TaskManager({
 
       {taskContextMenu && (
         <div
-          className="fixed z-50 w-40 overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-xl"
+          className={`fixed z-50 w-44 overflow-hidden py-1 text-sm shadow-xl ${isDesktopCinematic ? 'desktop-task-tree-menu rounded-xl border border-white/10 bg-slate-950/95 text-slate-100 backdrop-blur-xl' : 'rounded-md border border-slate-200 bg-white'}`}
           style={{ left: taskContextMenu.x, top: taskContextMenu.y }}
           onClick={(event) => event.stopPropagation()}
+          role="menu"
+          aria-label="Task actions"
         >
           <button
             type="button"
             onClick={() => openTaskDetails(taskContextMenu.taskId)}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-700 hover:bg-slate-50"
+            className={`flex w-full items-center gap-2 px-3 py-2 text-left ${isDesktopCinematic ? 'text-slate-200 hover:bg-white/10 hover:text-white' : 'text-slate-700 hover:bg-slate-50'}`}
+            role="menuitem"
           >
             <Pencil className="h-4 w-4" />
             Edit
@@ -1087,7 +1543,8 @@ export default function TaskManager({
           <button
             type="button"
             onClick={() => void handleArchiveTask(taskContextMenu.taskId)}
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-red-600 hover:bg-red-50"
+            className={`flex w-full items-center gap-2 px-3 py-2 text-left ${isDesktopCinematic ? 'text-rose-300 hover:bg-rose-400/10 hover:text-rose-200' : 'text-red-600 hover:bg-red-50'}`}
+            role="menuitem"
           >
             <Trash2 className="h-4 w-4" />
             Archive task
@@ -1103,7 +1560,7 @@ export default function TaskManager({
             completion={getCompletionPercent(selectedTask)}
             onArchive={handleArchiveTask}
             onAddChild={() => openTaskModal(selectedTask.id)}
-            onUpdateTask={handleUpdateTask}
+            onUpdateTask={async (taskId, input) => { await handleUpdateTask(taskId, input); }}
             onToggleTask={handleToggleLeaf}
           />
         </Modal>
@@ -1169,6 +1626,13 @@ export default function TaskManager({
   );
 }
 
+const getTreeAccent = (tone: keyof typeof taskThemes) => {
+  if (tone === 'completed') return '#34d399';
+  if (tone === 'overdue') return '#fb7185';
+  if (tone === 'inProgress') return '#38bdf8';
+  return '#94a3b8';
+};
+
 function WorkspaceViewTransition({
   enabled,
   view,
@@ -1196,10 +1660,137 @@ function WorkspaceViewTransition({
   );
 }
 
+function DesktopTreeConnectors({
+  canvasSize,
+  connectorGroups,
+  diagramNodeById,
+  nodePositions,
+  visibleNodeIds,
+  selectedBranchIds,
+  selectedTaskId,
+  draggedTaskId,
+  motionMode,
+}: {
+  canvasSize: { width: number; height: number };
+  connectorGroups: Array<{ parentId: string; childIds: string[] }>;
+  diagramNodeById: Map<string, DiagramNode>;
+  nodePositions: Record<string, NodePosition>;
+  visibleNodeIds: Set<string>;
+  selectedBranchIds: Set<string>;
+  selectedTaskId: string | null;
+  draggedTaskId: string | null;
+  motionMode: TreeMotionMode;
+}) {
+  const markerTones: Array<[keyof typeof taskThemes, string]> = [
+    ['incomplete', getTreeAccent('incomplete')],
+    ['inProgress', getTreeAccent('inProgress')],
+    ['completed', getTreeAccent('completed')],
+    ['overdue', getTreeAccent('overdue')],
+  ];
+  let animatedEdgeCount = 0;
+
+  return (
+    <svg
+      className="desktop-task-tree-edges pointer-events-none absolute inset-0 z-0"
+      width={canvasSize.width}
+      height={canvasSize.height}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        {markerTones.map(([tone, color]) => (
+          <marker
+            key={tone}
+            id={`desktop-task-chevron-${tone}`}
+            markerWidth="11"
+            markerHeight="11"
+            refX="8.5"
+            refY="5.5"
+            orient="auto"
+            markerUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 1.5 1.5 L 8 5.5 L 1.5 9.5"
+              fill="none"
+              stroke={color}
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </marker>
+        ))}
+      </defs>
+
+      {connectorGroups.map((group) => {
+        const parentNode = diagramNodeById.get(group.parentId);
+        const parentPosition = nodePositions[group.parentId];
+        if (!parentNode || !parentPosition) return null;
+        const parentSize = getNodeSize(parentNode, true);
+        const startX = parentPosition.x + parentSize.width + 4;
+        const startY = parentPosition.y + parentSize.height / 2;
+        const renderedChildIds = group.childIds.filter((childId) => {
+          const active = Boolean(selectedTaskId && selectedBranchIds.has(group.parentId) && selectedBranchIds.has(childId));
+          const dragAdjacent = draggedTaskId === group.parentId || draggedTaskId === childId;
+          return visibleNodeIds.has(childId) || active || dragAdjacent;
+        });
+        if (renderedChildIds.length === 0) return null;
+
+        return (
+          <g key={group.parentId}>
+            {renderedChildIds.map((childId) => {
+              const childNode = diagramNodeById.get(childId);
+              const childPosition = nodePositions[childId];
+              if (!childNode || !childPosition) return null;
+              const childSize = getNodeSize(childNode, true);
+              const endX = childPosition.x - 11;
+              const endY = childPosition.y + childSize.height / 2;
+              const curve = Math.min(104, Math.max(44, (endX - startX) * 0.43));
+              const d = `M ${startX} ${startY} C ${startX + curve} ${startY}, ${endX - curve} ${endY}, ${endX} ${endY}`;
+              const tone = childNode.kind === 'task' && childNode.task ? getTaskTone(childNode.task) : 'incomplete';
+              const color = getTreeAccent(tone);
+              const active = Boolean(selectedTaskId && selectedBranchIds.has(group.parentId) && selectedBranchIds.has(childId));
+              const dragAdjacent = draggedTaskId === group.parentId || draggedTaskId === childId;
+              const muted = Boolean(selectedTaskId && !active && !dragAdjacent);
+              const animateFlow = motionMode === 'cinematic' && (active || dragAdjacent) && animatedEdgeCount < 24;
+              if (animateFlow) animatedEdgeCount += 1;
+
+              return (
+                <g key={childId} className={muted ? 'desktop-task-tree-edge-muted' : undefined}>
+                  <path d={d} className="desktop-task-tree-edge-rail" vectorEffect="non-scaling-stroke" />
+                  {(active || dragAdjacent) && motionMode !== 'minimal' && (
+                    <path d={d} className="desktop-task-tree-edge-glow" stroke={color} vectorEffect="non-scaling-stroke" />
+                  )}
+                  <motion.path
+                    d={d}
+                    className={`desktop-task-tree-edge-signal ${active ? 'is-active' : ''} ${dragAdjacent ? 'is-dragging' : ''}`}
+                    stroke={color}
+                    markerEnd={`url(#desktop-task-chevron-${tone})`}
+                    vectorEffect="non-scaling-stroke"
+                    initial={motionMode === 'cinematic' ? { pathLength: 0, opacity: 0 } : false}
+                    animate={{ pathLength: 1, opacity: muted ? 0.28 : active || dragAdjacent ? 1 : 0.64 }}
+                    transition={motionMode === 'cinematic' ? { pathLength: { duration: 0.46, ease: [0.16, 1, 0.3, 1] }, opacity: { duration: 0.18 } } : { duration: 0 }}
+                  />
+                  {animateFlow && (
+                    <path d={d} className="desktop-task-tree-edge-flow" stroke={color} vectorEffect="non-scaling-stroke" />
+                  )}
+                </g>
+              );
+            })}
+            <circle className="desktop-task-tree-port" cx={startX - 4} cy={startY} r="4" />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 function TopicDiagramNode({
   node,
   position,
+  nodeSize,
+  variant,
   isSelected,
+  isBranchActive,
   taskCount,
   onSelect,
   onDragStart,
@@ -1208,17 +1799,68 @@ function TopicDiagramNode({
 }: {
   node: DiagramNode;
   position: NodePosition;
+  nodeSize: { width: number; height: number };
+  variant: TaskWorkspaceVariant;
   isSelected: boolean;
+  isBranchActive: boolean;
   taskCount: number;
   onSelect: () => void;
-  onDragStart: (event: ReactPointerEvent<HTMLElement>) => void;
+  onDragStart?: (event: ReactPointerEvent<HTMLElement>) => void;
   onEditTopic?: () => void;
   onAddTask?: () => void;
 }) {
-  const nodeSize = getNodeSize(node);
   const color = node.topic ? getTopicColorByName(node.topic.topic_color, 0).text : '#2563eb';
   const background = '#FFFFFF';
   const borderColor = isSelected ? '#2563EB' : '#E2E8F0';
+
+  if (variant === 'desktop-cinematic') {
+    return (
+      <motion.div
+        className={`desktop-task-tree-node desktop-task-tree-root-node group absolute z-10 ${isSelected || isBranchActive ? 'is-active' : ''}`}
+        data-tree-node-id={node.id}
+        style={{
+          width: nodeSize.width,
+          height: nodeSize.height,
+          '--tree-node-accent': color,
+        } as CSSProperties}
+        initial={{ opacity: 0, x: position.x - 14, y: position.y, scale: 0.96 }}
+        animate={{ opacity: 1, x: position.x, y: position.y, scale: 1 }}
+        transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+        onPointerDown={onSelect}
+        role="treeitem"
+        aria-level={1}
+        aria-selected={isSelected}
+        tabIndex={isSelected ? 0 : -1}
+      >
+        <div className="desktop-task-tree-node-surface relative h-full overflow-hidden rounded-[22px] text-left">
+          <span className="desktop-task-tree-node-light" />
+          <span className="desktop-task-tree-node-port is-output" aria-hidden="true" />
+          <div className="relative flex h-full items-center gap-3 px-4">
+            <span className="desktop-task-tree-root-orbit grid h-11 w-11 shrink-0 place-items-center rounded-2xl">
+              <GitBranch className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[9px] font-bold uppercase tracking-[.2em] text-cyan-100/55">Life root</p>
+              <p className="mt-1 line-clamp-2 text-[15px] font-semibold leading-[1.2] text-white">{node.title}</p>
+              <p className="mt-1.5 text-[11px] text-slate-400">{taskCount} tasks in this constellation</p>
+            </div>
+            <div className="desktop-task-tree-node-actions flex shrink-0 items-center gap-1">
+              {onAddTask && (
+                <button type="button" onClick={(event) => { event.stopPropagation(); onAddTask(); }} className="desktop-task-tree-node-action" aria-label="Add task to this life root" title="Add task">
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {onEditTopic && (
+                <button type="button" onClick={(event) => { event.stopPropagation(); onEditTopic(); }} className="desktop-task-tree-node-action" aria-label="Edit life root" title="Edit root">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <div
@@ -1276,14 +1918,14 @@ function TopicDiagramNode({
                 <Pencil className="h-2.5 w-2.5" />
               </button>
             )}
-            <button
+            {onDragStart && <button
               type="button"
               onPointerDown={onDragStart}
               className="grid h-5 w-5 cursor-grab touch-none place-items-center rounded-md border border-slate-200/80 bg-white/80 text-slate-500 transition hover:bg-white hover:text-slate-900 active:cursor-grabbing"
               title="Drag node"
             >
               <Move className="h-2.5 w-2.5" />
-            </button>
+            </button>}
           </div>
         </div>
       </div>
@@ -1295,31 +1937,162 @@ function TaskDiagramNode({
   task,
   visualDepth,
   position,
+  nodeSize,
+  variant,
   isSelected,
+  isDragging,
+  isMuted,
+  isBranchActive,
+  motionMode,
+  feedbackTone,
+  completionPulse,
   hasChildren,
   onSelect,
   onContextMenu,
   onDragStart,
   onToggle,
   onAddChild,
+  onOpen,
 }: {
   task: ApiTask;
   visualDepth: number;
   position: NodePosition;
+  nodeSize: { width: number; height: number };
+  variant: TaskWorkspaceVariant;
   isSelected: boolean;
+  isDragging: boolean;
+  isMuted: boolean;
+  isBranchActive: boolean;
+  motionMode: TreeMotionMode;
+  feedbackTone: DropFeedback['tone'] | null;
+  completionPulse: boolean;
   hasChildren: boolean;
   onSelect: () => void;
   onContextMenu: (event: ReactMouseEvent<HTMLElement>) => void;
   onDragStart: (event: ReactPointerEvent<HTMLElement>) => void;
-  onToggle: () => void;
+  onToggle: (event?: ReactMouseEvent<HTMLButtonElement>) => void;
   onAddChild: () => void;
+  onOpen: () => void;
 }) {
   const taskDone = isTaskDone(task);
   const taskOverdue = isTaskOverdue(task);
   const theme = taskThemes[getTaskTone(task)];
   const isCompact = visualDepth >= 2;
   const isLevelTwo = visualDepth === 1;
-  const nodeSize = getNodeSize({ title: task.title, depth: visualDepth });
+  const completion = (task.leaf_count || 0) > 0
+    ? Math.round(((task.completed_leaf_count || 0) / Math.max(1, task.leaf_count || 1)) * 100)
+    : taskDone ? 100 : 0;
+
+  if (variant === 'desktop-cinematic') {
+    const tone = getTaskTone(task);
+    const accent = getTreeAccent(tone);
+    const motionDisabled = motionMode === 'minimal';
+    const statusLabel = taskDone ? 'Done' : taskOverdue ? 'Overdue' : isTaskInProgress(task) ? 'In progress' : 'Open';
+
+    return (
+      <motion.div
+        className={`desktop-task-tree-node desktop-task-tree-task-node group absolute ${isSelected ? 'is-selected' : ''} ${isBranchActive ? 'is-branch-active' : ''} ${isDragging ? 'is-dragging' : ''} ${isMuted ? 'is-muted' : ''} ${feedbackTone ? `has-${feedbackTone}` : ''} ${completionPulse ? 'has-completion-pulse' : ''}`}
+        data-tone={tone}
+        data-tree-node-id={task.id}
+        style={{
+          width: nodeSize.width,
+          height: nodeSize.height,
+          zIndex: isDragging ? 60 : isSelected ? 20 : 10,
+          '--tree-node-accent': accent,
+          '--tree-node-progress': `${completion}%`,
+        } as CSSProperties}
+        initial={motionMode === 'cinematic' ? { opacity: 0, x: position.x - 12, y: position.y, scale: 0.965 } : false}
+        animate={{
+          opacity: isMuted ? 0.66 : 1,
+          x: position.x,
+          y: position.y + (isDragging && !motionDisabled ? -2 : 0),
+          scale: isDragging && !motionDisabled ? 1.028 : 1,
+          rotate: isDragging && !motionDisabled ? -0.32 : 0,
+        }}
+        transition={isDragging || motionDisabled ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 32, mass: 0.8 }}
+        onPointerDown={onSelect}
+        onDoubleClick={(event) => { event.stopPropagation(); onOpen(); }}
+        onContextMenu={onContextMenu}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            onOpen();
+          }
+          if (event.key === ' ' && !hasChildren) {
+            event.preventDefault();
+            onToggle();
+          }
+        }}
+        role="treeitem"
+        aria-level={visualDepth + 1}
+        aria-selected={isSelected}
+        aria-label={`${task.title}, ${statusLabel}`}
+        tabIndex={isSelected ? 0 : -1}
+      >
+        <div className="desktop-task-tree-node-surface relative h-full overflow-hidden rounded-[18px] text-left">
+          <span className="desktop-task-tree-node-light" aria-hidden="true" />
+          <span className="desktop-task-tree-node-status-rail" aria-hidden="true" />
+          <span className="desktop-task-tree-node-port is-input" aria-hidden="true" />
+          {hasChildren && <span className="desktop-task-tree-node-port is-output" aria-hidden="true" />}
+          {feedbackTone && <span key={`${task.id}-${feedbackTone}`} className={`desktop-task-tree-drop-feedback is-${feedbackTone}`} aria-hidden="true" />}
+          {completionPulse && <span className="desktop-task-tree-completion-wave" aria-hidden="true" />}
+
+          <div className="relative flex h-full flex-col px-3.5 py-2.5">
+            <div className="flex min-w-0 items-start gap-2.5">
+              {!hasChildren ? (
+                <button
+                  type="button"
+                  onClick={(event) => { event.stopPropagation(); onToggle(event); }}
+                  className="desktop-task-tree-checkbox mt-0.5 shrink-0"
+                  aria-label={taskDone ? `Mark ${task.title} as open` : `Complete ${task.title}`}
+                  aria-pressed={taskDone}
+                >
+                  {taskDone ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                </button>
+              ) : (
+                <span className="desktop-task-tree-branch-icon mt-0.5 grid shrink-0 place-items-center" title={`${completion}% complete`}>
+                  <GitBranch className="h-3.5 w-3.5" />
+                </span>
+              )}
+
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-1.5">
+                  <span className="text-[8px] font-bold uppercase tracking-[.18em] text-slate-500">
+                    {hasChildren ? 'Project' : `Task · L${visualDepth}`}
+                  </span>
+                  <span className="desktop-task-tree-status-chip" data-tone={tone}>{statusLabel}</span>
+                </div>
+                <p className="line-clamp-2 text-[13px] font-semibold leading-[1.25] text-slate-100">{task.title}</p>
+              </div>
+
+              <div className="desktop-task-tree-node-actions flex shrink-0 items-center gap-1">
+                <button type="button" onClick={(event) => { event.stopPropagation(); onAddChild(); }} className="desktop-task-tree-node-action" aria-label={`Add a child under ${task.title}`} title="Add child">
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); onOpen(); }} className="desktop-task-tree-node-action" aria-label={`Open details for ${task.title}`} title="Details">
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" onClick={onContextMenu} className="desktop-task-tree-node-action" aria-label={`Open actions for ${task.title}`} title="More actions">
+                  <MoreHorizontal className="h-3.5 w-3.5" />
+                </button>
+                <button type="button" onPointerDown={onDragStart} className="desktop-task-tree-node-action desktop-task-tree-drag-handle" aria-label={`Reorder ${task.title} within its branch`} title="Drag to reorder">
+                  <Move className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-auto flex min-w-0 items-end justify-between gap-2 pl-7">
+              <span className={`truncate text-[9px] font-medium ${taskOverdue ? 'text-rose-300' : 'text-slate-500'}`}>
+                {task.deadline ? `Due ${formatDate(task.deadline)}` : hasChildren ? `${task.completed_leaf_count || 0}/${task.leaf_count || 0} leaf tasks` : 'No deadline'}
+              </span>
+              {hasChildren && <span className="text-[9px] font-semibold tabular-nums" style={{ color: accent }}>{completion}%</span>}
+            </div>
+            {hasChildren && <span className="desktop-task-tree-progress" aria-hidden="true"><span /></span>}
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   if (isCompact) {
     return (
