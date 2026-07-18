@@ -123,8 +123,13 @@ export default function TaskTableView({
       setActiveRootId(null);
       return;
     }
-    if (!activeRootId || !rootTasks.some((task) => task.id === activeRootId)) setActiveRootId(rootTasks[0].id);
-  }, [activeRootId, rootTasks]);
+    const selectionIsInvalid = Boolean(activeRootId) && !rootTasks.some((task) => task.id === activeRootId);
+    if (isDesktopCinematic) {
+      if (selectionIsInvalid) setActiveRootId(null);
+      return;
+    }
+    if (!activeRootId || selectionIsInvalid) setActiveRootId(rootTasks[0].id);
+  }, [activeRootId, isDesktopCinematic, rootTasks]);
 
   useEffect(() => {
     if (levelOneSheets.length === 0) {
@@ -154,9 +159,11 @@ export default function TaskTableView({
     () => activeLevelTwoSheet
       ? childrenByParent.get(activeLevelTwoSheet.id) || []
       : isDesktopCinematic && !activeLevelOne
-        ? levelOneSheets
+        ? activeRoot
+          ? levelOneSheets.length > 0 ? levelOneSheets : [activeRoot]
+          : rootTasks
         : directLevelTwoTasks,
-    [activeLevelOne, activeLevelTwoSheet, childrenByParent, directLevelTwoTasks, isDesktopCinematic, levelOneSheets],
+    [activeLevelOne, activeLevelTwoSheet, activeRoot, childrenByParent, directLevelTwoTasks, isDesktopCinematic, levelOneSheets, rootTasks],
   );
   const normalizedSearch = searchTerm.trim().toLocaleLowerCase('vi-VN');
 
@@ -198,9 +205,13 @@ export default function TaskTableView({
   }, [baseTableTasks, childrenByParent]);
   const tableTasks = tasks.filter((task) => tableTaskIds.has(task.id));
   const overdueCount = tableTasks.filter(isTaskOverdue).length;
+  const scopeLeafTasks = tableTasks.filter((task) => (childrenByParent.get(task.id) || []).length === 0);
+  const scopeCompletionPercent = scopeLeafTasks.length > 0
+    ? Math.round((scopeLeafTasks.filter(isTaskDone).length / scopeLeafTasks.length) * 100)
+    : 0;
 
   const selectRoot = (rootId: string) => {
-    setActiveRootId(rootId);
+    setActiveRootId(rootId || null);
     setActiveLevelOneId(null);
     setActiveLevelTwoSheetId(null);
     setCollapsedTaskIds(new Set());
@@ -250,29 +261,34 @@ export default function TaskTableView({
             onChange={(event) => selectRoot(event.target.value)}
             className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           >
+            {isDesktopCinematic && <option value="">All roots · {tasks.length} tasks</option>}
             {rootTasks.map((rootTask) => {
               const topic = topicById.get(rootTask.topic_id);
-              return <option key={rootTask.id} value={rootTask.id}>{topic ? `${topic.name} / ` : ''}{rootTask.title}</option>;
+              const taskCount = rootTask.descendant_count ?? (childrenByParent.get(rootTask.id) || []).length;
+              const countLabel = isDesktopCinematic ? ` · ${taskCount} nested ${taskCount === 1 ? 'task' : 'tasks'}` : '';
+              return <option key={rootTask.id} value={rootTask.id}>{topic ? `${topic.name} / ` : ''}{rootTask.title}{countLabel}</option>;
             })}
           </select>
         </label>
       </div>
 
-      {levelOneSheets.length > 0 ? (
+      {isDesktopCinematic || levelOneSheets.length > 0 ? (
         <>
-          <SheetTabs
-            label={isDesktopCinematic ? 'Branches' : 'Level 1 sheet'}
-            tasks={levelOneSheets}
-            activeTaskId={activeLevelOneId}
-            topics={topics}
-            onSelect={selectLevelOne}
-            showAll={isDesktopCinematic}
-            onSelectAll={() => {
-              setActiveLevelOneId(null);
-              setActiveLevelTwoSheetId(null);
-              setCollapsedTaskIds(new Set());
-            }}
-          />
+          {levelOneSheets.length > 0 && (
+            <SheetTabs
+              label={isDesktopCinematic ? 'Branches' : 'Level 1 sheet'}
+              tasks={levelOneSheets}
+              activeTaskId={activeLevelOneId}
+              topics={topics}
+              onSelect={selectLevelOne}
+              showAll={isDesktopCinematic}
+              onSelectAll={() => {
+                setActiveLevelOneId(null);
+                setActiveLevelTwoSheetId(null);
+                setCollapsedTaskIds(new Set());
+              }}
+            />
+          )}
 
           {activeLevelOne && levelTwoSheets.length > 0 && (
             <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 sm:px-4">
@@ -316,14 +332,16 @@ export default function TaskTableView({
           <div className="grid grid-cols-2 border-b border-slate-200 bg-white sm:grid-cols-4">
             <SheetMetric
               label="Viewing"
-              value={activeLevelTwoSheet
-                ? activeLevelTwoSheet.title
-                : activeLevelOne
-                  ? 'Direct tasks'
-                  : 'Full hierarchy'}
+              value={!activeRoot
+                ? 'All roots'
+                : activeLevelTwoSheet
+                  ? activeLevelTwoSheet.title
+                  : activeLevelOne
+                    ? 'Direct tasks'
+                    : levelOneSheets.length > 0 ? 'Full hierarchy' : activeRoot.title}
             />
             <SheetMetric label="Tasks" value={tableTasks.length} />
-            <SheetMetric label="Progress" value={tableContext ? `${getCompletionPercent(tableContext)}%` : '0%'} />
+            <SheetMetric label="Progress" value={`${tableContext ? getCompletionPercent(tableContext) : scopeCompletionPercent}%`} />
             <SheetMetric label="Overdue" value={overdueCount} danger={overdueCount > 0} />
           </div>
 
@@ -450,7 +468,7 @@ function TaskRowsTable({
 }) {
   const isDesktopCinematic = variant === 'desktop-cinematic';
   const reducedMotion = Boolean(useReducedMotion());
-  const animateRows = isDesktopCinematic && !reducedMotion && rows.length <= 120;
+  const animateRows = isDesktopCinematic && !reducedMotion && rows.length <= 60;
   const TableRow = animateRows ? motion.tr : 'tr';
   return (
     <div className="min-h-0 flex-1 overflow-auto">

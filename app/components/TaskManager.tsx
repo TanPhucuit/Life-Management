@@ -37,7 +37,7 @@ type TaskDraft = {
 type NodePosition = { x: number; y: number };
 type DragState = { taskId: string; offsetX: number; offsetY: number };
 type TaskContextMenu = { taskId: string; x: number; y: number };
-type TaskWorkspaceView = 'tree' | 'table';
+export type TaskWorkspaceView = 'tree' | 'table';
 export type TaskWorkspaceVariant = 'legacy' | 'desktop-cinematic';
 type DiagramNodeKind = 'topic' | 'task';
 type DiagramNode = {
@@ -183,7 +183,13 @@ const toDateTimeInputValue = (value?: string | null) => {
   return offsetDate.toISOString().slice(0, 16);
 };
 
-export default function TaskManager({ variant = 'legacy' }: { variant?: TaskWorkspaceVariant }) {
+export default function TaskManager({
+  variant = 'legacy',
+  initialView,
+}: {
+  variant?: TaskWorkspaceVariant;
+  initialView?: TaskWorkspaceView;
+}) {
   const { user } = useAppStore();
   const isDesktopCinematic = variant === 'desktop-cinematic';
   const reducedMotion = Boolean(useReducedMotion());
@@ -207,7 +213,13 @@ export default function TaskManager({ variant = 'legacy' }: { variant?: TaskWork
   const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenu | null>(null);
   const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
   const [canvasZoom, setCanvasZoom] = useState(1);
-  const [workspaceView, setWorkspaceView] = useState<TaskWorkspaceView>(() => isDesktopCinematic ? 'table' : 'tree');
+  const [workspaceView, setWorkspaceView] = useState<TaskWorkspaceView>(
+    () => initialView ?? (isDesktopCinematic ? 'table' : 'tree'),
+  );
+
+  useEffect(() => {
+    if (isDesktopCinematic && initialView) setWorkspaceView(initialView);
+  }, [initialView, isDesktopCinematic]);
 
   const loadData = async () => {
     if (!user?.id) return;
@@ -252,10 +264,12 @@ export default function TaskManager({ variant = 'legacy' }: { variant?: TaskWork
 
     window.addEventListener('click', closeMenu);
     window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('resize', closeMenu);
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('click', closeMenu);
       window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('resize', closeMenu);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [taskContextMenu]);
@@ -517,7 +531,7 @@ export default function TaskManager({ variant = 'legacy' }: { variant?: TaskWork
 
     canvas.addEventListener('wheel', handleCanvasWheel, { passive: false, capture: true });
     return () => canvas.removeEventListener('wheel', handleCanvasWheel, { capture: true });
-  }, []);
+  }, [workspaceView]);
 
   const stats = useMemo(() => {
     const leafTasks = tasks.filter((task) => (task.child_count || 0) === 0);
@@ -837,31 +851,31 @@ export default function TaskManager({ variant = 'legacy' }: { variant?: TaskWork
                   </button>
                 </div>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <form onSubmit={handleCreateTopic} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex">
+              <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:flex-nowrap">
+                <form onSubmit={handleCreateTopic} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:flex-[1_1_260px] xl:flex-none">
                   <input
                     value={newTopicName}
                     onChange={(event) => setNewTopicName(event.target.value)}
                     placeholder="New root"
-                    className="h-9 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 sm:w-36"
+                    className="h-9 w-full rounded-md border border-slate-200 px-3 text-sm outline-none focus:border-blue-500 sm:min-w-0 sm:flex-1 xl:w-36 xl:flex-none"
                   />
                   <button className="flex h-9 items-center gap-2 rounded-md border border-slate-200 px-3 text-sm font-medium hover:bg-slate-50">
                     <FolderPlus className="h-4 w-4" />
                     Create
                   </button>
                 </form>
-                <div className="relative">
+                <div className="relative min-w-0 sm:flex-[1_1_220px] xl:flex-none">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
                     value={searchTerm}
                     onChange={(event) => setSearchTerm(event.target.value)}
                     placeholder="Search tasks or notes"
-                    className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500 sm:w-64"
+                    className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-500 xl:w-64"
                   />
                 </div>
                 <button
                   onClick={() => openTaskModal(null, selectedTopicId || topics[0]?.id)}
-                  className="flex h-9 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white hover:bg-slate-800"
+                  className="flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-slate-950 px-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
                   <Plus className="h-4 w-4" />
                   Add task

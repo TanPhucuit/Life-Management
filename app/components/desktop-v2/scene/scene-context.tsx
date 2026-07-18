@@ -127,6 +127,10 @@ export function SceneProvider({
       ...patch,
       mode: patch.mode ?? (routeChanged ? resolveSceneMode(nextRoute) : current.mode),
     }
+    const unchanged = (Object.keys(next) as Array<keyof SceneSnapshot>).every(
+      (key) => next[key] === current[key],
+    )
+    if (unchanged) return
     snapshotRef.current = next
     setSnapshot(next)
     if (routeChanged) setRouteTransitionNonce((nonce) => nonce + 1)

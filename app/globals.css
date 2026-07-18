@@ -448,6 +448,68 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   min-width: 0;
 }
 
+/* The experience decision stays latched after mount. If DevTools or a window
+   resize later narrows the viewport, compact the same desktop shell in place
+   instead of remounting and losing task/form state. Fresh mobile/tablet loads
+   never mount these scoped classes. */
+@media (max-width: 1100px) {
+  .experience-v2 .desktop-v2-sidebar {
+    width: 80px !important;
+    padding: 12px !important;
+  }
+
+  .experience-v2 .desktop-v2-brand,
+  .experience-v2 .desktop-v2-nav-item,
+  .experience-v2 .desktop-v2-account-link {
+    justify-content: center;
+  }
+
+  .experience-v2 .desktop-v2-brand,
+  .experience-v2 .desktop-v2-nav-item {
+    padding-inline: 0;
+  }
+
+  .experience-v2 .desktop-v2-sidebar-copy,
+  .experience-v2 .desktop-v2-nav-label,
+  .experience-v2 .desktop-v2-account-copy,
+  .experience-v2 .desktop-v2-account-signout {
+    display: none;
+  }
+
+  .experience-v2 .desktop-v2-account {
+    justify-content: center;
+    padding: 6px;
+  }
+
+  .experience-v2 .desktop-v2-account-link {
+    flex: none;
+  }
+
+  .experience-v2 .desktop-v2-header {
+    left: 80px !important;
+    padding-inline: 16px;
+  }
+
+  .experience-v2 .desktop-v2-main {
+    padding-left: 96px !important;
+    padding-right: 16px !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .experience-v2 .desktop-v2-page-description,
+  .experience-v2 .desktop-v2-command-label,
+  .experience-v2 .desktop-v2-command-shortcut {
+    display: none;
+  }
+
+  .experience-v2 .desktop-v2-command-trigger {
+    width: 44px;
+    justify-content: center;
+    padding-inline: 0;
+  }
+}
+
 .experience-v2 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

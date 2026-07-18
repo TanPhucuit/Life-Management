@@ -91,15 +91,15 @@ function DesktopRouteContent({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const scene = useSceneActions();
-  const motion = useMotionDirector();
+  const { updateSnapshot, triggerPulse } = useSceneActions();
+  const { preferences, setPreferences, pulseActivity } = useMotionDirector();
   const route = `${pathname}${searchParams.size ? `?${searchParams.toString()}` : ''}`;
 
   useEffect(() => {
-    scene.updateSnapshot({ route });
-    scene.triggerPulse('route');
-    motion.pulseActivity('transition', 420);
-  }, [motion, route, scene]);
+    updateSnapshot({ route });
+    triggerPulse('route');
+    return pulseActivity('transition', 420);
+  }, [pulseActivity, route, triggerPulse, updateSnapshot]);
 
   if (pathname === '/overview') {
     return <DesktopClassicWorkspace kind="overview">{legacyRoute}</DesktopClassicWorkspace>;
@@ -107,7 +107,10 @@ function DesktopRouteContent({
   if (pathname === '/tasks') {
     return (
       <DesktopClassicWorkspace kind="tasks">
-        <TaskManager variant="desktop-cinematic" />
+        <TaskManager
+          variant="desktop-cinematic"
+          initialView={searchParams.get('mode') === 'spaces' ? 'tree' : undefined}
+        />
       </DesktopClassicWorkspace>
     );
   }
@@ -134,8 +137,8 @@ function DesktopRouteContent({
   if (pathname === '/settings') {
     return (
       <DesktopSettings
-        preferences={motion.preferences}
-        onPreferencesChange={motion.setPreferences}
+        preferences={preferences}
+        onPreferencesChange={setPreferences}
       />
     );
   }
