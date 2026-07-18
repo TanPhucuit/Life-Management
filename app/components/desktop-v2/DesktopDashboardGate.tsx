@@ -4,12 +4,18 @@ import { ReactNode } from 'react';
 import { DesktopExperienceGate } from './core';
 import type { DesktopDashboardProps } from './DesktopDashboard';
 
-export default function DesktopDashboardGate({ legacy }: { legacy: ReactNode }) {
+export default function DesktopDashboardGate({
+  legacy,
+  desktopContent,
+}: {
+  legacy: ReactNode;
+  desktopContent: ReactNode;
+}) {
   return (
     <DesktopExperienceGate<DesktopDashboardProps>
       legacy={legacy}
       loadDesktop={() => import('./DesktopDashboard')}
-      desktopProps={{ children: legacy }}
+      desktopProps={{ children: desktopContent }}
     />
   );
 }

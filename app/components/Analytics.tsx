@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import {
   Area,
   AreaChart,
@@ -26,6 +26,12 @@ type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_
 type ChartPoint = { name: string; value: number | null };
 type CycleChartPoint = { name: string; count: number | null; cumulative: number | null };
 
+export type AnalyticsVariant = 'legacy' | 'desktop-cinematic';
+
+interface AnalyticsProps {
+  variant?: AnalyticsVariant;
+}
+
 const monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -34,7 +40,7 @@ const monthNames = [
 const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 const cycleTarget = 240;
 
-export default function Analytics() {
+export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const { selectedMonth, selectedYear, currentMonth: storeMonth, currentYear: storeYear, user } = useAppStore();
   const [currentMonth, setCurrentMonth] = useState(selectedMonth || storeMonth || new Date().getMonth() + 1);
   const [currentYear, setCurrentYear] = useState(selectedYear || storeYear || new Date().getFullYear());
@@ -205,6 +211,35 @@ export default function Analytics() {
     setSelectedWeek(1);
   };
 
+  if (variant === 'desktop-cinematic') {
+    return (
+      <DesktopCinematicAnalytics
+        analyticsView={analyticsView}
+        currentMonth={currentMonth}
+        currentYear={currentYear}
+        cycleDomainMax={cycleDomainMax}
+        cycleMonthlyData={cycleMonthlyData}
+        dailyData={dailyData}
+        errorMessage={errorMessage}
+        kosDistribution={kosDistribution}
+        kosTrend={kosTrend}
+        monthlyCycleCount={monthlyCycleCount}
+        monthlyKosTotal={monthlyKosTotal}
+        monthlyRecordCount={monthlyRecordCount}
+        monthlyTotalHours={monthlyTotalHours}
+        moveMonth={moveMonth}
+        selectedWeek={selectedWeek}
+        setAnalyticsView={setAnalyticsView}
+        setSelectedWeek={setSelectedWeek}
+        weeklyData={weeklyData}
+        weeklyProgressData={weeklyProgressData}
+        weeklyProgressDomain={weeklyProgressDomain}
+        weeklyProgressMax={weeklyProgressMax}
+        weeksCount={weeksCount}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4 pb-16 lg:pb-0">
       <section className="premium-card p-4 sm:p-5">
@@ -271,7 +306,7 @@ export default function Analytics() {
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <ChartPanel title={`Study hours by week — ${monthNames[currentMonth - 1]}`}>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={weeklyData} barCategoryGap="22%">
+              <BarChart data={weeklyData} barCategoryGap="22%" accessibilityLayer>
                 <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
                 <XAxis dataKey="name" stroke="#64748b" />
                 <YAxis stroke="#64748b" />
@@ -283,7 +318,7 @@ export default function Analytics() {
 
           <ChartPanel title="Key of Success distribution">
             <ResponsiveContainer width="100%" height={280}>
-              <PieChart>
+              <PieChart accessibilityLayer>
                 <Pie data={kosDistribution} dataKey="value" nameKey="name" outerRadius={92} labelLine={false}>
                   {kosDistribution.map((entry) => (
                     <Cell key={entry.name} fill={entry.color} />
@@ -309,7 +344,7 @@ export default function Analytics() {
           <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week" />
           <ChartPanel title={`Daily study hours — Week ${selectedWeek}`}>
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={dailyData} barCategoryGap="22%">
+              <BarChart data={dailyData} barCategoryGap="22%" accessibilityLayer>
                 <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
                 <XAxis dataKey="name" stroke="#64748b" angle={-35} textAnchor="end" height={70} />
                 <YAxis stroke="#64748b" />
@@ -326,7 +361,7 @@ export default function Analytics() {
           <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week to view progress" />
           <ChartPanel title={`Cumulative study time — Week ${selectedWeek}`}>
             <ResponsiveContainer width="100%" height={340}>
-              <AreaChart data={weeklyProgressData}>
+              <AreaChart data={weeklyProgressData} accessibilityLayer>
                 <defs>
                   <linearGradient id="weeklyProgressGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#2563eb" stopOpacity={0.24} />
@@ -360,7 +395,7 @@ export default function Analytics() {
       {analyticsView === 'key_of_success' && (
         <ChartPanel title={`Key of Success progress — ${monthNames[currentMonth - 1]} ${currentYear}`}>
           <ResponsiveContainer width="100%" height={340}>
-            <AreaChart data={kosTrend}>
+            <AreaChart data={kosTrend} accessibilityLayer>
               <defs>
                 <linearGradient id="kosGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#f97316" stopOpacity={0.24} />
@@ -389,7 +424,7 @@ export default function Analytics() {
       {analyticsView === 'cycle_ticks' && (
         <ChartPanel title={`Checked cycle blocks — ${monthNames[currentMonth - 1]} ${currentYear}`}>
           <ResponsiveContainer width="100%" height={360}>
-            <ComposedChart data={cycleMonthlyData}>
+            <ComposedChart data={cycleMonthlyData} accessibilityLayer>
               <defs>
                 <linearGradient id="cycleGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#eab308" stopOpacity={0.28} />
@@ -421,6 +456,356 @@ export default function Analytics() {
         </ChartPanel>
       )}
     </div>
+  );
+}
+
+interface DesktopCinematicAnalyticsProps {
+  analyticsView: AnalyticsView;
+  currentMonth: number;
+  currentYear: number;
+  cycleDomainMax: number;
+  cycleMonthlyData: CycleChartPoint[];
+  dailyData: Array<{ name: string; hours: number }>;
+  errorMessage: string;
+  kosDistribution: Array<{ name: string; value: number; color: string }>;
+  kosTrend: ChartPoint[];
+  monthlyCycleCount: number;
+  monthlyKosTotal: number;
+  monthlyRecordCount: number;
+  monthlyTotalHours: number;
+  moveMonth: (direction: -1 | 1) => void;
+  selectedWeek: number;
+  setAnalyticsView: (view: AnalyticsView) => void;
+  setSelectedWeek: (week: number) => void;
+  weeklyData: Array<{ name: string; hours: number }>;
+  weeklyProgressData: ChartPoint[];
+  weeklyProgressDomain: [number, number];
+  weeklyProgressMax: number;
+  weeksCount: number;
+}
+
+const cinematicTooltipStyle = {
+  background: 'var(--glass-strong)',
+  border: '1px solid var(--border)',
+  borderRadius: 14,
+  boxShadow: 'var(--shadow-md)',
+  color: 'var(--foreground)',
+};
+
+const cinematicViewItems: Array<{ id: AnalyticsView; label: string; hint: string }> = [
+  { id: 'month_overview', label: 'Month', hint: 'Weekly totals' },
+  { id: 'week_daily', label: 'Week details', hint: 'Daily hours' },
+  { id: 'weekly_progress', label: 'Progress', hint: 'Cumulative week' },
+  { id: 'key_of_success', label: 'Success keys', hint: 'Monthly trend' },
+  { id: 'cycle_ticks', label: 'Cycles', hint: '240-block target' },
+];
+
+function DesktopCinematicAnalytics({
+  analyticsView,
+  currentMonth,
+  currentYear,
+  cycleDomainMax,
+  cycleMonthlyData,
+  dailyData,
+  errorMessage,
+  kosDistribution,
+  kosTrend,
+  monthlyCycleCount,
+  monthlyKosTotal,
+  monthlyRecordCount,
+  monthlyTotalHours,
+  moveMonth,
+  selectedWeek,
+  setAnalyticsView,
+  setSelectedWeek,
+  weeklyData,
+  weeklyProgressData,
+  weeklyProgressDomain,
+  weeklyProgressMax,
+  weeksCount,
+}: DesktopCinematicAnalyticsProps) {
+  const reducedMotion = Boolean(useReducedMotion());
+  const barDuration = reducedMotion ? 0 : 720;
+  const lineDuration = reducedMotion ? 0 : 880;
+  const chartKey = `${analyticsView}-${currentYear}-${currentMonth}-${
+    analyticsView === 'week_daily' || analyticsView === 'weekly_progress' ? selectedWeek : 'month'
+  }`;
+
+  return (
+    <div className="desktop-cinematic-analytics relative space-y-5 pb-10 text-[var(--foreground)]">
+      <header className="relative overflow-hidden rounded-[30px] border border-[var(--border)] bg-[var(--glass)] p-6 shadow-[var(--shadow-md)] backdrop-blur-xl">
+        <div aria-hidden className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-[var(--primary)] opacity-[.08] blur-3xl" />
+        <div className="relative flex items-end justify-between gap-6">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[.24em] text-[var(--primary)]">Progress analytics</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-[-.045em]">Your progress, without the noise.</h1>
+            <p className="mt-2 max-w-2xl text-sm text-[var(--foreground-muted)]">
+              The original study-time, success-key, and cycle calculations in a clearer desktop workspace.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/75 p-1.5 shadow-[var(--shadow-sm)]">
+            <motion.button
+              type="button"
+              onClick={() => moveMonth(-1)}
+              whileTap={reducedMotion ? undefined : { scale: .9, x: -2 }}
+              className="grid h-10 w-10 place-items-center rounded-xl text-[var(--foreground-muted)] transition-colors hover:bg-[var(--surface-raised)] hover:text-[var(--foreground)]"
+              aria-label="Previous month"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </motion.button>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={`${currentYear}-${currentMonth}`}
+                initial={reducedMotion ? false : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reducedMotion ? undefined : { opacity: 0, y: -8 }}
+                transition={{ duration: .22 }}
+                className="min-w-[164px] text-center text-sm font-semibold tabular-nums"
+              >
+                {monthNames[currentMonth - 1]} {currentYear}
+              </motion.div>
+            </AnimatePresence>
+            <motion.button
+              type="button"
+              onClick={() => moveMonth(1)}
+              whileTap={reducedMotion ? undefined : { scale: .9, x: 2 }}
+              className="grid h-10 w-10 place-items-center rounded-xl text-[var(--foreground-muted)] transition-colors hover:bg-[var(--surface-raised)] hover:text-[var(--foreground)]"
+              aria-label="Next month"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </motion.button>
+          </div>
+        </div>
+        {errorMessage && (
+          <div role="alert" className="relative mt-4 rounded-2xl border border-[var(--danger)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
+            {errorMessage}
+          </div>
+        )}
+      </header>
+
+      <section className="grid grid-cols-4 gap-4" aria-label="Monthly summary">
+        <CinematicMetric index={0} label="Study hours" value={`${roundOneDecimal(monthlyTotalHours)}h`} reducedMotion={reducedMotion} />
+        <CinematicMetric index={1} label="Tracked days" value={String(monthlyRecordCount)} reducedMotion={reducedMotion} />
+        <CinematicMetric index={2} label="Success keys" value={String(monthlyKosTotal)} reducedMotion={reducedMotion} />
+        <CinematicMetric index={3} label="Cycle blocks" value={String(monthlyCycleCount)} reducedMotion={reducedMotion} />
+      </section>
+
+      <nav className="grid grid-cols-5 gap-2 rounded-[24px] border border-[var(--border)] bg-[var(--glass)] p-2 shadow-[var(--shadow-sm)] backdrop-blur-xl" aria-label="Analytics views" role="tablist">
+        {cinematicViewItems.map((item) => {
+          const active = analyticsView === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setAnalyticsView(item.id)}
+              role="tab"
+              aria-selected={active}
+              className="relative min-h-[58px] rounded-2xl px-4 text-left"
+            >
+              {active && (
+                <motion.span
+                  layoutId="desktop-analytics-active-view"
+                  className="absolute inset-0 rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-[var(--shadow-sm)]"
+                  transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 36 }}
+                />
+              )}
+              <span className="relative block text-sm font-semibold text-[var(--foreground)]">{item.label}</span>
+              <span className="relative mt-0.5 block text-[10px] text-[var(--foreground-subtle)]">{item.hint}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={chartKey}
+          initial={reducedMotion ? false : { opacity: 0, y: 14, scale: .992 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={reducedMotion ? undefined : { opacity: 0, y: -10, scale: .995 }}
+          transition={{ duration: reducedMotion ? 0 : .28, ease: [0.22, 1, 0.36, 1] }}
+          className="space-y-4"
+        >
+          {analyticsView === 'month_overview' && (
+            <div className="grid grid-cols-2 gap-5">
+              <CinematicChartPanel title={`Study hours by week — ${monthNames[currentMonth - 1]}`} reducedMotion={reducedMotion}>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={weeklyData} barCategoryGap="22%" margin={{ top: 10, right: 10, left: -8, bottom: 0 }} accessibilityLayer>
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
+                    <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
+                    <Tooltip formatter={(value) => [`${value}h`, 'Study time']} contentStyle={cinematicTooltipStyle} cursor={{ fill: 'var(--surface-soft)' }} />
+                    <Bar dataKey="hours" fill="var(--chart-1)" maxBarSize={52} radius={[10, 10, 3, 3]} isAnimationActive={!reducedMotion} animationDuration={barDuration} animationEasing="ease-out" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CinematicChartPanel>
+
+              <CinematicChartPanel title="Key of Success distribution" reducedMotion={reducedMotion}>
+                <ResponsiveContainer width="100%" height={260}>
+                  <PieChart accessibilityLayer>
+                    <Pie
+                      data={kosDistribution}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={56}
+                      outerRadius={96}
+                      paddingAngle={3}
+                      cornerRadius={7}
+                      labelLine={false}
+                      isAnimationActive={!reducedMotion}
+                      animationDuration={lineDuration}
+                      animationEasing="ease-out"
+                    >
+                      {kosDistribution.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                    </Pie>
+                    <Tooltip contentStyle={cinematicTooltipStyle} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {kosDistribution.map((entry) => (
+                    <div key={entry.name} className="flex items-center justify-between rounded-xl bg-[var(--surface-soft)] px-3 py-2.5">
+                      <span className="flex items-center gap-2 text-[var(--foreground-muted)]"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />{entry.name}</span>
+                      <strong className="tabular-nums">{entry.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </CinematicChartPanel>
+            </div>
+          )}
+
+          {analyticsView === 'week_daily' && (
+            <>
+              <CinematicWeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week" reducedMotion={reducedMotion} />
+              <CinematicChartPanel title={`Daily study hours — Week ${selectedWeek}`} reducedMotion={reducedMotion}>
+                <ResponsiveContainer width="100%" height={380}>
+                  <BarChart data={dailyData} barCategoryGap="22%" margin={{ top: 12, right: 14, left: -8, bottom: 8 }} accessibilityLayer>
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
+                    <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
+                    <Tooltip formatter={(value) => [`${value}h`, 'Study time']} contentStyle={cinematicTooltipStyle} cursor={{ fill: 'var(--surface-soft)' }} />
+                    <Bar dataKey="hours" fill="var(--chart-2)" maxBarSize={52} radius={[10, 10, 3, 3]} isAnimationActive={!reducedMotion} animationDuration={barDuration} animationEasing="ease-out" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CinematicChartPanel>
+            </>
+          )}
+
+          {analyticsView === 'weekly_progress' && (
+            <>
+              <CinematicWeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week to view progress" reducedMotion={reducedMotion} />
+              <CinematicChartPanel title={`Cumulative study time — Week ${selectedWeek}`} reducedMotion={reducedMotion}>
+                <ResponsiveContainer width="100%" height={400}>
+                  <AreaChart data={weeklyProgressData} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
+                    <defs>
+                      <linearGradient id="cinematicWeeklyProgressGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={.32} />
+                        <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
+                    <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} domain={weeklyProgressDomain} allowDataOverflow={false} />
+                    <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])} contentStyle={cinematicTooltipStyle} />
+                    <ReferenceLine y={40} label={{ value: '40h', fill: '#d97706', fontSize: 12 }} stroke="#d97706" strokeDasharray="4 4" />
+                    {weeklyProgressMax > 50 && <ReferenceLine y={80} label={{ value: '80h', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeDasharray="4 4" />}
+                    <Area type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={3} fill="url(#cinematicWeeklyProgressGradient)" dot={{ fill: 'var(--chart-1)', r: 4 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CinematicChartPanel>
+            </>
+          )}
+
+          {analyticsView === 'key_of_success' && (
+            <CinematicChartPanel title={`Key of Success progress — ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
+              <ResponsiveContainer width="100%" height={420}>
+                <AreaChart data={kosTrend} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
+                  <defs>
+                    <linearGradient id="cinematicKosGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#f97316" stopOpacity={.32} />
+                      <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                  <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
+                  <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} domain={[0, 'dataMax + 5']} />
+                  <Tooltip formatter={(value) => (value == null ? [] : [value, 'Key of Success'])} contentStyle={cinematicTooltipStyle} />
+                  <Area type="monotone" dataKey="value" stroke="#f97316" strokeWidth={3} fill="url(#cinematicKosGradient)" dot={{ fill: '#f97316', r: 3 }} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </CinematicChartPanel>
+          )}
+
+          {analyticsView === 'cycle_ticks' && (
+            <CinematicChartPanel title={`Checked cycle blocks — ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
+              <ResponsiveContainer width="100%" height={430}>
+                <ComposedChart data={cycleMonthlyData} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
+                  <defs>
+                    <linearGradient id="cinematicCycleGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#eab308" stopOpacity={.3} />
+                      <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                  <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
+                  <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} domain={[0, cycleDomainMax]} />
+                  <Tooltip formatter={(value, name) => [value, name === 'cumulative' ? 'Cumulative' : 'Daily']} contentStyle={cinematicTooltipStyle} />
+                  <ReferenceLine y={cycleTarget} label={{ value: '240', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeWidth={2} />
+                  <Area type="monotone" dataKey="cumulative" stroke="#ca8a04" strokeWidth={3} fill="url(#cinematicCycleGradient)" dot={{ fill: '#ca8a04', r: 3 }} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
+                  <Bar dataKey="count" fill="#facc15" maxBarSize={24} radius={[5, 5, 1, 1]} isAnimationActive={!reducedMotion} animationDuration={barDuration} animationEasing="ease-out" />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </CinematicChartPanel>
+          )}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function CinematicMetric({ index, label, value, reducedMotion }: { index: number; label: string; value: string; reducedMotion: boolean }) {
+  return (
+    <motion.article
+      initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 360, damping: 32, delay: index * .045 }}
+      className="rounded-[24px] border border-[var(--border)] bg-[var(--glass)] p-4 shadow-[var(--shadow-sm)] backdrop-blur-xl"
+    >
+      <p className="text-[10px] font-semibold uppercase tracking-[.17em] text-[var(--foreground-subtle)]">{label}</p>
+      <p className="mt-2 text-3xl font-semibold tracking-[-.045em] tabular-nums">{value}</p>
+    </motion.article>
+  );
+}
+
+function CinematicWeekSelector({ weeksCount, selectedWeek, onSelect, label, reducedMotion }: { weeksCount: number; selectedWeek: number; onSelect: (week: number) => void; label: string; reducedMotion: boolean }) {
+  return (
+    <section className="flex items-center justify-between gap-4 rounded-[22px] border border-[var(--border)] bg-[var(--glass)] p-3 shadow-[var(--shadow-sm)]">
+      <p className="pl-2 text-sm text-[var(--foreground-muted)]">{label}</p>
+      <div className="flex flex-wrap justify-end gap-2">
+        {Array.from({ length: weeksCount }, (_, index) => index + 1).map((week) => (
+          <button key={week} type="button" onClick={() => onSelect(week)} aria-pressed={selectedWeek === week} className="relative min-h-10 min-w-[76px] rounded-xl px-3 text-sm font-semibold">
+            {selectedWeek === week && <motion.span layoutId="desktop-analytics-week" className="absolute inset-0 rounded-xl border border-[var(--primary)] bg-[var(--primary-soft)]" transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 430, damping: 36 }} />}
+            <span className={`relative ${selectedWeek === week ? 'text-[var(--primary)]' : 'text-[var(--foreground-muted)]'}`}>Week {week}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CinematicChartPanel({ title, children, reducedMotion }: { title: string; children: React.ReactNode; reducedMotion: boolean }) {
+  return (
+    <section className="relative overflow-hidden rounded-[30px] border border-[var(--border)] bg-[var(--glass)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
+      {!reducedMotion && (
+        <motion.span
+          aria-hidden
+          className="pointer-events-none absolute left-0 top-0 h-px w-1/3 bg-gradient-to-r from-transparent via-[var(--primary)] to-transparent"
+          initial={{ x: '-120%', opacity: 0 }}
+          animate={{ x: '420%', opacity: [0, .9, 0] }}
+          transition={{ duration: .9, ease: 'easeOut' }}
+        />
+      )}
+      <h2 className="mb-4 text-base font-semibold tracking-[-.015em]">{title}</h2>
+      {children}
+    </section>
   );
 }
 

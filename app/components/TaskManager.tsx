@@ -19,6 +19,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { api, ApiTask, ApiTaskStatus, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
@@ -37,6 +38,7 @@ type NodePosition = { x: number; y: number };
 type DragState = { taskId: string; offsetX: number; offsetY: number };
 type TaskContextMenu = { taskId: string; x: number; y: number };
 type TaskWorkspaceView = 'tree' | 'table';
+export type TaskWorkspaceVariant = 'legacy' | 'desktop-cinematic';
 type DiagramNodeKind = 'topic' | 'task';
 type DiagramNode = {
   id: string;
@@ -181,8 +183,10 @@ const toDateTimeInputValue = (value?: string | null) => {
   return offsetDate.toISOString().slice(0, 16);
 };
 
-export default function TaskManager() {
+export default function TaskManager({ variant = 'legacy' }: { variant?: TaskWorkspaceVariant }) {
   const { user } = useAppStore();
+  const isDesktopCinematic = variant === 'desktop-cinematic';
+  const reducedMotion = Boolean(useReducedMotion());
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
   const titleLayoutSignatureRef = useRef('');
@@ -203,7 +207,7 @@ export default function TaskManager() {
   const [taskContextMenu, setTaskContextMenu] = useState<TaskContextMenu | null>(null);
   const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
   const [canvasZoom, setCanvasZoom] = useState(1);
-  const [workspaceView, setWorkspaceView] = useState<TaskWorkspaceView>('tree');
+  const [workspaceView, setWorkspaceView] = useState<TaskWorkspaceView>(() => isDesktopCinematic ? 'table' : 'tree');
 
   const loadData = async () => {
     if (!user?.id) return;
@@ -770,40 +774,66 @@ export default function TaskManager() {
   };
 
   return (
-    <div className="premium-card overflow-visible text-slate-950 lg:min-h-[calc(100vh-140px)] lg:overflow-hidden">
+    <div
+      className={`premium-card overflow-visible text-slate-950 lg:min-h-[calc(100vh-140px)] lg:overflow-hidden ${isDesktopCinematic ? 'desktop-task-workspace rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_24px_80px_rgba(15,23,42,.12)]' : ''}`}
+      data-task-workspace-variant={variant}
+      data-task-workspace-view={workspaceView}
+    >
       <div className="grid grid-cols-1 lg:min-h-[calc(100vh-120px)]">
         <main className="flex min-w-0 flex-col">
-          <header className="border-b border-slate-200 bg-transparent px-3 py-4 sm:px-5">
+          <header className={`border-b border-slate-200 px-3 py-4 sm:px-5 ${isDesktopCinematic ? 'bg-white/85 backdrop-blur-xl' : 'bg-transparent'}`}>
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                 <div>
-                  <h1 className="text-xl font-semibold tracking-[-.025em]">Task workspace</h1>
+                  <h1 className="text-xl font-semibold tracking-[-.025em]">{isDesktopCinematic ? 'Tasks' : 'Task workspace'}</h1>
                   <p className="text-sm text-slate-500">
-                    {workspaceView === 'tree'
+                    {isDesktopCinematic
+                      ? 'Manage every task in a clear hierarchical table or tree.'
+                      : workspaceView === 'tree'
                       ? 'Choose one life root and focus on its complete task tree.'
                       : 'Each root becomes a sheet with tasks arranged by hierarchy.'}
                   </p>
                 </div>
-                <div className="inline-flex w-fit shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-1" role="group" aria-label="Task view">
+                <div className={`inline-flex w-fit shrink-0 overflow-hidden rounded-xl border border-slate-200 p-1 ${isDesktopCinematic ? 'bg-slate-100/80 shadow-inner' : 'bg-slate-50'}`} role="group" aria-label="Task view">
                   <button
                     type="button"
                     onClick={() => setWorkspaceView('tree')}
-                    className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
-                      workspaceView === 'tree' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                    aria-pressed={workspaceView === 'tree'}
+                    className={`relative isolate inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
+                      isDesktopCinematic
+                        ? workspaceView === 'tree' ? 'text-slate-950' : 'text-slate-500 hover:text-slate-900'
+                        : workspaceView === 'tree' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'
                     }`}
                   >
-                    <GitBranch className="h-3.5 w-3.5" />
-                    Tree
+                    {isDesktopCinematic && workspaceView === 'tree' && (
+                      <motion.span
+                        layoutId={reducedMotion ? undefined : 'desktop-task-workspace-view'}
+                        className="absolute inset-0 -z-10 rounded bg-white shadow-sm"
+                        transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 34 }}
+                      />
+                    )}
+                    <GitBranch className="relative h-3.5 w-3.5" />
+                    <span className="relative">Tree</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setWorkspaceView('table')}
-                    className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
-                      workspaceView === 'table' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                    aria-pressed={workspaceView === 'table'}
+                    className={`relative isolate inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
+                      isDesktopCinematic
+                        ? workspaceView === 'table' ? 'text-slate-950' : 'text-slate-500 hover:text-slate-900'
+                        : workspaceView === 'table' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'
                     }`}
                   >
-                    <Table2 className="h-3.5 w-3.5" />
-                    Table
+                    {isDesktopCinematic && workspaceView === 'table' && (
+                      <motion.span
+                        layoutId={reducedMotion ? undefined : 'desktop-task-workspace-view'}
+                        className="absolute inset-0 -z-10 rounded bg-white shadow-sm"
+                        transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 34 }}
+                      />
+                    )}
+                    <Table2 className="relative h-3.5 w-3.5" />
+                    <span className="relative">Table</span>
                   </button>
                 </div>
               </div>
@@ -854,6 +884,7 @@ export default function TaskManager() {
             </div>
           </header>
 
+          <WorkspaceViewTransition enabled={isDesktopCinematic && !reducedMotion} view={workspaceView}>
           {workspaceView === 'tree' ? (
           <section
             ref={canvasRef}
@@ -1015,11 +1046,13 @@ export default function TaskManager() {
               topics={topics}
               searchTerm={searchTerm}
               isLoading={isLoading}
+              variant={variant}
               onToggleTask={handleToggleLeaf}
               onOpenTask={openTaskDetails}
               onAddChild={(taskId) => openTaskModal(taskId)}
             />
           )}
+          </WorkspaceViewTransition>
         </main>
       </div>
 
@@ -1119,6 +1152,33 @@ export default function TaskManager() {
       )}
 
     </div>
+  );
+}
+
+function WorkspaceViewTransition({
+  enabled,
+  view,
+  children,
+}: {
+  enabled: boolean;
+  view: TaskWorkspaceView;
+  children: ReactNode;
+}) {
+  if (!enabled) return <>{children}</>;
+
+  return (
+    <AnimatePresence initial={false} mode="wait">
+      <motion.div
+        key={view}
+        initial={{ opacity: 0, y: 10, scale: 0.995 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: -6, scale: 0.998 }}
+        transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
   );
 }
 

@@ -156,12 +156,12 @@ export function MotionDirectorProvider({ children }: { children: ReactNode }) {
   const ambientIntensity = reducedMotion
     ? 0
     : activePriority === 'interaction'
-      ? 0.16
+      ? 0
       : activePriority === 'transition'
-        ? 0.32
+        ? 0.08
         : activePriority === 'feedback'
-          ? 0.58
-          : 1;
+          ? 0.18
+          : 0.58;
 
   const isActive = useCallback(
     (priority: MotionPriority) => activities[priority] > 0,
@@ -171,10 +171,13 @@ export function MotionDirectorProvider({ children }: { children: ReactNode }) {
   const shouldAnimate = useCallback(
     (priority: MotionPriority) => {
       if (reducedMotion) return false;
-      if (priority === 'ambient') return ambientIntensity > 0.2;
-      return true;
+      if (!activePriority) return true;
+
+      const requestedRank = priorityOrder.indexOf(priority);
+      const activeRank = priorityOrder.indexOf(activePriority);
+      return requestedRank <= activeRank;
     },
-    [ambientIntensity, reducedMotion],
+    [activePriority, reducedMotion],
   );
 
   const value = useMemo<MotionDirectorValue>(

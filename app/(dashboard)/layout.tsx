@@ -4,6 +4,9 @@ import DesktopDashboardGate from '@/app/components/desktop-v2/DesktopDashboardGa
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
-    <DesktopDashboardGate legacy={<AppShell>{children}</AppShell>} />
+    <DesktopDashboardGate
+      legacy={<AppShell>{children}</AppShell>}
+      desktopContent={children}
+    />
   );
 }

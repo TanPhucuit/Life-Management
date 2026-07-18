@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   AlertCircle,
   Check,
@@ -25,6 +26,7 @@ type TaskTableViewProps = {
   onToggleTask: (task: ApiTask) => void | Promise<void>;
   onOpenTask: (taskId: string) => void;
   onAddChild: (taskId: string) => void;
+  variant?: 'legacy' | 'desktop-cinematic';
 };
 
 type TaskRow = { task: ApiTask; depth: number };
@@ -58,7 +60,9 @@ export default function TaskTableView({
   onToggleTask,
   onOpenTask,
   onAddChild,
+  variant = 'legacy',
 }: TaskTableViewProps) {
+  const isDesktopCinematic = variant === 'desktop-cinematic';
   const [activeRootId, setActiveRootId] = useState<string | null>(null);
   const [activeLevelOneId, setActiveLevelOneId] = useState<string | null>(null);
   const [activeLevelTwoSheetId, setActiveLevelTwoSheetId] = useState<string | null>(null);
@@ -128,11 +132,17 @@ export default function TaskTableView({
       setActiveLevelTwoSheetId(null);
       return;
     }
-    if (!activeLevelOneId || !levelOneSheets.some((task) => task.id === activeLevelOneId)) {
+    const selectionIsInvalid = Boolean(activeLevelOneId) && !levelOneSheets.some((task) => task.id === activeLevelOneId);
+    if (isDesktopCinematic && selectionIsInvalid) {
+      setActiveLevelOneId(null);
+      setActiveLevelTwoSheetId(null);
+      return;
+    }
+    if (!isDesktopCinematic && (!activeLevelOneId || selectionIsInvalid)) {
       setActiveLevelOneId(levelOneSheets[0].id);
       setActiveLevelTwoSheetId(null);
     }
-  }, [activeLevelOneId, levelOneSheets]);
+  }, [activeLevelOneId, isDesktopCinematic, levelOneSheets]);
 
   useEffect(() => {
     if (activeLevelTwoSheetId && !levelTwoSheets.some((task) => task.id === activeLevelTwoSheetId)) {
@@ -141,8 +151,12 @@ export default function TaskTableView({
   }, [activeLevelTwoSheetId, levelTwoSheets]);
 
   const baseTableTasks = useMemo(
-    () => activeLevelTwoSheet ? childrenByParent.get(activeLevelTwoSheet.id) || [] : directLevelTwoTasks,
-    [activeLevelTwoSheet, childrenByParent, directLevelTwoTasks],
+    () => activeLevelTwoSheet
+      ? childrenByParent.get(activeLevelTwoSheet.id) || []
+      : isDesktopCinematic && !activeLevelOne
+        ? levelOneSheets
+        : directLevelTwoTasks,
+    [activeLevelOne, activeLevelTwoSheet, childrenByParent, directLevelTwoTasks, isDesktopCinematic, levelOneSheets],
   );
   const normalizedSearch = searchTerm.trim().toLocaleLowerCase('vi-VN');
 
@@ -172,7 +186,7 @@ export default function TaskTableView({
     return rows;
   }, [baseTableTasks, childrenByParent, collapsedTaskIds, normalizedSearch, topicById]);
 
-  const tableContext = activeLevelTwoSheet || activeLevelOne;
+  const tableContext = activeLevelTwoSheet || activeLevelOne || (isDesktopCinematic ? activeRoot : null);
   const tableTaskIds = useMemo(() => {
     const ids = new Set<string>();
     const collect = (task: ApiTask) => {
@@ -209,7 +223,10 @@ export default function TaskTableView({
 
   if (rootTasks.length === 0) {
     return (
-      <section className="flex min-h-[420px] flex-1 items-center justify-center bg-slate-50 p-4">
+      <section
+        className={`flex min-h-[420px] flex-1 items-center justify-center bg-slate-50 p-4 ${isDesktopCinematic ? 'desktop-task-table' : ''}`}
+        data-task-table-variant={variant}
+      >
         <div className="max-w-sm rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
           <Table2 className="mx-auto mb-3 h-8 w-8 text-slate-400" />
           <p className="text-sm font-medium text-slate-700">No root tasks to display.</p>
@@ -219,8 +236,13 @@ export default function TaskTableView({
   }
 
   return (
-    <section className="flex min-h-[520px] flex-1 flex-col bg-slate-50">
-      <div className="border-b border-slate-200 bg-white p-3 sm:p-4">
+    <section
+      className={`flex min-h-[520px] flex-1 flex-col bg-slate-50 ${isDesktopCinematic ? 'desktop-task-table overflow-hidden' : ''}`}
+      data-task-table-variant={variant}
+      data-active-root-id={activeRootId || undefined}
+      data-active-sheet-id={activeLevelTwoSheetId || activeLevelOneId || (isDesktopCinematic ? 'all' : undefined)}
+    >
+      <div className={`border-b border-slate-200 bg-white p-3 sm:p-4 ${isDesktopCinematic ? 'shadow-[0_8px_24px_rgba(15,23,42,.035)]' : ''}`}>
         <label className="block max-w-xl">
           <span className="mb-1.5 block text-xs font-semibold uppercase text-slate-500">Root task</span>
           <select
@@ -239,11 +261,17 @@ export default function TaskTableView({
       {levelOneSheets.length > 0 ? (
         <>
           <SheetTabs
-            label="Level 1 sheet"
+            label={isDesktopCinematic ? 'Branches' : 'Level 1 sheet'}
             tasks={levelOneSheets}
             activeTaskId={activeLevelOneId}
             topics={topics}
             onSelect={selectLevelOne}
+            showAll={isDesktopCinematic}
+            onSelectAll={() => {
+              setActiveLevelOneId(null);
+              setActiveLevelTwoSheetId(null);
+              setCollapsedTaskIds(new Set());
+            }}
           />
 
           {activeLevelOne && levelTwoSheets.length > 0 && (
@@ -286,7 +314,14 @@ export default function TaskTableView({
           )}
 
           <div className="grid grid-cols-2 border-b border-slate-200 bg-white sm:grid-cols-4">
-            <SheetMetric label="Viewing" value={activeLevelTwoSheet ? activeLevelTwoSheet.title : 'Direct tasks'} />
+            <SheetMetric
+              label="Viewing"
+              value={activeLevelTwoSheet
+                ? activeLevelTwoSheet.title
+                : activeLevelOne
+                  ? 'Direct tasks'
+                  : 'Full hierarchy'}
+            />
             <SheetMetric label="Tasks" value={tableTasks.length} />
             <SheetMetric label="Progress" value={tableContext ? `${getCompletionPercent(tableContext)}%` : '0%'} />
             <SheetMetric label="Overdue" value={overdueCount} danger={overdueCount > 0} />
@@ -297,6 +332,7 @@ export default function TaskTableView({
             childrenByParent={childrenByParent}
             collapsedTaskIds={collapsedTaskIds}
             searchTerm={searchTerm}
+            variant={variant}
             onToggleCollapsed={toggleCollapsed}
             onToggleTask={onToggleTask}
             onOpenTask={onOpenTask}
@@ -326,12 +362,16 @@ function SheetTabs({
   activeTaskId,
   topics,
   onSelect,
+  showAll = false,
+  onSelectAll,
 }: {
   label: string;
   tasks: ApiTask[];
   activeTaskId: string | null;
   topics: ApiTopic[];
   onSelect: (taskId: string) => void;
+  showAll?: boolean;
+  onSelectAll?: () => void;
 }) {
   const topicById = new Map(topics.map((topic) => [topic.id, topic]));
   return (
@@ -339,6 +379,24 @@ function SheetTabs({
       <p className="mb-2 text-[11px] font-semibold uppercase text-slate-400">{label}</p>
       <div className="overflow-x-auto" role="tablist" aria-label={label}>
         <div className="flex min-w-max items-end gap-1">
+          {showAll && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!activeTaskId}
+              onClick={onSelectAll}
+              className={`relative flex h-10 items-center gap-2 border px-3 text-left text-sm transition ${
+                !activeTaskId
+                  ? 'z-10 border-b-white border-slate-300 bg-white font-semibold text-slate-950'
+                  : 'border-transparent bg-slate-100 text-slate-600 hover:bg-slate-200/70 hover:text-slate-900'
+              }`}
+            >
+              <ListTree className="h-4 w-4" />
+              <span>All tasks</span>
+              <span className="text-[10px] text-slate-400">{tasks.length}</span>
+              {!activeTaskId && <span className="absolute -bottom-px left-0 right-0 h-px bg-white" />}
+            </button>
+          )}
           {tasks.map((task, index) => {
             const topic = topicById.get(task.topic_id);
             const topicColor = getTopicColorByName(topic?.topic_color, index);
@@ -374,6 +432,7 @@ function TaskRowsTable({
   childrenByParent,
   collapsedTaskIds,
   searchTerm,
+  variant,
   onToggleCollapsed,
   onToggleTask,
   onOpenTask,
@@ -383,11 +442,16 @@ function TaskRowsTable({
   childrenByParent: Map<string | null, ApiTask[]>;
   collapsedTaskIds: Set<string>;
   searchTerm: string;
+  variant: 'legacy' | 'desktop-cinematic';
   onToggleCollapsed: (taskId: string) => void;
   onToggleTask: (task: ApiTask) => void | Promise<void>;
   onOpenTask: (taskId: string) => void;
   onAddChild: (taskId: string) => void;
 }) {
+  const isDesktopCinematic = variant === 'desktop-cinematic';
+  const reducedMotion = Boolean(useReducedMotion());
+  const animateRows = isDesktopCinematic && !reducedMotion && rows.length <= 120;
+  const TableRow = animateRows ? motion.tr : 'tr';
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="space-y-2 p-3 md:hidden">
@@ -426,7 +490,17 @@ function TaskRowsTable({
             const collapsed = collapsedTaskIds.has(task.id);
             const rowBackground = rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/60';
             return (
-              <tr key={task.id} className={`group ${rowBackground} transition hover:bg-blue-50/70`}>
+              <TableRow
+                key={task.id}
+                className={`group ${rowBackground} transition hover:bg-blue-50/70`}
+                data-task-depth={isDesktopCinematic ? depth : undefined}
+                {...(animateRows ? {
+                  layout: 'position' as const,
+                  initial: { opacity: 0, y: -6 },
+                  animate: { opacity: 1, y: 0 },
+                  transition: { type: 'spring' as const, stiffness: 420, damping: 34, mass: 0.75, delay: Math.min(depth * 0.018, 0.09) },
+                } : {})}
+              >
                 <td className={`sticky left-0 z-10 border-b border-r border-slate-200 p-0 ${rowBackground} group-hover:bg-blue-50/70`}>
                   <div className="flex min-h-12 items-center gap-2 px-3 py-2" style={{ paddingLeft: 12 + Math.min(depth, 8) * 24 }}>
                     {hasChildren ? (
@@ -452,7 +526,19 @@ function TaskRowsTable({
                 <td className={`border-b border-r border-slate-200 px-3 py-2 font-mono text-xs ${overdue ? 'font-semibold text-red-600' : 'text-slate-600'}`}>{formatTableDate(task.deadline)}</td>
                 <td className="border-b border-r border-slate-200 px-3 py-2">
                   <div className="flex items-center gap-2">
-                    <div className="h-1.5 flex-1 overflow-hidden bg-slate-200"><div className={`h-full ${completion === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} style={{ width: `${completion}%` }} /></div>
+                    <div className="h-1.5 flex-1 overflow-hidden bg-slate-200">
+                      {animateRows ? (
+                        <motion.div
+                          initial={false}
+                          animate={{ scaleX: completion / 100 }}
+                          transition={{ type: 'spring', stiffness: 320, damping: 30 }}
+                          style={{ transformOrigin: 'left center' }}
+                          className={`h-full w-full ${completion === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`}
+                        />
+                      ) : (
+                        <div className={`h-full ${completion === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} style={{ width: `${completion}%` }} />
+                      )}
+                    </div>
                     <span className="w-8 text-right font-mono text-xs font-medium text-slate-600">{completion}%</span>
                   </div>
                 </td>
@@ -462,7 +548,7 @@ function TaskRowsTable({
                     <button type="button" onClick={() => onAddChild(task.id)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-blue-300 hover:text-blue-700" title="Add child task"><Plus className="h-3.5 w-3.5" /></button>
                   </div>
                 </td>
-              </tr>
+              </TableRow>
             );
           })}
         </tbody>

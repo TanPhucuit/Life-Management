@@ -3,7 +3,6 @@
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import type { ApiTask } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { DesktopShellFrame } from './DesktopShell';
 import {
@@ -15,20 +14,16 @@ import {
   SceneProvider,
   useSceneActions,
 } from './scene';
-import type { FocusScenePulse } from './views/DesktopFocus';
-import type { IeltsScenePulse } from './views/DesktopIelts';
-import type { TodayScenePulse } from './views/DesktopToday';
+import DesktopClassicWorkspace from './views/DesktopClassicWorkspace';
 
 const viewLoading = () => <DesktopViewLoading />;
-const DesktopToday = dynamic(() => import('./views/DesktopToday'), { loading: viewLoading });
-const DesktopPlan = dynamic(() => import('./views/DesktopPlan'), { loading: viewLoading });
-const DesktopFocus = dynamic(() => import('./views/DesktopFocus'), { loading: viewLoading });
-const DesktopIelts = dynamic(() => import('./views/DesktopIelts'), { loading: viewLoading });
-const DesktopInsights = dynamic(() => import('./views/DesktopInsights'), { loading: viewLoading });
 const DesktopSettings = dynamic(() => import('./views/DesktopSettings'), { loading: viewLoading });
+const TaskManager = dynamic(() => import('@/app/components/TaskManager'), { loading: viewLoading });
+const IeltsTracker = dynamic(() => import('@/app/components/IeltsTracker'), { loading: viewLoading });
+const Analytics = dynamic(() => import('@/app/components/Analytics'), { loading: viewLoading });
 
 export interface DesktopDashboardProps {
-  /** Used only as a compatibility fallback for routes not redesigned in V2. */
+  /** Raw route content used for legacy workflows such as Calendar/detail pages. */
   children?: ReactNode;
 }
 
@@ -96,94 +91,46 @@ function DesktopRouteContent({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const router = useRouter();
   const scene = useSceneActions();
   const motion = useMotionDirector();
   const route = `${pathname}${searchParams.size ? `?${searchParams.toString()}` : ''}`;
 
-  const feedback = useCallback(
-    (kind: 'complete' | 'focus-complete' | 'save' | 'error' | 'route') => {
-      scene.triggerPulse(kind);
-      motion.pulseActivity(kind === 'route' ? 'transition' : 'feedback', 620);
-    },
-    [motion, scene],
-  );
-
   useEffect(() => {
     scene.updateSnapshot({ route });
     scene.triggerPulse('route');
-  }, [route, scene]);
-
-  const todayPulse = useCallback(
-    (pulse: TodayScenePulse) => {
-      if (pulse.type === 'task-completed') {
-        scene.updateSnapshot({ completion: pulse.completion });
-        feedback('complete');
-      } else if (pulse.type === 'task-reopened') {
-        scene.updateSnapshot({ completion: pulse.completion });
-        feedback('save');
-      } else {
-        feedback('route');
-      }
-    },
-    [feedback, scene],
-  );
-
-  const focusPulse = useCallback(
-    (pulse: FocusScenePulse) => {
-      if (pulse.type === 'focus-saved') {
-        scene.updateSnapshot({ focusedMinutes: pulse.totalFocusedMinutes });
-        feedback('focus-complete');
-      } else if (pulse.type === 'cycle-toggled' || pulse.type === 'success-key') {
-        feedback('save');
-      } else {
-        motion.pulseActivity('interaction', 420);
-      }
-    },
-    [feedback, motion, scene],
-  );
-
-  const ieltsPulse = useCallback(
-    (pulse: IeltsScenePulse) => {
-      if (pulse.type === 'ielts-saved') feedback('save');
-      else motion.pulseActivity('interaction', 420);
-    },
-    [feedback, motion],
-  );
-
-  const insightsPulse = useCallback(
-    () => feedback('route'),
-    [feedback],
-  );
+    motion.pulseActivity('transition', 420);
+  }, [motion, route, scene]);
 
   if (pathname === '/overview') {
-    return (
-      <DesktopToday
-        onScenePulse={todayPulse}
-        onSnapshotChange={scene.updateSnapshot}
-        onStartFocus={(task: ApiTask) =>
-          router.push(`/cycles?task=${encodeURIComponent(task.id)}`)
-        }
-      />
-    );
+    return <DesktopClassicWorkspace kind="overview">{legacyRoute}</DesktopClassicWorkspace>;
   }
   if (pathname === '/tasks') {
-    const mode = searchParams.get('mode') === 'spaces' ? 'spaces' : 'inbox';
     return (
-      <DesktopPlan
-        key={mode}
-        initialMode={mode}
-        onSnapshotChange={scene.updateSnapshot}
-        onScenePulse={(kind) => feedback(kind === 'complete' ? 'complete' : kind === 'space' ? 'route' : 'save')}
-      />
+      <DesktopClassicWorkspace kind="tasks">
+        <TaskManager variant="desktop-cinematic" />
+      </DesktopClassicWorkspace>
     );
   }
-  if (pathname === '/calendar') {
-    return <DesktopPlan initialMode="calendar" onSnapshotChange={scene.updateSnapshot} onScenePulse={(kind) => feedback(kind === 'complete' ? 'complete' : 'save')} />;
+  if (pathname.startsWith('/calendar')) {
+    return <DesktopClassicWorkspace kind="calendar">{legacyRoute}</DesktopClassicWorkspace>;
   }
-  if (pathname === '/cycles') return <DesktopFocus onScenePulse={focusPulse} onSnapshotChange={scene.updateSnapshot} />;
-  if (pathname === '/ielts') return <DesktopIelts onScenePulse={ieltsPulse} />;
-  if (pathname === '/analytics') return <DesktopInsights onScenePulse={insightsPulse} onSnapshotChange={scene.updateSnapshot} />;
+  if (pathname === '/cycles') {
+    return <DesktopClassicWorkspace kind="cycles">{legacyRoute}</DesktopClassicWorkspace>;
+  }
+  if (pathname === '/ielts') {
+    return (
+      <DesktopClassicWorkspace kind="ielts">
+        <IeltsTracker variant="desktop-cinematic" />
+      </DesktopClassicWorkspace>
+    );
+  }
+  if (pathname === '/analytics') {
+    return (
+      <DesktopClassicWorkspace kind="analytics">
+        <Analytics variant="desktop-cinematic" />
+      </DesktopClassicWorkspace>
+    );
+  }
   if (pathname === '/settings') {
     return (
       <DesktopSettings
@@ -193,9 +140,9 @@ function DesktopRouteContent({
     );
   }
 
-  // Detail routes keep their existing business component while still living
-  // inside the desktop shell. This avoids silently removing legacy workflows.
-  return <>{legacyRoute}</>;
+  // Unknown/detail routes retain their existing controller and receive only
+  // the desktop visual surface. The cinematic layer never replaces business logic.
+  return <DesktopClassicWorkspace kind="detail">{legacyRoute}</DesktopClassicWorkspace>;
 }
 
 function DesktopBootState() {

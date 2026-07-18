@@ -368,6 +368,86 @@ html[data-theme='light'] .experience-v2 .desktop-scene-host {
     inset 0 1px 0 rgba(255, 255, 255, .055);
 }
 
+/* Dense business workspaces keep their legacy controllers and calculations,
+   while this desktop-only skin raises contrast and calms the 3D atmosphere. */
+.experience-v2 .desktop-classic-workspace {
+  --glass: rgba(250, 252, 255, .94);
+  --glass-strong: rgba(255, 255, 255, .985);
+  --surface: rgba(248, 250, 255, .97);
+  --surface-raised: #ffffff;
+  --surface-soft: rgba(39, 63, 108, .065);
+  --foreground: #11182b;
+  --foreground-muted: #56637b;
+  --foreground-subtle: #748198;
+  --border: rgba(40, 59, 100, .12);
+  --border-strong: rgba(40, 59, 100, .22);
+  --chart-grid: rgba(40, 59, 100, .11);
+  --chart-1: #087ee1;
+  --chart-2: #7259d6;
+  --chart-3: #008b68;
+  --chart-4: #d66c00;
+  isolation: isolate;
+}
+
+html[data-theme='dark'] .experience-v2 .desktop-classic-workspace {
+  --glass: rgba(10, 17, 32, .94);
+  --glass-strong: rgba(13, 21, 39, .985);
+  --surface: rgba(15, 24, 43, .97);
+  --surface-raised: #17243d;
+  --surface-soft: rgba(190, 211, 255, .07);
+  --foreground: #f7f9ff;
+  --foreground-muted: #b1bdd2;
+  --foreground-subtle: #8794ad;
+  --border: rgba(190, 211, 255, .11);
+  --border-strong: rgba(190, 211, 255, .2);
+  --chart-grid: rgba(190, 211, 255, .1);
+  --chart-1: #64afff;
+  --chart-2: #b49bff;
+  --chart-3: #49dca7;
+  --chart-4: #ffb65a;
+}
+
+.experience-v2 .desktop-classic-workspace .premium-card {
+  box-shadow: 0 24px 72px rgba(31, 48, 83, .13), inset 0 1px 0 rgba(255, 255, 255, .7);
+}
+
+.experience-v2 .desktop-classic-workspace .premium-card-interactive:hover {
+  transform: translateY(-1px);
+}
+
+.experience-v2 .desktop-task-workspace {
+  border-radius: 24px !important;
+  background: rgba(248, 250, 253, .975) !important;
+  box-shadow: 0 28px 90px rgba(24, 39, 72, .16) !important;
+}
+
+/* The legacy task tree contains intentionally white node canvases. Keep that
+   dense editing surface light in both themes so its original slate palette,
+   inline node colors, and sticky table headers retain deterministic contrast. */
+html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-soft: #f1f5f9;
+  --foreground: #0f172a;
+  --foreground-muted: #64748b;
+  --foreground-subtle: #94a3b8;
+  --border: rgba(15, 23, 42, .12);
+  --border-strong: rgba(15, 23, 42, .2);
+  background: rgba(248, 250, 253, .985) !important;
+  color-scheme: light;
+  color: #0f172a;
+}
+
+.experience-v2 .desktop-task-workspace [data-task-table-variant='desktop-cinematic'] thead th {
+  background: rgba(248, 250, 253, .98);
+  backdrop-filter: blur(16px);
+}
+
+.experience-v2 .desktop-cinematic-analytics,
+.experience-v2 .desktop-cinematic-ielts {
+  min-width: 0;
+}
+
 .experience-v2 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

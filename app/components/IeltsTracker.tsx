@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { BarChart3, CheckCircle2, Headphones, Loader2, MessageCircle, Save, BookOpen, PenLine } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api, ApiIeltsHours } from '@/app/lib/api';
@@ -8,6 +9,12 @@ import { useAppStore } from '@/app/lib/store';
 
 type IeltsSkill = 'reading' | 'listening' | 'writing' | 'speaking';
 type HourDraft = Record<IeltsSkill, string>;
+
+export type IeltsTrackerVariant = 'legacy' | 'desktop-cinematic';
+
+interface IeltsTrackerProps {
+  variant?: IeltsTrackerVariant;
+}
 
 const skillConfigs = [
   { key: 'reading' as const, label: 'Reading', color: '#2563eb', softColor: '#eff6ff', icon: BookOpen },
@@ -35,7 +42,7 @@ const parseDraftValue = (value: string) => {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
 };
 
-export default function IeltsTracker() {
+export default function IeltsTracker({ variant = 'legacy' }: IeltsTrackerProps) {
   const { user } = useAppStore();
   const [draft, setDraft] = useState<HourDraft>(emptyDraft);
   const [isLoading, setIsLoading] = useState(false);
@@ -105,6 +112,23 @@ export default function IeltsTracker() {
     }
   };
 
+  if (variant === 'desktop-cinematic') {
+    return (
+      <DesktopCinematicIelts
+        chartData={chartData}
+        draft={draft}
+        errorMessage={errorMessage}
+        highestSkill={highestSkill}
+        isLoading={isLoading}
+        isSaving={isSaving}
+        onSave={handleSave}
+        successMessage={successMessage}
+        totalHours={totalHours}
+        updateDraft={updateDraft}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4 pb-20 lg:pb-0">
       <section className="premium-card p-4 sm:p-5">
@@ -132,7 +156,7 @@ export default function IeltsTracker() {
 
         {errorMessage && <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</div>}
         {successMessage && (
-          <div className="mt-3 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <div role="status" aria-live="polite" className="mt-3 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
             <CheckCircle2 className="h-4 w-4" />
             {successMessage}
           </div>
@@ -146,7 +170,7 @@ export default function IeltsTracker() {
         </div>
         <div className="h-[320px] w-full sm:h-[380px]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 28, right: 10, left: -18, bottom: 4 }} barCategoryGap="24%">
+            <BarChart data={chartData} margin={{ top: 28, right: 10, left: -18, bottom: 4 }} barCategoryGap="24%" accessibilityLayer>
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="label" stroke="#64748b" tickLine={false} axisLine={{ stroke: '#cbd5e1' }} />
               <YAxis stroke="#64748b" tickLine={false} axisLine={false} allowDecimals />
@@ -206,6 +230,150 @@ export default function IeltsTracker() {
           })}
         </div>
       </form>
+    </div>
+  );
+}
+
+interface DesktopCinematicIeltsProps {
+  chartData: Array<(typeof skillConfigs)[number] & { hours: number }>;
+  draft: HourDraft;
+  errorMessage: string;
+  highestSkill: (typeof skillConfigs)[number] & { hours: number };
+  isLoading: boolean;
+  isSaving: boolean;
+  onSave: (event: FormEvent<HTMLFormElement>) => void;
+  successMessage: string;
+  totalHours: number;
+  updateDraft: (skill: IeltsSkill, value: string) => void;
+}
+
+const cinematicIeltsTooltipStyle = {
+  background: 'var(--glass-strong)',
+  border: '1px solid var(--border)',
+  borderRadius: 14,
+  boxShadow: 'var(--shadow-md)',
+  color: 'var(--foreground)',
+};
+
+function DesktopCinematicIelts({
+  chartData,
+  draft,
+  errorMessage,
+  highestSkill,
+  isLoading,
+  isSaving,
+  onSave,
+  successMessage,
+  totalHours,
+  updateDraft,
+}: DesktopCinematicIeltsProps) {
+  const reducedMotion = Boolean(useReducedMotion());
+  const HighestIcon = highestSkill.icon;
+
+  return (
+    <div className="desktop-cinematic-ielts relative space-y-5 pb-10 text-[var(--foreground)]">
+      <header className="relative overflow-hidden rounded-[30px] border border-[var(--border)] bg-[var(--glass)] p-6 shadow-[var(--shadow-md)] backdrop-blur-xl">
+        <div aria-hidden className="pointer-events-none absolute -right-20 -top-28 h-72 w-72 rounded-full bg-[var(--secondary)] opacity-[.09] blur-3xl" />
+        <div className="relative flex items-end justify-between gap-6">
+          <div className="flex items-start gap-4">
+            <div className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-[var(--primary-soft)] text-[var(--primary)] shadow-[var(--shadow-sm)]">
+              <BarChart3 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[.24em] text-[var(--secondary)]">IELTS practice</p>
+              <h1 className="mt-1 text-3xl font-semibold tracking-[-.045em]">Four skills, one clear measure.</h1>
+              <p className="mt-2 text-sm text-[var(--foreground-muted)]">Absolute practice hours, using the original tracker calculation.</p>
+            </div>
+          </div>
+          <div className="grid min-w-[360px] grid-cols-2 gap-3">
+            <motion.div initial={reducedMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]/75 px-4 py-3">
+              <p className="text-[10px] uppercase tracking-[.16em] text-[var(--foreground-subtle)]">Total time</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">{formatHours(totalHours)}h</p>
+            </motion.div>
+            <motion.div initial={reducedMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: reducedMotion ? 0 : .05 }} className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]/75 px-4 py-3">
+              <p className="text-[10px] uppercase tracking-[.16em] text-[var(--foreground-subtle)]">Strongest skill</p>
+              <p className="mt-1 flex items-center gap-2 text-sm font-semibold" style={{ color: highestSkill.color }}><HighestIcon className="h-4 w-4" />{highestSkill.label}</p>
+            </motion.div>
+          </div>
+        </div>
+      </header>
+
+      <AnimatePresence mode="popLayout" initial={false}>
+        {errorMessage && (
+          <motion.div key="ielts-error" initial={reducedMotion ? false : { opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={reducedMotion ? undefined : { opacity: 0, y: -8 }} role="alert" className="rounded-2xl border border-[var(--danger)] bg-[var(--danger-soft)] px-4 py-3 text-sm text-[var(--danger)]">
+            {errorMessage}
+          </motion.div>
+        )}
+        {successMessage && (
+          <motion.div key="ielts-success" initial={reducedMotion ? false : { opacity: 0, scale: .98 }} animate={{ opacity: 1, scale: 1 }} exit={reducedMotion ? undefined : { opacity: 0, y: -6 }} role="status" aria-live="polite" className="relative overflow-hidden rounded-2xl border border-[var(--accent)] bg-[var(--accent-soft)] px-4 py-3 text-sm text-[var(--accent)]">
+            {!reducedMotion && <motion.span aria-hidden className="absolute inset-y-0 -left-20 w-16 skew-x-[-18deg] bg-white/35" animate={{ x: 900 }} transition={{ duration: .9, ease: 'easeOut' }} />}
+            <span className="relative flex items-center gap-2"><CheckCircle2 className="h-4 w-4" />{successMessage}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <main className="grid min-h-[610px] grid-cols-[minmax(0,1.45fr)_minmax(360px,.72fr)] gap-5">
+        <section className="relative overflow-hidden rounded-[30px] border border-[var(--border)] bg-[var(--glass)] p-6 shadow-[var(--shadow-md)] backdrop-blur-xl">
+          {!reducedMotion && (
+            <motion.span aria-hidden className="pointer-events-none absolute left-0 top-0 h-px w-1/3 bg-gradient-to-r from-transparent via-[var(--primary)] to-transparent" initial={{ x: '-120%', opacity: 0 }} animate={{ x: '420%', opacity: [0, .9, 0] }} transition={{ duration: .95, ease: 'easeOut' }} />
+          )}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[var(--foreground-subtle)]">Practice distribution</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-[-.035em]">Hours by skill</h2>
+            </div>
+            <p className="rounded-full border border-[var(--border)] bg-[var(--surface-soft)] px-3 py-1.5 text-xs text-[var(--foreground-muted)]">
+              Absolute hours · live preview
+            </p>
+          </div>
+
+          <div className="mt-5 h-[500px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 34, right: 18, left: -10, bottom: 8 }} barCategoryGap="24%" accessibilityLayer>
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                <XAxis dataKey="label" stroke="var(--foreground-subtle)" tickLine={false} axisLine={{ stroke: 'var(--border-strong)' }} />
+                <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} allowDecimals />
+                <Tooltip formatter={(value) => [`${formatHours(Number(value))} hours`, 'Practice']} cursor={{ fill: 'var(--surface-soft)' }} contentStyle={cinematicIeltsTooltipStyle} />
+                <Bar dataKey="hours" maxBarSize={104} radius={[10, 10, 3, 3]} isAnimationActive={!reducedMotion} animationDuration={reducedMotion ? 0 : 760} animationEasing="ease-out">
+                  {chartData.map((item) => <Cell key={item.key} fill={item.color} />)}
+                  <LabelList dataKey="hours" position="top" formatter={(value: unknown) => `${formatHours(Number(value))}h`} fill="var(--foreground-muted)" fontSize={12} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </section>
+
+        <form onSubmit={onSave} className="flex min-h-0 flex-col rounded-[30px] border border-[var(--border)] bg-[var(--glass)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[.2em] text-[var(--primary)]">Update totals</p>
+            <h2 className="mt-1 text-xl font-semibold tracking-[-.025em]">Practice hours</h2>
+            <p className="mt-2 text-xs leading-5 text-[var(--foreground-muted)]">Saved values replace the current totals.</p>
+          </div>
+
+          <div className="mt-5 flex-1 space-y-3">
+            {skillConfigs.map((skill, index) => {
+              const Icon = skill.icon;
+              return (
+                <motion.label key={skill.key} initial={reducedMotion ? false : { opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: reducedMotion ? 0 : .06 + index * .045 }} className="block rounded-2xl border border-[var(--border)] bg-[var(--surface)]/65 p-3 transition-colors focus-within:border-[var(--border-strong)] focus-within:bg-[var(--surface-raised)]">
+                  <span className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: skill.color }}><span className="grid h-8 w-8 place-items-center rounded-xl" style={{ background: skill.softColor }}><Icon className="h-4 w-4" /></span>{skill.label}</span>
+                    <span className="text-[10px] text-[var(--foreground-subtle)]">hours</span>
+                  </span>
+                  <span className="mt-3 flex h-11 items-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-soft)] transition focus-within:border-[var(--primary)] focus-within:ring-4 focus-within:ring-[var(--primary-soft)]">
+                    <input type="number" min="0" step="0.25" inputMode="decimal" value={draft[skill.key]} onChange={(event) => updateDraft(skill.key, event.target.value)} onBlur={() => { if (draft[skill.key] === '') updateDraft(skill.key, '0'); }} className="h-full min-w-0 flex-1 bg-transparent px-3 text-base font-semibold tabular-nums outline-none" aria-label={`Total ${skill.label} hours`} />
+                    <span className="border-l border-[var(--border)] px-3 text-xs text-[var(--foreground-muted)]">h</span>
+                  </span>
+                </motion.label>
+              );
+            })}
+          </div>
+
+          <motion.button type="submit" disabled={isLoading || isSaving} whileHover={reducedMotion ? undefined : { y: -2 }} whileTap={reducedMotion ? undefined : { scale: .98 }} className="mt-5 inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-[var(--foreground)] px-4 text-sm font-semibold text-[var(--background)] shadow-[var(--shadow-md)] disabled:cursor-not-allowed disabled:opacity-60">
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {isSaving ? 'Saving…' : 'Save hours'}
+          </motion.button>
+        </form>
+      </main>
     </div>
   );
 }
