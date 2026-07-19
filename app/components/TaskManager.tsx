@@ -1,10 +1,12 @@
 'use client';
 
-import { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, DragEvent as ReactDragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Circle,
   Folder,
   FolderPlus,
@@ -1041,6 +1043,48 @@ export default function TaskManager({
     setDragState(null);
   };
 
+  const handleOutlineReorder = async (draggedId: string, targetId: string, position: 'before' | 'after') => {
+    const draggedTask = taskById.get(draggedId);
+    const targetTask = taskById.get(targetId);
+    if (!draggedTask || !targetTask || draggedId === targetId) return;
+    if ((draggedTask.parent_task_id || null) !== (targetTask.parent_task_id || null) || draggedTask.topic_id !== targetTask.topic_id) {
+      showDropFeedback(draggedId, 'error');
+      setErrorMessage('Tasks can only be reordered inside the same branch.');
+      return;
+    }
+
+    const siblings = (childrenByParent.get(draggedTask.parent_task_id || null) || [])
+      .filter((task) => task.topic_id === draggedTask.topic_id);
+    const withoutDragged = siblings.filter((task) => task.id !== draggedId);
+    const targetIndex = withoutDragged.findIndex((task) => task.id === targetId);
+    if (targetIndex < 0) return;
+
+    const reordered = [...withoutDragged];
+    reordered.splice(position === 'after' ? targetIndex + 1 : targetIndex, 0, draggedTask);
+    const changedOrders = reordered
+      .map((task, sortOrder) => ({ task, sortOrder }))
+      .filter(({ task, sortOrder }) => (task.sort_order ?? 0) !== sortOrder);
+    if (changedOrders.length === 0) {
+      showDropFeedback(draggedId, 'success');
+      return;
+    }
+
+    const previousTasks = tasks;
+    setTasks((current) => current.map((task) => {
+      const changed = changedOrders.find((item) => item.task.id === task.id);
+      return changed ? { ...task, sort_order: changed.sortOrder } : task;
+    }));
+    try {
+      await Promise.all(changedOrders.map(({ task, sortOrder }) => api.updateTask({ id: task.id, sortOrder })));
+      showDropFeedback(draggedId, 'success');
+      setErrorMessage('');
+    } catch (error) {
+      setTasks(previousTasks);
+      showDropFeedback(draggedId, 'error');
+      setErrorMessage(error instanceof Error ? error.message : 'Could not save task order.');
+    }
+  };
+
   const handleCreateTopic = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!user?.id || !newTopicName.trim()) return;
@@ -1292,6 +1336,35 @@ export default function TaskManager({
 
           <WorkspaceViewTransition enabled={isDesktopCinematic && !reducedMotion} view={workspaceView}>
           {workspaceView === 'tree' ? (
+          isDesktopCinematic ? (
+            <DesktopTaskOutline
+              topics={topics}
+              selectedTopicId={selectedTopicId}
+              selectedTopic={selectedRootTopic}
+              tasks={tasks}
+              rootTasks={rootTasks}
+              childrenByParent={childrenByParent}
+              visibleTaskIds={canvasNodeIds}
+              selectedTaskId={selectedTaskId}
+              selectedBranchIds={selectedBranchIds}
+              searchTerm={searchTerm}
+              reducedMotion={reducedMotion}
+              dropFeedback={dropFeedback}
+              completionPulseId={completionPulseId}
+              onTopicChange={(topicId) => {
+                setSelectedTopicId(topicId);
+                setSelectedTaskId(null);
+              }}
+              onSelectTask={setSelectedTaskId}
+              onOpenTask={openTaskDetails}
+              onToggleTask={handleToggleLeaf}
+              onAddChild={(taskId) => openTaskModal(taskId)}
+              onAddRootTask={() => openTaskModal(null, selectedTopicId || topics[0]?.id)}
+              onEditTopic={() => selectedRootTopic && openTopicEditor(selectedRootTopic)}
+              onContextMenu={openTaskContextMenu}
+              onReorder={handleOutlineReorder}
+            />
+          ) : (
           <section
             ref={canvasRef}
             role={isDesktopCinematic ? 'tree' : undefined}
@@ -1507,6 +1580,7 @@ export default function TaskManager({
               </div>
             )}
           </section>
+          )
           ) : (
             <TaskTableView
               tasks={tasks}
@@ -1623,6 +1697,313 @@ export default function TaskManager({
       )}
 
     </div>
+  );
+}
+
+function DesktopTaskOutline({
+  topics,
+  selectedTopicId,
+  selectedTopic,
+  tasks,
+  rootTasks,
+  childrenByParent,
+  visibleTaskIds,
+  selectedTaskId,
+  selectedBranchIds,
+  searchTerm,
+  reducedMotion,
+  dropFeedback,
+  completionPulseId,
+  onTopicChange,
+  onSelectTask,
+  onOpenTask,
+  onToggleTask,
+  onAddChild,
+  onAddRootTask,
+  onEditTopic,
+  onContextMenu,
+  onReorder,
+}: {
+  topics: ApiTopic[];
+  selectedTopicId: string;
+  selectedTopic: ApiTopic | null;
+  tasks: ApiTask[];
+  rootTasks: ApiTask[];
+  childrenByParent: Map<string | null, ApiTask[]>;
+  visibleTaskIds: Set<string>;
+  selectedTaskId: string | null;
+  selectedBranchIds: Set<string>;
+  searchTerm: string;
+  reducedMotion: boolean;
+  dropFeedback: DropFeedback | null;
+  completionPulseId: string | null;
+  onTopicChange: (topicId: string) => void;
+  onSelectTask: (taskId: string) => void;
+  onOpenTask: (taskId: string) => void;
+  onToggleTask: (task: ApiTask, event?: ReactMouseEvent<HTMLButtonElement>) => void;
+  onAddChild: (taskId: string) => void;
+  onAddRootTask: () => void;
+  onEditTopic: () => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLElement>, taskId: string) => void;
+  onReorder: (draggedId: string, targetId: string, position: 'before' | 'after') => Promise<void>;
+}) {
+  const initializedTopicRef = useRef('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ taskId: string; position: 'before' | 'after' } | null>(null);
+  const topicTasks = useMemo(() => tasks.filter((task) => task.topic_id === selectedTopicId), [selectedTopicId, tasks]);
+  const displayedRoots = useMemo(
+    () => rootTasks.filter((task) => task.topic_id === selectedTopicId && visibleTaskIds.has(task.id)),
+    [rootTasks, selectedTopicId, visibleTaskIds],
+  );
+  const parentIds = useMemo(
+    () => new Set(topicTasks.filter((task) => (childrenByParent.get(task.id) || []).some((child) => child.topic_id === selectedTopicId)).map((task) => task.id)),
+    [childrenByParent, selectedTopicId, topicTasks],
+  );
+
+  useEffect(() => {
+    if (initializedTopicRef.current === selectedTopicId) return;
+    initializedTopicRef.current = selectedTopicId;
+    setExpandedIds(new Set(parentIds));
+  }, [parentIds, selectedTopicId]);
+
+  useEffect(() => {
+    if (!searchTerm.trim()) return;
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      visibleTaskIds.forEach((id) => {
+        if (parentIds.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [parentIds, searchTerm, visibleTaskIds]);
+
+  const completedCount = topicTasks.filter(isTaskDone).length;
+  const leafTasks = topicTasks.filter((task) => (childrenByParent.get(task.id) || []).length === 0);
+  const completedLeaves = leafTasks.filter(isTaskDone).length;
+  const completion = leafTasks.length ? Math.round((completedLeaves / leafTasks.length) * 100) : 0;
+  const visibleCount = topicTasks.filter((task) => visibleTaskIds.has(task.id)).length;
+  const shouldAnimate = !reducedMotion && topicTasks.length <= 120;
+
+  const toggleExpanded = (taskId: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const handleDragStart = (event: ReactDragEvent<HTMLElement>, taskId: string) => {
+    setDraggingId(taskId);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', taskId);
+    const row = event.currentTarget.closest('[data-outline-row]');
+    if (row instanceof HTMLElement) event.dataTransfer.setDragImage(row, 32, 30);
+  };
+
+  const handleDragOver = (event: ReactDragEvent<HTMLElement>, target: ApiTask) => {
+    if (!draggingId || draggingId === target.id) return;
+    const dragged = tasks.find((task) => task.id === draggingId);
+    if (!dragged || (dragged.parent_task_id || null) !== (target.parent_task_id || null) || dragged.topic_id !== target.topic_id) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    setDropTarget({ taskId: target.id, position });
+  };
+
+  const finishDrag = () => {
+    setDraggingId(null);
+    setDropTarget(null);
+  };
+
+  const renderTask = (task: ApiTask, depth: number): ReactNode => {
+    const directChildren = (childrenByParent.get(task.id) || [])
+      .filter((child) => child.topic_id === selectedTopicId);
+    const children = directChildren.filter((child) => visibleTaskIds.has(child.id));
+    const hasChildren = directChildren.length > 0;
+    const hasVisibleChildren = children.length > 0;
+    const expanded = hasVisibleChildren && expandedIds.has(task.id);
+    const done = isTaskDone(task);
+    const overdue = isTaskOverdue(task);
+    const inProgress = isTaskInProgress(task);
+    const taskCompletion = (task.leaf_count || 0) > 0
+      ? Math.round(((task.completed_leaf_count || 0) / Math.max(1, task.leaf_count || 1)) * 100)
+      : done ? 100 : 0;
+    const tone = done ? 'complete' : overdue ? 'overdue' : inProgress ? 'progress' : 'open';
+    const isSelected = selectedTaskId === task.id;
+    const branchActive = selectedBranchIds.has(task.id);
+    const dropPosition = dropTarget?.taskId === task.id ? dropTarget.position : undefined;
+
+    return (
+      <li key={task.id} className="desktop-outline-item" role="treeitem" aria-level={depth + 1} aria-selected={isSelected} aria-expanded={hasChildren ? expanded : undefined}>
+        <motion.div
+          layout={shouldAnimate ? 'position' : false}
+          initial={shouldAnimate ? { opacity: 0, y: 8 } : false}
+          animate={{ opacity: draggingId === task.id ? 0.48 : 1, y: 0, scale: dropFeedback?.taskId === task.id && dropFeedback.tone === 'success' ? [1, 1.012, 1] : 1 }}
+          transition={{ type: 'spring', stiffness: 420, damping: 32, mass: 0.8 }}
+          className="desktop-outline-row-wrap"
+          data-drop-position={dropPosition}
+        >
+          <div
+            data-outline-row
+            data-tone={tone}
+            data-selected={isSelected ? 'true' : 'false'}
+            data-branch-active={branchActive ? 'true' : 'false'}
+            data-completion-pulse={completionPulseId === task.id ? 'true' : 'false'}
+            className="desktop-outline-row group"
+            onClick={() => onSelectTask(task.id)}
+            onDoubleClick={() => onOpenTask(task.id)}
+            onContextMenu={(event) => onContextMenu(event, task.id)}
+            onDragOver={(event) => handleDragOver(event, task)}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(null);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              const activeDrop = dropTarget;
+              const draggedId = draggingId || event.dataTransfer.getData('text/plain');
+              finishDrag();
+              if (draggedId && activeDrop?.taskId === task.id) void onReorder(draggedId, task.id, activeDrop.position);
+            }}
+          >
+            <div className="desktop-outline-primary">
+              <button
+                type="button"
+                className="desktop-outline-disclosure"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (hasVisibleChildren) toggleExpanded(task.id);
+                }}
+                aria-label={hasVisibleChildren ? `${expanded ? 'Collapse' : 'Expand'} ${task.title}` : undefined}
+                tabIndex={hasVisibleChildren ? 0 : -1}
+                disabled={!hasVisibleChildren}
+              >
+                {hasChildren ? expanded ? <ChevronDown /> : <ChevronRight /> : <span className="desktop-outline-leaf-dot" />}
+              </button>
+              {hasChildren ? (
+                <span className="desktop-outline-status" title="Project status is calculated from leaf tasks">
+                  {done ? <CheckCircle2 /> : <GitBranch />}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="desktop-outline-status desktop-outline-check"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleTask(task, event);
+                  }}
+                  aria-label={`${done ? 'Reopen' : 'Complete'} ${task.title}`}
+                >
+                  {done ? <CheckCircle2 /> : <Circle />}
+                </button>
+              )}
+              <div className="desktop-outline-copy">
+                <div className="desktop-outline-title-line">
+                  <span className="desktop-outline-title">{task.title}</span>
+                  {depth === 0 && <span className="desktop-outline-kind">Project</span>}
+                </div>
+                <div className="desktop-outline-meta">
+                  {hasChildren ? <span>{task.completed_leaf_count || 0}/{task.leaf_count || 0} leaf tasks</span> : <span>{getTaskStatusLabel(task.effective_status)}</span>}
+                  {task.deadline && <span className={overdue ? 'is-overdue' : ''}><CalendarDays /> {formatDate(task.deadline)}</span>}
+                  {hasChildren && <span>{directChildren.length} direct {directChildren.length === 1 ? 'child' : 'children'}</span>}
+                </div>
+              </div>
+            </div>
+
+            <div className="desktop-outline-progress" aria-label={`${taskCompletion}% complete`}>
+              <span><i style={{ width: `${taskCompletion}%` }} /></span>
+              <strong>{taskCompletion}%</strong>
+            </div>
+
+            <div className="desktop-outline-actions">
+              <button type="button" onClick={(event) => { event.stopPropagation(); onAddChild(task.id); }} title="Add child task"><Plus /></button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); onOpenTask(task.id); }} title="Open details"><Pencil /></button>
+              <button
+                type="button"
+                draggable
+                onDragStart={(event) => handleDragStart(event, task.id)}
+                onDragEnd={finishDrag}
+                title="Drag to reorder inside this branch"
+                aria-label={`Reorder ${task.title}`}
+                className="desktop-outline-drag"
+              ><Move /></button>
+              <button type="button" onClick={(event) => { event.stopPropagation(); onContextMenu(event, task.id); }} title="More actions"><MoreHorizontal /></button>
+            </div>
+          </div>
+        </motion.div>
+
+        <AnimatePresence initial={false}>
+          {expanded && (
+            <motion.ul
+              role="group"
+              className="desktop-outline-children"
+              initial={shouldAnimate ? { opacity: 0, height: 0 } : false}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={shouldAnimate ? { opacity: 0, height: 0 } : undefined}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {children.map((child) => renderTask(child, depth + 1))}
+            </motion.ul>
+          )}
+        </AnimatePresence>
+      </li>
+    );
+  };
+
+  return (
+    <section className="desktop-task-outline" aria-label="Task hierarchy">
+      <header className="desktop-outline-root-card">
+        <div className="desktop-outline-root-main">
+          <span className="desktop-outline-root-icon"><GitBranch /></span>
+          <div className="min-w-0">
+            <span className="desktop-outline-eyebrow">Life root</span>
+            <div className="desktop-outline-root-title">
+              <select value={selectedTopicId} onChange={(event) => onTopicChange(event.target.value)} disabled={!topics.length} aria-label="Choose life root">
+                {!topics.length && <option value="">No roots yet</option>}
+                {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
+              </select>
+              {selectedTopic && <button type="button" onClick={onEditTopic} title="Rename root"><Pencil /></button>}
+            </div>
+            <p>{searchTerm.trim() ? `${visibleCount} matching tasks and their paths` : `${topicTasks.length} tasks organized across ${displayedRoots.length} top-level projects`}</p>
+          </div>
+        </div>
+        <div className="desktop-outline-root-progress">
+          <div><span>Leaf completion</span><strong>{completion}%</strong></div>
+          <span><i style={{ width: `${completion}%` }} /></span>
+          <small>{completedLeaves} of {leafTasks.length} next actions complete</small>
+        </div>
+        <div className="desktop-outline-root-actions">
+          <button type="button" onClick={() => setExpandedIds(new Set(parentIds))}><ChevronDown /> Expand all</button>
+          <button type="button" onClick={() => setExpandedIds(new Set())}><ChevronRight /> Collapse all</button>
+          <button type="button" className="is-primary" onClick={onAddRootTask}><Plus /> Add project</button>
+        </div>
+      </header>
+
+      <div className="desktop-outline-column-head" aria-hidden="true">
+        <span>Task hierarchy</span><span>Progress</span><span>Actions</span>
+      </div>
+      <div className="desktop-outline-scroll">
+        {displayedRoots.length ? (
+          <ul className="desktop-outline-tree" role="tree">
+            {displayedRoots.map((task) => renderTask(task, 0))}
+          </ul>
+        ) : (
+          <div className="desktop-outline-empty">
+            <span><GitBranch /></span>
+            <strong>{searchTerm.trim() ? 'No tasks match this search' : 'This life root is ready for its first project'}</strong>
+            <p>{searchTerm.trim() ? 'Try a broader title or note.' : 'Create a top-level project, then break it into clear next actions.'}</p>
+            {!searchTerm.trim() && <button type="button" onClick={onAddRootTask}><Plus /> Add first project</button>}
+          </div>
+        )}
+      </div>
+      <footer className="desktop-outline-footer">
+        <span><i className="is-complete" /> {completedCount} completed</span>
+        <span><i className="is-open" /> {topicTasks.length - completedCount} active</span>
+        <span className="ml-auto"><Move /> Drag the handle to reorder within the same branch</span>
+      </footer>
+    </section>
   );
 }
 
