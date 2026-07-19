@@ -53,6 +53,7 @@ export class SemanticDiveDirector {
     this.host.style.setProperty('--dive-grid-size-x', '26px');
     this.host.style.setProperty('--dive-grid-size-y', '26px');
     this.host.style.setProperty('--dive-portal-scale', '.35');
+    this.host.style.setProperty('--dive-field-scale', '.3');
     this.host.style.setProperty('--dive-grid-opacity', '.38');
     this.host.style.setProperty('--dive-portal-opacity', '.12');
     this.setPhase(options.reducedMotion ? 'dive' : 'lock');
@@ -92,6 +93,7 @@ export class SemanticDiveDirector {
       this.host.style.setProperty('--dive-tunnel', '0');
       this.host.style.setProperty('--dive-portal-scale', `${.35 + progress * .18}`);
       this.host.style.setProperty('--dive-portal-opacity', `${.12 + progress * .88}`);
+      this.host.style.setProperty('--dive-field-scale', `${(.3 + progress * .7).toFixed(3)}`);
     } else {
       const lock = clamp01(elapsed / 180);
       const dive = clamp01((elapsed - 180) / 470);
@@ -141,6 +143,7 @@ export class SemanticDiveDirector {
       this.host.style.setProperty('--dive-portal-scale', `${(.35 + lockProgress * .32 + diveProgress * 1.75).toFixed(3)}`);
       this.host.style.setProperty('--dive-grid-opacity', `${(.38 + diveProgress * .34).toFixed(3)}`);
       this.host.style.setProperty('--dive-portal-opacity', `${(.12 + lockProgress * .88).toFixed(3)}`);
+      this.host.style.setProperty('--dive-field-scale', `${(.3 + lockProgress * .38 + diveProgress * 5.6).toFixed(3)}`);
     }
 
     if (elapsed >= duration) {
@@ -216,7 +219,7 @@ export class SemanticDiveDirector {
       '--dive-live-origin-x', '--dive-live-origin-y',
       '--dive-grid-rotate', '--dive-grid-scale', '--dive-grid-size-x',
       '--dive-grid-size-y', '--dive-portal-scale',
-      '--dive-grid-opacity', '--dive-portal-opacity',
+      '--dive-grid-opacity', '--dive-portal-opacity', '--dive-field-scale',
     ].forEach((property) => this.host.style.removeProperty(property));
   }
 

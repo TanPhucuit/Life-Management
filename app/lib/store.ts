@@ -18,7 +18,10 @@ interface AppStore {
   // Auth
   user: User | null;
   isAuthenticated: boolean;
+  sessionReady: boolean;
+  sessionError: string | null;
   setUser: (user: User | null) => void;
+  setSessionState: (ready: boolean, error?: string | null) => void;
   logout: () => void;
 
   // Month selection
@@ -44,7 +47,7 @@ interface AppStore {
   setIsLoading: (loading: boolean) => void;
 }
 
-const getUserFromStorage = () => {
+const getUserFromStorage = (): User | null => {
   if (typeof window === 'undefined') return null;
   try {
     const userStr = localStorage.getItem('user');
@@ -61,16 +64,25 @@ const getUserFromStorage = () => {
   }
 };
 
+const storedUser = getUserFromStorage();
+
 export const useAppStore = create<AppStore>((set) => ({
-  // Auth - no default user
-  user: getUserFromStorage(),
-  isAuthenticated: getUserFromStorage() !== null,
+  // Authentication UI is disabled. A persisted user is reused immediately,
+  // otherwise SessionBootstrap resolves the personal workspace owner.
+  user: storedUser,
+  isAuthenticated: storedUser !== null,
+  sessionReady: storedUser !== null,
+  sessionError: null,
 
   setUser: (user) =>
     set(() => ({
       user,
       isAuthenticated: user !== null,
+      sessionReady: user !== null,
+      sessionError: null,
     })),
+
+  setSessionState: (sessionReady, sessionError = null) => set({ sessionReady, sessionError }),
 
   logout: () =>
     set(() => {

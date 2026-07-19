@@ -4,10 +4,8 @@ import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Check,
-  ChevronRight,
   CircleGauge,
   Laptop,
-  LogOut,
   Moon,
   MousePointer2,
   PartyPopper,
@@ -18,7 +16,6 @@ import {
   Waves,
   Zap,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/app/lib/store';
 import { ThemeMode, useTheme } from '@/app/components/ThemeProvider';
 import { useMotionDirector } from '@/app/components/desktop-v2/core/MotionDirector';
@@ -49,8 +46,7 @@ const themeOptions: Array<{ value: ThemeMode; label: string; icon: typeof Sun }>
 ];
 
 export default function DesktopSettings({ preferences, onPreferencesChange }: DesktopSettingsProps) {
-  const router = useRouter();
-  const { user, logout } = useAppStore();
+  const { user } = useAppStore();
   const { theme, setTheme } = useTheme();
   const motionDirector = useMotionDirector();
   const activePreferences = preferences || motionDirector.preferences;
@@ -68,11 +64,6 @@ export default function DesktopSettings({ preferences, onPreferencesChange }: De
     { label: 'Scene quality', value: activeQuality.label, color: activeQuality.accent },
     { label: 'Celebrations', value: activePreferences.celebrations ? 'On' : 'Off', color: activePreferences.celebrations ? 'var(--secondary)' : 'var(--foreground-muted)' },
   ], [activePreferences.celebrations, activeQuality, motionDisabled]);
-
-  const signOut = () => {
-    logout();
-    router.replace('/');
-  };
 
   return (
     <div className="relative min-h-[calc(100vh-3rem)] overflow-hidden px-2 pb-8 text-[var(--foreground)]">
@@ -119,8 +110,7 @@ export default function DesktopSettings({ preferences, onPreferencesChange }: De
           </section>
 
           <section className="rounded-[28px] border border-[var(--border)] bg-[var(--glass)] p-5 shadow-[var(--shadow-sm)] backdrop-blur-xl">
-            <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]"><UserCircle className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="font-semibold">{user?.username || 'Local account'}</p><p className="truncate text-xs text-[var(--foreground-muted)]">Your session is stored on this device.</p></div><ShieldCheck className="h-5 w-5 text-[var(--accent)]" /></div>
-            <button type="button" onClick={signOut} className="group mt-4 flex min-h-11 w-full items-center justify-between rounded-2xl border border-[var(--danger)] px-4 text-sm font-semibold text-[var(--danger)] transition hover:bg-[var(--danger-soft)]"><span className="flex items-center gap-2"><LogOut className="h-4 w-4" />Sign out</span><ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-1" /></button>
+            <div className="flex items-center gap-3"><div className="grid h-11 w-11 place-items-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]"><UserCircle className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="font-semibold">{user?.username || 'Personal workspace'}</p><p className="truncate text-xs text-[var(--foreground-muted)]">This dashboard opens automatically on this device.</p></div><ShieldCheck className="h-5 w-5 text-[var(--accent)]" /></div>
           </section>
         </aside>
       </main>

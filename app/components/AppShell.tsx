@@ -1,9 +1,9 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Home, Languages, LogOut, Menu, Repeat2, Settings, Sparkles, X } from 'lucide-react';
+import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Home, Languages, Menu, Repeat2, Settings, Sparkles, X } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '@/app/lib/store';
 import { ThemeToggle } from './ThemeToggle';
@@ -29,26 +29,21 @@ const pageMeta: Record<string, { title: string; subtitle: string }> = {
 };
 
 export default function AppShell({ children }: { children: ReactNode }) {
-  const { user, logout } = useAppStore();
+  const { user, sessionReady, sessionError } = useAppStore();
   const pathname = usePathname();
-  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const section = pathname.split('/').filter(Boolean)[0] || 'overview';
   const meta = pageMeta[section] || pageMeta.overview;
 
   useEffect(() => setMounted(true), []);
-  useEffect(() => {
-    if (mounted && !user) router.replace('/');
-  }, [mounted, router, user]);
   useEffect(() => setMoreOpen(false), [pathname]);
 
   const today = useMemo(() => new Intl.DateTimeFormat('en', { weekday: 'long', month: 'short', day: 'numeric' }).format(new Date()), []);
-  const handleLogout = () => { logout(); router.replace('/'); };
-
-  if (!mounted || !user) {
+  if (!mounted || !sessionReady || (!user && !sessionError)) {
     return <div className="grid min-h-dvh place-items-center bg-[var(--background)]"><div className="h-10 w-10 animate-spin rounded-full border-2 border-[var(--border)] border-t-[var(--primary)]" aria-label="Loading workspace" /></div>;
   }
+  if (!user) return <div className="grid min-h-dvh place-items-center bg-[var(--background)] p-6 text-center"><p className="text-sm text-[var(--danger)]">{sessionError || 'Workspace unavailable'}</p></div>;
 
   return (
     <div className="aurora-stage min-h-dvh bg-[var(--background)] text-[var(--foreground)]">
@@ -64,9 +59,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
           <div className="mt-auto rounded-2xl border border-[var(--border)] bg-[var(--glass)] p-3">
             <div className="flex items-center gap-3">
               <div className="grid h-10 w-10 place-items-center rounded-full bg-[var(--primary-soft)] font-semibold text-[var(--primary)]">{user.username.slice(0, 1).toUpperCase()}</div>
-              <div className="min-w-0"><p className="truncate text-sm font-semibold">{user.username}</p><p className="text-xs text-[var(--foreground-muted)]">Signed in</p></div>
+              <div className="min-w-0"><p className="truncate text-sm font-semibold">{user.username}</p><p className="text-xs text-[var(--foreground-muted)]">Personal workspace</p></div>
             </div>
-            <button type="button" onClick={handleLogout} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium text-[var(--foreground-muted)] transition hover:bg-[var(--surface-soft)] hover:text-[var(--danger)]"><LogOut className="h-4 w-4" />Sign out</button>
           </div>
         </aside>
 

@@ -177,12 +177,16 @@ export class ElasticTopologyField {
     const node = this.nodes.get(id);
     if (!node) return;
     node.pinned = position;
-    node.x = position.x;
-    node.y = position.y;
-    node.vx = 0;
-    node.vy = 0;
     this.quietFrames = 0;
-    this.render();
+    this.start();
+  }
+
+  pinMany(positions: Record<string, FieldPosition>) {
+    Object.entries(positions).forEach(([id, position]) => {
+      const node = this.nodes.get(id);
+      if (node) node.pinned = position;
+    });
+    this.quietFrames = 0;
     this.start();
   }
 
@@ -191,6 +195,17 @@ export class ElasticTopologyField {
     if (!node) return;
     node.pinned = null;
     this.kick(id, .34);
+  }
+
+  releaseMany(ids: Iterable<string>) {
+    let firstReleased: string | null = null;
+    for (const id of ids) {
+      const node = this.nodes.get(id);
+      if (!node) continue;
+      node.pinned = null;
+      firstReleased ||= id;
+    }
+    this.kick(firstReleased, .24);
   }
 
   getPosition(id: string): FieldPosition | null {
@@ -259,8 +274,14 @@ export class ElasticTopologyField {
     activeNodes.forEach((node) => forces.set(node.id, { x: 0, y: 0 }));
 
     activeNodes.forEach((node) => {
-      if (node.pinned || frameAt < node.delayUntil) return;
+      if (frameAt < node.delayUntil) return;
       const force = forces.get(node.id) as FieldPosition;
+      if (node.pinned) {
+        const dragStiffness = .24 / Math.sqrt(node.mass);
+        force.x += (node.pinned.x - node.x) * dragStiffness;
+        force.y += (node.pinned.y - node.y) * dragStiffness;
+        return;
+      }
       const stiffness = (node.selected ? .092 : .064) / node.mass;
       force.x += (node.target.x - node.x) * stiffness;
       force.y += (node.target.y - node.y) * stiffness;
@@ -338,21 +359,16 @@ export class ElasticTopologyField {
 
     let energy = 0;
     activeNodes.forEach((node) => {
-      if (node.pinned) {
-        node.x = node.pinned.x;
-        node.y = node.pinned.y;
-        node.vx = 0;
-        node.vy = 0;
-        return;
-      }
       if (frameAt < node.delayUntil) return;
       const force = forces.get(node.id) || { x: 0, y: 0 };
-      node.vx = (node.vx + force.x * frameScale) * node.damping;
-      node.vy = (node.vy + force.y * frameScale) * node.damping;
+      const damping = node.pinned ? .7 : node.damping;
+      node.vx = (node.vx + force.x * frameScale) * damping;
+      node.vy = (node.vy + force.y * frameScale) * damping;
       const speed = Math.hypot(node.vx, node.vy);
-      if (speed > 16) {
-        node.vx = node.vx / speed * 16;
-        node.vy = node.vy / speed * 16;
+      const maximumSpeed = node.pinned ? 30 : 16;
+      if (speed > maximumSpeed) {
+        node.vx = node.vx / speed * maximumSpeed;
+        node.vy = node.vy / speed * maximumSpeed;
       }
       node.x += node.vx * frameScale;
       node.y += node.vy * frameScale;

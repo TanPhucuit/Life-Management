@@ -2099,8 +2099,8 @@ function DesktopTaskNetworkCanvas({
   const topologyReverseEdgeElementsRef = useRef(new Map<string, SVGPathElement>());
   const pendingDragLogicalRef = useRef<NodePosition | null>(null);
   const pendingGraphOffsetRef = useRef<NodePosition | null>(null);
-  const pendingReleaseIdRef = useRef<string | null>(null);
-  const completionAnimationsRef = useRef<Animation[]>([]);
+  const pendingReleaseIdsRef = useRef<Set<string>>(new Set());
+  const graphDragFieldOriginsRef = useRef<Record<string, NodePosition>>({});
   const [viewportSize, setViewportSize] = useState({ width: 980, height: 620 });
   const [zoom, setZoom] = useState(1);
   const [viewportOffset, setViewportOffset] = useState<NodePosition>({ x: 0, y: 0 });
@@ -2249,7 +2249,6 @@ function DesktopTaskNetworkCanvas({
     if (topicEdgeRevealTimerRef.current !== null) window.clearTimeout(topicEdgeRevealTimerRef.current);
     topologyFieldRef.current?.destroy();
     semanticDiveRef.current?.destroy();
-    completionAnimationsRef.current.forEach((animation) => animation.cancel());
   }, []);
 
   useEffect(() => {
@@ -2463,50 +2462,6 @@ function DesktopTaskNetworkCanvas({
   })), [network.edges]);
 
   useEffect(() => {
-    if (reducedMotion || topicRevealStage < 2) return;
-    const frame = window.requestAnimationFrame(() => {
-      completionAnimationsRef.current.forEach((animation) => animation.cancel());
-      const stage = stageRef.current;
-      if (!stage) return;
-      const animations: Animation[] = [];
-      stage.querySelectorAll<HTMLElement>(".desktop-network-node[data-completion-replay='true']").forEach((node) => {
-        const wave = Number(node.dataset.completionWave || 0);
-        const delay = 80 + wave * 1750;
-        const surface = node.querySelector<HTMLElement>(':scope > span');
-        const icon = surface?.querySelector<SVGElement>('svg');
-        if (surface) {
-          animations.push(surface.animate([
-            { offset: 0, color: '#64748b', background: '#e6edf3', boxShadow: '0 0 0 1px #b8c7d3,0 7px 18px rgba(51,65,85,.14)', filter: 'brightness(.94)', transform: 'scale(.82)' },
-            { offset: .18, color: '#64748b', background: '#e6edf3', boxShadow: '0 0 0 1px #b8c7d3,0 7px 18px rgba(51,65,85,.14)', filter: 'brightness(.96)', transform: 'scale(.88)' },
-            { offset: .62, color: '#fff', background: '#34d399', boxShadow: '0 0 0 10px rgba(16,185,129,.13),0 0 34px rgba(16,185,129,.58)', filter: 'brightness(1.24)', transform: 'scale(1.2)' },
-            { offset: 1, color: '#fff', background: '#059669', boxShadow: '0 0 0 1px #6ee7b7,0 9px 25px rgba(5,150,105,.27)', filter: 'brightness(1)', transform: 'scale(1)' },
-          ], { duration: 760, delay, fill: 'both', easing: 'cubic-bezier(.16,1,.3,1)' }));
-        }
-        if (icon) {
-          animations.push(icon.animate([
-            { strokeDasharray: '64', strokeDashoffset: '64', opacity: 0, transform: 'scale(.65) rotate(-14deg)' },
-            { offset: .7, strokeDasharray: '64', strokeDashoffset: '0', opacity: 1, transform: 'scale(1.2) rotate(3deg)' },
-            { strokeDasharray: '64', strokeDashoffset: '0', opacity: 1, transform: 'scale(1) rotate(0deg)' },
-          ], { duration: 580, delay: delay + 140, fill: 'both', easing: 'cubic-bezier(.16,1,.3,1)' }));
-        }
-      });
-      stage.querySelectorAll<SVGPathElement>('.desktop-network-completion-burn.is-replaying').forEach((edge) => {
-        const wave = Number(edge.dataset.completionWave || 0);
-        const delay = 850 + wave * 1750;
-        animations.push(edge.animate([
-          { offset: 0, strokeDasharray: '.015 .985', strokeDashoffset: '0', strokeWidth: '2', opacity: 0, filter: 'drop-shadow(0 0 0 rgba(16,185,129,0))' },
-          { offset: .12, strokeDasharray: '.055 .945', strokeDashoffset: '-.08', strokeWidth: '3.2', opacity: 1, filter: 'drop-shadow(0 0 5px rgba(52,211,153,.92))' },
-          { offset: .62, strokeDasharray: '.16 .84', strokeDashoffset: '-.72', strokeWidth: '5', opacity: 1, filter: 'drop-shadow(0 0 9px rgba(52,211,153,1))' },
-          { offset: .84, strokeDasharray: '.52 .48', strokeDashoffset: '-.96', strokeWidth: '3.8', opacity: 1, filter: 'drop-shadow(0 0 7px rgba(52,211,153,.9))' },
-          { offset: 1, strokeDasharray: '1 0', strokeDashoffset: '-1', strokeWidth: '2.5', opacity: 1, filter: 'drop-shadow(0 0 3px rgba(16,185,129,.58))' },
-        ], { duration: 920, delay, fill: 'both', easing: 'cubic-bezier(.22,.8,.22,1)' }));
-      });
-      completionAnimationsRef.current = animations;
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [completionReplayNonce, completionReplayRootId, reducedMotion, selectedTopicId, topicRevealStage]);
-
-  useEffect(() => {
     const stage = stageRef.current;
     const viewport = viewportRef.current;
     if (!stage || !viewport) return;
@@ -2529,9 +2484,9 @@ function DesktopTaskNetworkCanvas({
       ? selectedTaskId
       : focusedRootId || topicNodeId(selectedTopicId);
     field.sync(topologyNodeInputs, topologyEdges, sourceId);
-    if (pendingReleaseIdRef.current) {
-      field.release(pendingReleaseIdRef.current);
-      pendingReleaseIdRef.current = null;
+    if (pendingReleaseIdsRef.current.size) {
+      field.releaseMany(pendingReleaseIdsRef.current);
+      pendingReleaseIdsRef.current = new Set();
     }
   }, [focusedRootId, network.positions, reducedMotion, selectedTaskId, selectedTopicId, topologyEdges, topologyNodeInputs]);
 
@@ -2733,9 +2688,9 @@ function DesktopTaskNetworkCanvas({
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
     if (id === topicNodeId(selectedTopicId)) {
-      const displayed = topologyFieldRef.current?.getPosition(id) || network.positions[id] || network.center;
       pendingGraphOffsetRef.current = { ...viewportOffsetRef.current };
-      topologyFieldRef.current?.pin(id, displayed);
+      graphDragFieldOriginsRef.current = topologyFieldRef.current?.snapshot() || { ...network.positions };
+      topologyFieldRef.current?.pinMany(graphDragFieldOriginsRef.current);
       setDragging({
         mode: 'graph',
         id,
@@ -2798,10 +2753,11 @@ function DesktopTaskNetworkCanvas({
           y: dragging.originOffset.y + deltaY,
         };
         pendingGraphOffsetRef.current = nextOffset;
-        topologyFieldRef.current?.pin(topicNodeId(selectedTopicId), {
-          x: network.center.x + deltaX,
-          y: network.center.y + deltaY,
-        });
+        const groupTargets = Object.fromEntries(Object.entries(graphDragFieldOriginsRef.current).map(([id, position]) => [id, {
+          x: position.x + deltaX,
+          y: position.y + deltaY,
+        }])) as Record<string, NodePosition>;
+        topologyFieldRef.current?.pinMany(groupTargets);
         return;
       }
       const rect = stageRef.current?.getBoundingClientRect();
@@ -2838,7 +2794,8 @@ function DesktopTaskNetworkCanvas({
         customPositionsRef.current = shiftedCustomPositions;
         setViewportOffset(finalOffset);
         setCustomPositions(shiftedCustomPositions);
-        pendingReleaseIdRef.current = topicNodeId(selectedTopicId);
+        pendingReleaseIdsRef.current = new Set(Object.keys(graphDragFieldOriginsRef.current));
+        graphDragFieldOriginsRef.current = {};
         setDragging(null);
         if (selectedTopicId) {
           try { window.localStorage.setItem(`desktop-task-network-view:v1:${selectedTopicId}`, JSON.stringify(finalOffset)); } catch { /* optional */ }
@@ -2871,7 +2828,7 @@ function DesktopTaskNetworkCanvas({
         setCustomPositions(next);
       }
       pendingDragLogicalRef.current = null;
-      pendingReleaseIdRef.current = dragging.id;
+      pendingReleaseIdsRef.current = new Set([dragging.id]);
       setDragging(null);
       if (selectedTopicId) {
         try { window.localStorage.setItem(`desktop-task-network:v3:${selectedTopicId}`, JSON.stringify(customPositionsRef.current)); } catch { /* optional */ }
@@ -2955,7 +2912,7 @@ function DesktopTaskNetworkCanvas({
         <svg className="desktop-network-edges" width={renderedStageSize.width} height={renderedStageSize.height} aria-hidden="true">
           <defs><filter id="network-edge-glow"><feGaussianBlur stdDeviation="2.4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
           <AnimatePresence initial={false}>
-          {topicRevealStage >= 2 && network.edges.map((edge) => {
+          {topicRevealStage >= 2 && network.edges.map((edge, edgeIndex) => {
             const from = network.positions[edge.from];
             const to = network.positions[edge.to];
             if (!from || !to) return null;
@@ -2974,7 +2931,7 @@ function DesktopTaskNetworkCanvas({
             const replayCompletion = completionReplayIds.has(edge.to);
             return (
               <g key={edgeKey}>
-                <path ref={(element) => registerTopologyEdge(edgeKey, element)} d={path} pathLength={1} className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`} style={{ '--edge-opacity': active || hovered ? 1 : .28 } as CSSProperties} />
+                <path ref={(element) => registerTopologyEdge(edgeKey, element)} d={path} pathLength={1} className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`} style={{ '--edge-opacity': active || hovered ? 1 : .28, '--edge-reveal-delay': reducedMotion ? '0ms' : `${Math.min(edgeIndex, 24) * 38}ms` } as CSSProperties} />
                 {childComplete && edge.from !== topicId && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion ? 'is-replaying' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
               </g>
             );
@@ -3002,7 +2959,7 @@ function DesktopTaskNetworkCanvas({
         )}
 
         <AnimatePresence initial={false}>
-        {topicRevealStage >= 1 && topicTasks.map((task) => {
+        {topicRevealStage >= 1 && topicTasks.map((task, taskIndex) => {
           const position = network.positions[task.id];
           if (!position) return null;
           const directChildren = (childrenByParent.get(task.id) || []).filter((child) => child.topic_id === selectedTopicId && visibleTaskIds.has(child.id));
@@ -3074,7 +3031,7 @@ function DesktopTaskNetworkCanvas({
               initial={reducedMotion ? false : { opacity: 0, scale: .35 }}
               animate={{ opacity: 1, scale: draggedNodeId === task.id ? 1.13 : selected ? 1.08 : 1 }}
               exit={reducedMotion ? undefined : { opacity: 0, scale: .35 }}
-              transition={{ opacity: { duration: reducedMotion ? 0 : .22 }, scale: reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 340, damping: 28 } }}
+              transition={{ opacity: { duration: reducedMotion ? 0 : .28, delay: reducedMotion ? 0 : Math.min(taskIndex, 22) * .045 }, scale: reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 24, mass: .78, delay: Math.min(taskIndex, 22) * .045 } }}
               title={`${task.title} · double-click for full details`}
             ><span key={`${task.id}:${completionReplayNonce}`}>{complete ? <CheckCircle2 /> : childCount ? expanded ? <ChevronDown /> : <ChevronRight /> : <Circle />}</span><strong>{task.title}</strong><small>{childCount ? `${expanded ? 'Collapse' : 'Reveal'} ${childCount} children` : getTaskStatusLabel(complete ? 'completed' : task.status)}</small></motion.button>
             </div>

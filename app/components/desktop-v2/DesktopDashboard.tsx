@@ -1,8 +1,8 @@
 'use client';
 
-import { ReactNode, useCallback, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useAppStore } from '@/app/lib/store';
 import { DesktopShellFrame } from './DesktopShell';
 import {
@@ -28,27 +28,17 @@ export interface DesktopDashboardProps {
 }
 
 export default function DesktopDashboard({ children }: DesktopDashboardProps) {
-  const router = useRouter();
-  const { user, logout } = useAppStore();
+  const { user, sessionReady, sessionError } = useAppStore();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
-  useEffect(() => {
-    if (mounted && !user) router.replace('/');
-  }, [mounted, router, user]);
-
-  const signOut = useCallback(() => {
-    logout();
-    router.replace('/');
-  }, [logout, router]);
-
-  if (!mounted || !user) return <DesktopBootState />;
+  if (!mounted || !sessionReady || (!user && !sessionError)) return <DesktopBootState />;
+  if (!user) return <DesktopBootState error={sessionError || 'Workspace unavailable'} />;
 
   return (
     <MotionDirectorProvider>
       <DesktopRuntime
         username={user.username}
-        onSignOut={signOut}
         legacyRoute={children}
       />
     </MotionDirectorProvider>
@@ -57,11 +47,9 @@ export default function DesktopDashboard({ children }: DesktopDashboardProps) {
 
 function DesktopRuntime({
   username,
-  onSignOut,
   legacyRoute,
 }: {
   username: string;
-  onSignOut: () => void;
   legacyRoute?: ReactNode;
 }) {
   const motion = useMotionDirector();
@@ -75,7 +63,6 @@ function DesktopRuntime({
     >
       <DesktopShellFrame
         username={username}
-        onSignOut={onSignOut}
         sceneLayer={<SceneHost className="desktop-scene-host" />}
       >
         <DesktopRouteContent legacyRoute={legacyRoute} />
@@ -148,14 +135,16 @@ function DesktopRouteContent({
   return <DesktopClassicWorkspace kind="detail">{legacyRoute}</DesktopClassicWorkspace>;
 }
 
-function DesktopBootState() {
+function DesktopBootState({ error }: { error?: string }) {
   return (
     <div className="experience-v2 grid min-h-dvh place-items-center bg-[#050914] text-white" role="status" aria-label="Loading your workspace">
+      {error ? <div className="max-w-md px-6 text-center"><p className="font-semibold">Workspace unavailable</p><p className="mt-2 text-sm text-white/55">{error}</p></div> : (
       <div className="relative grid h-24 w-24 place-items-center">
         <span className="absolute inset-0 animate-ping rounded-full border border-cyan-300/20" />
         <span className="absolute inset-3 animate-spin rounded-full border border-violet-300/20 border-t-violet-300" />
         <span className="h-4 w-4 rounded-full bg-cyan-200 shadow-[0_0_38px_rgba(103,232,249,.9)]" />
       </div>
+      )}
     </div>
   );
 }

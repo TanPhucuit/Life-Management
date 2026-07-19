@@ -22,7 +22,6 @@ import {
   Home,
   Languages,
   ListTodo,
-  LogOut,
   PanelLeftClose,
   PanelLeftOpen,
   Repeat2,
@@ -93,7 +92,6 @@ const routeMetadata = {
 export interface DesktopShellProps {
   children: ReactNode;
   username?: string;
-  onSignOut?: () => void;
   commands?: readonly DesktopCommand[];
   sceneLayer?: ReactNode;
 }
@@ -109,7 +107,6 @@ export default function DesktopShell(props: DesktopShellProps) {
 export function DesktopShellFrame({
   children,
   username = 'Explorer',
-  onSignOut,
   commands = [],
   sceneLayer,
 }: DesktopShellProps) {
@@ -173,22 +170,10 @@ export function DesktopShellFrame({
       },
     ];
 
-    if (onSignOut) {
-      defaults.push({
-        id: 'sign-out',
-        label: 'Sign out',
-        description: 'End this Life OS session',
-        keywords: ['logout', 'account'],
-        group: 'System',
-        icon: <LogOut className="h-4 w-4" />,
-        onSelect: onSignOut,
-      });
-    }
-
     const merged = new Map(defaults.map((command) => [command.id, command]));
     commands.forEach((command) => merged.set(command.id, command));
     return [...merged.values()];
-  }, [commands, navigate, onSignOut]);
+  }, [commands, navigate]);
 
   return (
     <div className="experience-v2 relative min-h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
@@ -204,7 +189,6 @@ export function DesktopShellFrame({
         username={username}
         onNavigate={navigate}
         onOpenCommand={() => setCommandOpen(true)}
-        onSignOut={onSignOut}
       />
 
       <header className="desktop-v2-header fixed left-[248px] right-0 top-0 z-30 flex h-[88px] items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_82%,transparent)] px-8 backdrop-blur-2xl">
@@ -283,7 +267,6 @@ interface SidebarNavigationProps {
   username: string;
   onNavigate: (href: string) => void;
   onOpenCommand: () => void;
-  onSignOut?: () => void;
 }
 
 function SidebarNavigation({
@@ -291,7 +274,6 @@ function SidebarNavigation({
   username,
   onNavigate,
   onOpenCommand,
-  onSignOut,
 }: SidebarNavigationProps) {
   return (
     <aside className="desktop-v2-sidebar fixed inset-y-0 left-0 z-50 w-[248px] border-r border-[var(--border)] bg-[color-mix(in_srgb,var(--glass-strong)_92%,var(--background))] p-4 shadow-[12px_0_48px_rgba(0,0,0,.08)] backdrop-blur-3xl">
@@ -355,17 +337,6 @@ function SidebarNavigation({
                 <span className="block text-[10px] text-[var(--foreground-muted)]">Account</span>
               </span>
             </Link>
-            {onSignOut && (
-              <button
-                type="button"
-                onClick={onSignOut}
-                className="desktop-v2-account-signout grid h-9 w-9 shrink-0 place-items-center rounded-xl text-[var(--foreground-subtle)] transition-colors duration-150 hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
-                aria-label="Sign out"
-                title="Sign out"
-              >
-                <LogOut className="h-4 w-4" />
-              </button>
-            )}
           </div>
         </div>
       </div>
