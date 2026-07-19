@@ -23,6 +23,8 @@ import {
   Languages,
   ListTodo,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   Repeat2,
   Settings,
   Sparkles,
@@ -117,9 +119,12 @@ export function DesktopShellFrame({
   const { reducedMotion, pulseActivity } = useMotionDirector();
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandKey, setCommandKey] = useState('Ctrl K');
+  const [taskSidebarCollapsed, setTaskSidebarCollapsed] = useState(false);
   const search = searchParams.toString();
   const currentLocation = search ? `${pathname}?${search}` : pathname;
   const page = getRouteMetadata(pathname);
+  const canCollapseSidebar = pathname === '/tasks' || pathname.startsWith('/tasks/');
+  const sidebarCollapsed = canCollapseSidebar && taskSidebarCollapsed;
 
   const navigate = useCallback(
     (href: string) => {
@@ -186,7 +191,7 @@ export function DesktopShellFrame({
   }, [commands, navigate, onSignOut]);
 
   return (
-    <div className="experience-v2 relative min-h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+    <div className="experience-v2 relative min-h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
       <Atmosphere />
       {sceneLayer && (
         <div className="pointer-events-none fixed inset-0 z-0 opacity-70" aria-hidden="true">
@@ -203,7 +208,20 @@ export function DesktopShellFrame({
       />
 
       <header className="desktop-v2-header fixed left-[248px] right-0 top-0 z-30 flex h-[88px] items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_82%,transparent)] px-8 backdrop-blur-2xl">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-3">
+          {canCollapseSidebar && (
+            <button
+              type="button"
+              className="desktop-v2-sidebar-toggle grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] shadow-[var(--shadow-sm)] transition hover:border-[var(--border-strong)] hover:text-[var(--primary)]"
+              onClick={() => setTaskSidebarCollapsed((current) => !current)}
+              aria-label={sidebarCollapsed ? 'Show navigation sidebar' : 'Hide navigation sidebar'}
+              aria-pressed={sidebarCollapsed}
+              title={sidebarCollapsed ? 'Show navigation sidebar' : 'Hide navigation sidebar'}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
+            </button>
+          )}
+          <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground-subtle)]">
             {page.eyebrow}
           </p>
@@ -214,6 +232,7 @@ export function DesktopShellFrame({
             <p className="desktop-v2-page-description truncate text-sm text-[var(--foreground-muted)]">
               {page.description}
             </p>
+          </div>
           </div>
         </div>
 
@@ -244,7 +263,7 @@ export function DesktopShellFrame({
               : { duration: 0.22, ease: [0.2, 0.8, 0.2, 1] }
           }
         >
-          <div className="mx-auto min-h-[calc(100dvh-6.75rem)] max-w-[1760px] pb-8">
+          <div className={`mx-auto min-h-[calc(100dvh-6.75rem)] pb-8 ${canCollapseSidebar ? 'w-full max-w-none' : 'max-w-[1760px]'}`}>
             {children}
           </div>
         </motion.main>

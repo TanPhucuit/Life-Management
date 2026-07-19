@@ -43,6 +43,19 @@ export class SemanticDiveDirector {
     this.host.dataset.diveDirection = options.direction;
     this.host.style.setProperty('--dive-portal-x', `${options.portal.x.toFixed(2)}px`);
     this.host.style.setProperty('--dive-portal-y', `${options.portal.y.toFixed(2)}px`);
+    this.host.style.setProperty('--dive-overlay-opacity', '1');
+    this.host.style.setProperty('--dive-overlay-scale', '1');
+    this.host.style.setProperty('--dive-live-opacity', '0');
+    this.host.style.setProperty('--dive-live-scale', options.reducedMotion ? '.985' : '.72');
+    this.host.style.setProperty('--dive-blur', '0px');
+    this.host.style.setProperty('--dive-grid-rotate', '0deg');
+    this.host.style.setProperty('--dive-grid-scale', '1');
+    this.host.style.setProperty('--dive-grid-size-x', '26px');
+    this.host.style.setProperty('--dive-grid-size-y', '26px');
+    this.host.style.setProperty('--dive-portal-scale', '.35');
+    this.host.style.setProperty('--dive-grid-opacity', '.38');
+    this.host.style.setProperty('--dive-portal-opacity', '.12');
+    this.setPhase(options.reducedMotion ? 'dive' : 'lock');
     this.frame = window.requestAnimationFrame(this.tick);
     return this.runId;
   }
@@ -77,19 +90,24 @@ export class SemanticDiveDirector {
       this.host.style.setProperty('--dive-live-scale', `${.985 + easeOut(progress) * .015}`);
       this.host.style.setProperty('--dive-blur', '0px');
       this.host.style.setProperty('--dive-tunnel', '0');
+      this.host.style.setProperty('--dive-portal-scale', `${.35 + progress * .18}`);
+      this.host.style.setProperty('--dive-portal-opacity', `${.12 + progress * .88}`);
     } else {
       const lock = clamp01(elapsed / 180);
       const dive = clamp01((elapsed - 180) / 470);
       const reconstruct = clamp01((elapsed - 650) / 400);
       const settle = clamp01((elapsed - 1050) / 350);
       const direction = options.direction === 'forward' ? 1 : -1;
+      const lockProgress = easeOut(lock);
+      const diveProgress = easeInOut(dive);
+      const reconstructProgress = easeOut(reconstruct);
       const viewportCenterX = this.host.clientWidth * .5;
       const viewportCenterY = this.host.clientHeight * .5;
-      const travelX = (viewportCenterX - options.portal.x) * easeInOut(dive);
-      const travelY = (viewportCenterY - options.portal.y) * easeInOut(dive);
+      const travelX = (viewportCenterX - options.portal.x) * diveProgress;
+      const travelY = (viewportCenterY - options.portal.y) * diveProgress;
       const diveScale = options.direction === 'forward'
-        ? 1 + easeInOut(dive) * 5.2
-        : 1 - easeInOut(dive) * .84;
+        ? 1 + diveProgress * 5.8
+        : 1 - diveProgress * .84;
       const blur = Math.sin(Math.PI * dive) * 3.8;
       const liveScale = reconstruct < 1
         ? .72 + easeOut(reconstruct) * .298
@@ -100,27 +118,39 @@ export class SemanticDiveDirector {
       else if (elapsed < 1050) this.setPhase('reconstruct');
       else this.setPhase('settle');
       if (!this.swapped && elapsed >= 650) this.swap();
-      this.applyTargetLock(easeOut(lock), options.portal);
+      this.applyTargetLock(lockProgress, options.portal);
+      this.applyDiveField(diveProgress, direction);
 
-      this.host.style.setProperty('--dive-lock', `${easeOut(lock)}`);
-      this.host.style.setProperty('--dive-progress', `${easeInOut(dive)}`);
+      const tunnel = Math.max(0, direction * diveProgress * (1 - reconstruct));
+
+      this.host.style.setProperty('--dive-lock', `${lockProgress}`);
+      this.host.style.setProperty('--dive-progress', `${diveProgress}`);
       this.host.style.setProperty('--dive-camera-x', `${travelX.toFixed(2)}px`);
       this.host.style.setProperty('--dive-camera-y', `${travelY.toFixed(2)}px`);
       this.host.style.setProperty('--dive-overlay-scale', `${diveScale}`);
-      this.host.style.setProperty('--dive-overlay-opacity', `${1 - easeOut(reconstruct)}`);
+      this.host.style.setProperty('--dive-overlay-opacity', `${1 - reconstructProgress}`);
       this.host.style.setProperty('--dive-live-scale', `${liveScale}`);
-      this.host.style.setProperty('--dive-live-opacity', `${easeOut(reconstruct)}`);
+      this.host.style.setProperty('--dive-live-opacity', `${reconstructProgress}`);
       this.host.style.setProperty('--dive-blur', `${blur.toFixed(2)}px`);
-      this.host.style.setProperty('--dive-tunnel', `${Math.max(0, direction * easeInOut(dive) * (1 - reconstruct)).toFixed(3)}`);
-      this.host.style.setProperty('--dive-reconstruct', `${easeOut(reconstruct)}`);
+      this.host.style.setProperty('--dive-tunnel', `${tunnel.toFixed(3)}`);
+      this.host.style.setProperty('--dive-reconstruct', `${reconstructProgress}`);
+      this.host.style.setProperty('--dive-grid-rotate', `${(direction * lockProgress * 2.4 + tunnel * 58).toFixed(2)}deg`);
+      this.host.style.setProperty('--dive-grid-scale', `${(1 + lockProgress * .025 + diveProgress * 1.6).toFixed(3)}`);
+      this.host.style.setProperty('--dive-grid-size-x', `${(26 - diveProgress * 13).toFixed(2)}px`);
+      this.host.style.setProperty('--dive-grid-size-y', `${(26 + diveProgress * 22).toFixed(2)}px`);
+      this.host.style.setProperty('--dive-portal-scale', `${(.35 + lockProgress * .32 + diveProgress * 1.75).toFixed(3)}`);
+      this.host.style.setProperty('--dive-grid-opacity', `${(.38 + diveProgress * .34).toFixed(3)}`);
+      this.host.style.setProperty('--dive-portal-opacity', `${(.12 + lockProgress * .88).toFixed(3)}`);
     }
 
     if (elapsed >= duration) {
       const completedRun = this.runId;
       this.currentOptions = null;
       this.currentPhase = 'idle';
-      this.clearVisualState();
       options.onComplete?.(completedRun);
+      window.requestAnimationFrame(() => {
+        if (this.runId === completedRun && !this.currentOptions) this.clearVisualState();
+      });
       return;
     }
     this.frame = window.requestAnimationFrame(this.tick);
@@ -166,6 +196,16 @@ export class SemanticDiveDirector {
     });
   }
 
+  private applyDiveField(progress: number, direction: number) {
+    this.host.querySelectorAll<HTMLElement>('.semantic-dive-node').forEach((element) => {
+      const orbit = Number.parseFloat(element.style.getPropertyValue('--snapshot-orbit')) || 0;
+      const curve = Math.sin(progress * Math.PI * .82);
+      element.style.setProperty('--dive-orbit-x', `${(orbit * progress * direction).toFixed(2)}px`);
+      element.style.setProperty('--dive-orbit-y', `${(-Math.abs(orbit) * curve * .34).toFixed(2)}px`);
+      element.style.setProperty('--dive-orbit-rotate', `${(orbit * progress * .055 * direction).toFixed(2)}deg`);
+    });
+  }
+
   private clearVisualState() {
     delete this.host.dataset.divePhase;
     delete this.host.dataset.diveDirection;
@@ -174,6 +214,9 @@ export class SemanticDiveDirector {
       '--dive-overlay-scale', '--dive-overlay-opacity', '--dive-live-scale',
       '--dive-live-opacity', '--dive-blur', '--dive-tunnel', '--dive-reconstruct',
       '--dive-live-origin-x', '--dive-live-origin-y',
+      '--dive-grid-rotate', '--dive-grid-scale', '--dive-grid-size-x',
+      '--dive-grid-size-y', '--dive-portal-scale',
+      '--dive-grid-opacity', '--dive-portal-opacity',
     ].forEach((property) => this.host.style.removeProperty(property));
   }
 

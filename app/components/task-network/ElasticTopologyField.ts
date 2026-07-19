@@ -405,7 +405,9 @@ export class ElasticTopologyField {
       const count = Math.max(1, this.nodes.size);
       this.stage.style.setProperty('--field-x', `${clamp(velocityX / count, -8, 8).toFixed(2)}px`);
       this.stage.style.setProperty('--field-y', `${clamp(velocityY / count, -8, 8).toFixed(2)}px`);
-      this.stage.style.setProperty('--field-energy', clamp(energy / count / 4, 0, 1).toFixed(3));
+      const normalizedEnergy = clamp(energy / count / 4, 0, 1);
+      this.stage.style.setProperty('--field-energy', normalizedEnergy.toFixed(3));
+      this.stage.style.setProperty('--field-scale', (1 + normalizedEnergy * .008).toFixed(4));
     }
   }
 

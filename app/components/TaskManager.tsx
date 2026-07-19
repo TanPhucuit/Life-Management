@@ -1992,9 +1992,6 @@ function DesktopTaskOutline({
       onTopicChange={onTopicChange}
       onSelectTask={onSelectTask}
       onOpenTask={onOpenTask}
-      onToggleTask={onToggleTask}
-      onAddChild={onAddChild}
-      onAddRootTask={onAddRootTask}
       onEditTopic={onEditTopic}
     />
     {false && (
@@ -2068,9 +2065,6 @@ function DesktopTaskNetworkCanvas({
   onTopicChange,
   onSelectTask,
   onOpenTask,
-  onToggleTask,
-  onAddChild,
-  onAddRootTask,
   onEditTopic,
 }: {
   topics: ApiTopic[];
@@ -2086,9 +2080,6 @@ function DesktopTaskNetworkCanvas({
   onTopicChange: (topicId: string) => void;
   onSelectTask: (taskId: string) => void;
   onOpenTask: (taskId: string) => void;
-  onToggleTask: (task: ApiTask, event?: ReactMouseEvent<HTMLButtonElement>) => void;
-  onAddChild: (taskId: string) => void;
-  onAddRootTask: () => void;
   onEditTopic: () => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -2109,6 +2100,7 @@ function DesktopTaskNetworkCanvas({
   const pendingDragLogicalRef = useRef<NodePosition | null>(null);
   const pendingGraphOffsetRef = useRef<NodePosition | null>(null);
   const pendingReleaseIdRef = useRef<string | null>(null);
+  const completionAnimationsRef = useRef<Animation[]>([]);
   const [viewportSize, setViewportSize] = useState({ width: 980, height: 620 });
   const [zoom, setZoom] = useState(1);
   const [viewportOffset, setViewportOffset] = useState<NodePosition>({ x: 0, y: 0 });
@@ -2257,6 +2249,7 @@ function DesktopTaskNetworkCanvas({
     if (topicEdgeRevealTimerRef.current !== null) window.clearTimeout(topicEdgeRevealTimerRef.current);
     topologyFieldRef.current?.destroy();
     semanticDiveRef.current?.destroy();
+    completionAnimationsRef.current.forEach((animation) => animation.cancel());
   }, []);
 
   useEffect(() => {
@@ -2355,7 +2348,7 @@ function DesktopTaskNetworkCanvas({
       }
       return Math.max(highest, depth);
     }, 1);
-    const availableRadius = Math.max(150, Math.min(stageSize.width * (selectedTask ? .34 : .42), stageSize.height * .44));
+    const availableRadius = Math.max(150, Math.min(stageSize.width * .44, stageSize.height * .44));
     const ringStep = Math.max(78, Math.min(172, availableRadius / Math.max(1, maxDepth)));
     const startAngle = -Math.PI * .83;
     const sweep = Math.PI * 1.66;
@@ -2432,7 +2425,7 @@ function DesktopTaskNetworkCanvas({
       }];
     })) as Record<string, NodePosition>;
     return { center, positions, logicalPositions, depths, edges, roots };
-  }, [childrenByParent, customPositions, focusedRootId, selectedTask, selectedTopicId, stageSize, taskById, topicTasks, viewportOffset.x, viewportOffset.y, zoom]);
+  }, [childrenByParent, customPositions, focusedRootId, selectedTopicId, stageSize, taskById, topicTasks, viewportOffset.x, viewportOffset.y, zoom]);
   layoutPositionsRef.current = network.logicalPositions;
   const draggedNodeId = dragging?.mode === 'node' ? dragging.id : null;
   const topologyNodeInputs = useMemo(() => {
@@ -2468,6 +2461,50 @@ function DesktopTaskNetworkCanvas({
     ...edge,
     key: `${edge.from}:${edge.to}`,
   })), [network.edges]);
+
+  useEffect(() => {
+    if (reducedMotion || topicRevealStage < 2) return;
+    const frame = window.requestAnimationFrame(() => {
+      completionAnimationsRef.current.forEach((animation) => animation.cancel());
+      const stage = stageRef.current;
+      if (!stage) return;
+      const animations: Animation[] = [];
+      stage.querySelectorAll<HTMLElement>(".desktop-network-node[data-completion-replay='true']").forEach((node) => {
+        const wave = Number(node.dataset.completionWave || 0);
+        const delay = 80 + wave * 1750;
+        const surface = node.querySelector<HTMLElement>(':scope > span');
+        const icon = surface?.querySelector<SVGElement>('svg');
+        if (surface) {
+          animations.push(surface.animate([
+            { offset: 0, color: '#64748b', background: '#e6edf3', boxShadow: '0 0 0 1px #b8c7d3,0 7px 18px rgba(51,65,85,.14)', filter: 'brightness(.94)', transform: 'scale(.82)' },
+            { offset: .18, color: '#64748b', background: '#e6edf3', boxShadow: '0 0 0 1px #b8c7d3,0 7px 18px rgba(51,65,85,.14)', filter: 'brightness(.96)', transform: 'scale(.88)' },
+            { offset: .62, color: '#fff', background: '#34d399', boxShadow: '0 0 0 10px rgba(16,185,129,.13),0 0 34px rgba(16,185,129,.58)', filter: 'brightness(1.24)', transform: 'scale(1.2)' },
+            { offset: 1, color: '#fff', background: '#059669', boxShadow: '0 0 0 1px #6ee7b7,0 9px 25px rgba(5,150,105,.27)', filter: 'brightness(1)', transform: 'scale(1)' },
+          ], { duration: 760, delay, fill: 'both', easing: 'cubic-bezier(.16,1,.3,1)' }));
+        }
+        if (icon) {
+          animations.push(icon.animate([
+            { strokeDasharray: '64', strokeDashoffset: '64', opacity: 0, transform: 'scale(.65) rotate(-14deg)' },
+            { offset: .7, strokeDasharray: '64', strokeDashoffset: '0', opacity: 1, transform: 'scale(1.2) rotate(3deg)' },
+            { strokeDasharray: '64', strokeDashoffset: '0', opacity: 1, transform: 'scale(1) rotate(0deg)' },
+          ], { duration: 580, delay: delay + 140, fill: 'both', easing: 'cubic-bezier(.16,1,.3,1)' }));
+        }
+      });
+      stage.querySelectorAll<SVGPathElement>('.desktop-network-completion-burn.is-replaying').forEach((edge) => {
+        const wave = Number(edge.dataset.completionWave || 0);
+        const delay = 850 + wave * 1750;
+        animations.push(edge.animate([
+          { offset: 0, strokeDasharray: '.015 .985', strokeDashoffset: '0', strokeWidth: '2', opacity: 0, filter: 'drop-shadow(0 0 0 rgba(16,185,129,0))' },
+          { offset: .12, strokeDasharray: '.055 .945', strokeDashoffset: '-.08', strokeWidth: '3.2', opacity: 1, filter: 'drop-shadow(0 0 5px rgba(52,211,153,.92))' },
+          { offset: .62, strokeDasharray: '.16 .84', strokeDashoffset: '-.72', strokeWidth: '5', opacity: 1, filter: 'drop-shadow(0 0 9px rgba(52,211,153,1))' },
+          { offset: .84, strokeDasharray: '.52 .48', strokeDashoffset: '-.96', strokeWidth: '3.8', opacity: 1, filter: 'drop-shadow(0 0 7px rgba(52,211,153,.9))' },
+          { offset: 1, strokeDasharray: '1 0', strokeDashoffset: '-1', strokeWidth: '2.5', opacity: 1, filter: 'drop-shadow(0 0 3px rgba(16,185,129,.58))' },
+        ], { duration: 920, delay, fill: 'both', easing: 'cubic-bezier(.22,.8,.22,1)' }));
+      });
+      completionAnimationsRef.current = animations;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [completionReplayNonce, completionReplayRootId, reducedMotion, selectedTopicId, topicRevealStage]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -2938,7 +2975,7 @@ function DesktopTaskNetworkCanvas({
             return (
               <g key={edgeKey}>
                 <path ref={(element) => registerTopologyEdge(edgeKey, element)} d={path} pathLength={1} className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`} style={{ '--edge-opacity': active || hovered ? 1 : .28 } as CSSProperties} />
-                {childComplete && edge.from !== topicId && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} className={`desktop-network-completion-burn ${replayCompletion ? 'is-replaying' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
+                {childComplete && edge.from !== topicId && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion ? 'is-replaying' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
               </g>
             );
           })}
@@ -2988,13 +3025,16 @@ function DesktopTaskNetworkCanvas({
             <motion.button
               type="button"
               className="desktop-network-node is-task"
+              data-task-id={task.id}
               data-tone={tone}
               data-selected={selected ? 'true' : 'false'}
               data-branch={branch ? 'true' : 'false'}
               data-completion-replay={complete && completionReplayIds.has(task.id) ? 'true' : 'false'}
+              data-completion-armed={complete && completionReplayIds.has(task.id) && !reducedMotion ? 'true' : 'false'}
+              data-completion-wave={completionState.waveLevelById.get(task.id) || 0}
               data-dimmed={!hoverRelated ? 'true' : 'false'}
               data-expansion-pulse={expansionPulseId === task.id ? 'true' : 'false'}
-              style={{ '--node-size': `${size}px`, '--completion-delay': reducedMotion ? '0ms' : `${completionDelay}ms` } as CSSProperties}
+              style={{ '--node-size': `${size}px`, '--node-offset': `${-size / 2}px`, '--completion-delay': reducedMotion ? '0ms' : `${completionDelay}ms` } as CSSProperties}
               onPointerDown={(event) => startNodeDrag(event, task.id)}
               onPointerEnter={() => setHoveredNodeId(task.id)}
               onPointerLeave={() => setHoveredNodeId((current) => current === task.id ? null : current)}
@@ -3068,22 +3108,6 @@ function DesktopTaskNetworkCanvas({
         )}
         </div>
 
-        <AnimatePresence>
-          <motion.aside key={topicRevealStage >= 1 ? selectedTask?.id || 'topic' : 'topic-reveal'} className="desktop-network-inspector" initial={reducedMotion ? false : { opacity: 0, x: 26, scale: .98 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 18 }} transition={{ type: 'spring', stiffness: 380, damping: 34 }}>
-            {topicRevealStage >= 1 && selectedTask ? (
-              <>
-                <div className="desktop-network-inspector-heading"><span data-tone={completionState.doneById.get(selectedTask.id) ? 'complete' : isTaskOverdue(selectedTask) ? 'overdue' : isTaskInProgress(selectedTask) ? 'progress' : 'open'}>{(childrenByParent.get(selectedTask.id) || []).length ? <GitBranch /> : <Circle />}</span><div><small>Selected task · depth {network.depths[selectedTask.id]}</small><h3>{selectedTask.title}</h3></div></div>
-                <div className="desktop-network-breadcrumb"><span>{selectedTopic?.name}</span>{selectedPath.map((task) => <span key={task.id}>{task.title}</span>)}</div>
-                <p className="desktop-network-inspector-description">{selectedTask.description || 'No description has been added yet.'}</p>
-                <dl><div><dt>Status</dt><dd>{getTaskStatusLabel(completionState.doneById.get(selectedTask.id) ? 'completed' : selectedTask.status === 'in_progress' ? 'in_progress' : 'not_completed')}</dd></div><div><dt>Start</dt><dd>{formatDate(selectedTask.start_date, 'Not scheduled')}</dd></div><div><dt>Deadline</dt><dd>{formatDate(selectedTask.deadline)}</dd></div><div><dt>Children</dt><dd>{(childrenByParent.get(selectedTask.id) || []).length}</dd></div></dl>
-                {(childrenByParent.get(selectedTask.id) || []).length > 0 && <div className="desktop-network-child-nav"><small>Direct children</small><div>{(childrenByParent.get(selectedTask.id) || []).filter((child) => child.topic_id === selectedTopicId).map((child) => <button type="button" key={child.id} onClick={() => { setCompletionReplayRootId(selectedTask.id); setCompletionReplayNonce((current) => current + 1); setExpandedTaskIds((current) => new Set(current).add(selectedTask.id)); onSelectTask(child.id); }}><span />{child.title}<ChevronRight /></button>)}</div></div>}
-                <div className="desktop-network-inspector-actions"><button type="button" className="is-primary" onClick={() => onOpenTask(selectedTask.id)}><Pencil /> Open details</button><button type="button" onClick={() => onAddChild(selectedTask.id)}><Plus /> Add child</button>{(childrenByParent.get(selectedTask.id) || []).length > 0 && <button type="button" onClick={() => { setCompletionReplayRootId(selectedTask.id); setCompletionReplayNonce((current) => current + 1); setExpandedTaskIds((current) => { const next = new Set(current); if (next.has(selectedTask.id)) next.delete(selectedTask.id); else next.add(selectedTask.id); return next; }); }}>{expandedTaskIds.has(selectedTask.id) ? <ChevronDown /> : <ChevronRight />} {expandedTaskIds.has(selectedTask.id) ? 'Collapse' : 'Reveal children'}</button>}{(childrenByParent.get(selectedTask.id) || []).length === 0 && <button type="button" onClick={(event) => onToggleTask(selectedTask, event)}>{completionState.doneById.get(selectedTask.id) ? <Circle /> : <CheckCircle2 />} {completionState.doneById.get(selectedTask.id) ? 'Reopen' : 'Complete'}</button>}</div>
-              </>
-            ) : selectedTopic ? (
-              <><div className="desktop-network-inspector-heading"><span data-tone="topic"><GitBranch /></span><div><small>Topic · hierarchy root</small><h3>{selectedTopic.name}</h3></div></div><p className="desktop-network-inspector-description">All task branches originate from this topic. Drag any circle to tune the visual layout without changing hierarchy.</p><dl><div><dt>Tasks</dt><dd>{topicTasks.length}</dd></div><div><dt>Root branches</dt><dd>{network.roots.length}</dd></div><div><dt>Leaf completion</dt><dd>{completion}%</dd></div></dl><div className="desktop-network-inspector-actions"><button type="button" className="is-primary" onClick={onAddRootTask}><Plus /> Add root task</button><button type="button" onClick={onEditTopic}><Pencil /> Rename topic</button></div></>
-            ) : null}
-          </motion.aside>
-        </AnimatePresence>
       </div>
     </section>
   );
