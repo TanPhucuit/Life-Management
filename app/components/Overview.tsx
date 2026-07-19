@@ -8,7 +8,9 @@ import { api, ApiTask, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { EmptyState, ErrorState, PageHeader, Skeleton, StatCard, Surface } from './ui';
 
-const isDone = (task: ApiTask) => task.status === 'completed' || task.effective_status === 'completed';
+const isDone = (task: ApiTask) => task.effective_status !== undefined
+  ? task.effective_status === 'completed'
+  : task.status === 'completed';
 const localDateKey = (value?: string | null) => {
   if (!value) return '';
   const date = new Date(value);

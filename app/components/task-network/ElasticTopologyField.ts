@@ -1,0 +1,440 @@
+export type FieldPosition = { x: number; y: number };
+
+export type FieldNodeInput = {
+  id: string;
+  target: FieldPosition;
+  parentId: string | null;
+  depth: number;
+  descendantCount: number;
+  importance: number;
+  radius: number;
+  selected: boolean;
+};
+
+export type FieldEdgeInput = { key: string; from: string; to: string };
+
+type FieldNode = FieldNodeInput & {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  mass: number;
+  damping: number;
+  delayUntil: number;
+  pinned: FieldPosition | null;
+  targetAngle: number;
+  sectorHalfAngle: number;
+};
+
+const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
+
+const deterministicAngle = (id: string) => {
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return ((hash >>> 0) / 4294967295) * Math.PI * 2;
+};
+
+export class ElasticTopologyField {
+  private nodes = new Map<string, FieldNode>();
+  private edges: FieldEdgeInput[] = [];
+  private edgeByKey = new Map<string, FieldEdgeInput>();
+  private nodeElements = new Map<string, HTMLElement>();
+  private edgeElements = new Map<string, SVGPathElement>();
+  private reverseEdgeElements = new Map<string, SVGPathElement>();
+  private frame: number | null = null;
+  private lastFrameAt = 0;
+  private quietFrames = 0;
+  private destroyed = false;
+  private reducedMotion = false;
+  private sourceId: string | null = null;
+  private stage: HTMLElement | null = null;
+  private viewport: HTMLElement | null = null;
+  private paused = false;
+
+  constructor(stage: HTMLElement, viewport: HTMLElement) {
+    this.stage = stage;
+    this.viewport = viewport;
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    viewport.addEventListener('scroll', this.handleViewportActivity, { passive: true });
+  }
+
+  setReducedMotion(value: boolean) {
+    this.reducedMotion = value;
+  }
+
+  registerNode(id: string, element: HTMLElement | null) {
+    if (element) {
+      this.nodeElements.set(id, element);
+      const node = this.nodes.get(id);
+      if (node) element.style.transform = `translate3d(${node.x.toFixed(2)}px,${node.y.toFixed(2)}px,0)`;
+    }
+    else this.nodeElements.delete(id);
+  }
+
+  registerEdge(key: string, element: SVGPathElement | null, reverse = false) {
+    const collection = reverse ? this.reverseEdgeElements : this.edgeElements;
+    if (element) {
+      collection.set(key, element);
+      this.renderEdge(key);
+    }
+    else collection.delete(key);
+  }
+
+  pause() {
+    this.paused = true;
+    this.stop();
+  }
+
+  resume() {
+    this.paused = false;
+    this.quietFrames = 0;
+    this.start();
+  }
+
+  sync(nodeInputs: FieldNodeInput[], edges: FieldEdgeInput[], sourceId?: string | null) {
+    if (this.destroyed) return;
+    const now = performance.now();
+    const nextIds = new Set(nodeInputs.map((node) => node.id));
+    this.nodes.forEach((_, id) => {
+      if (!nextIds.has(id)) this.nodes.delete(id);
+    });
+    this.edges = edges;
+    this.edgeByKey = new Map(edges.map((edge) => [edge.key, edge]));
+    this.sourceId = sourceId || null;
+
+    const waveDistance = this.getWaveDistances(sourceId || null, edges);
+    [...nodeInputs].sort((a, b) => a.depth - b.depth || a.id.localeCompare(b.id)).forEach((input) => {
+      const existing = this.nodes.get(input.id);
+      const parent = input.parentId ? this.nodes.get(input.parentId) : null;
+      const angle = deterministicAngle(input.id);
+      const targetAngle = parent
+        ? Math.atan2(input.target.y - parent.target.y, input.target.x - parent.target.x)
+        : angle;
+      const mass = 1 + Math.log2(input.descendantCount + 1) * .34 + input.depth * .07 + input.importance * .42 + (input.selected ? .78 : 0);
+      const delay = clamp((waveDistance.get(input.id) || 0) * 58, 0, 520);
+      if (existing) {
+        Object.assign(existing, input, {
+          mass,
+          damping: clamp(.78 + mass * .018, .8, .9),
+          delayUntil: now + delay,
+          targetAngle,
+          sectorHalfAngle: clamp(.7 / Math.max(1, input.depth), .18, .62),
+        });
+        return;
+      }
+      const origin = parent || null;
+      this.nodes.set(input.id, {
+        ...input,
+        x: origin ? origin.x + Math.cos(angle) * 14 : input.target.x,
+        y: origin ? origin.y + Math.sin(angle) * 14 : input.target.y,
+        vx: 0,
+        vy: 0,
+        mass,
+        damping: clamp(.78 + mass * .018, .8, .9),
+        delayUntil: now + delay,
+        pinned: null,
+        targetAngle,
+        sectorHalfAngle: clamp(.7 / Math.max(1, input.depth), .18, .62),
+      });
+    });
+
+    if (this.reducedMotion) {
+      this.nodes.forEach((node) => {
+        node.x = node.target.x;
+        node.y = node.target.y;
+        node.vx = 0;
+        node.vy = 0;
+      });
+      this.render();
+      this.stop();
+      return;
+    }
+    this.render();
+    this.kick(sourceId || null, .72);
+  }
+
+  kick(sourceId?: string | null, strength = .58) {
+    const origin = sourceId ? this.nodes.get(sourceId) : null;
+    if (origin) {
+      this.nodes.forEach((node) => {
+        if (node.id === origin.id) return;
+        const dx = node.x - origin.x;
+        const dy = node.y - origin.y;
+        const distance = Math.max(1, Math.hypot(dx, dy));
+        const impulse = strength * Math.exp(-distance / 520);
+        node.vx += dx / distance * impulse;
+        node.vy += dy / distance * impulse;
+      });
+    }
+    this.quietFrames = 0;
+    this.start();
+  }
+
+  pin(id: string, position: FieldPosition) {
+    const node = this.nodes.get(id);
+    if (!node) return;
+    node.pinned = position;
+    node.x = position.x;
+    node.y = position.y;
+    node.vx = 0;
+    node.vy = 0;
+    this.quietFrames = 0;
+    this.render();
+    this.start();
+  }
+
+  release(id: string) {
+    const node = this.nodes.get(id);
+    if (!node) return;
+    node.pinned = null;
+    this.kick(id, .34);
+  }
+
+  getPosition(id: string): FieldPosition | null {
+    const node = this.nodes.get(id);
+    return node ? { x: node.x, y: node.y } : null;
+  }
+
+  snapshot() {
+    return Object.fromEntries([...this.nodes.entries()].map(([id, node]) => [id, { x: node.x, y: node.y }]));
+  }
+
+  destroy() {
+    this.destroyed = true;
+    this.stop();
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    this.viewport?.removeEventListener('scroll', this.handleViewportActivity);
+    this.nodes.clear();
+    this.edgeByKey.clear();
+    this.nodeElements.clear();
+    this.edgeElements.clear();
+    this.reverseEdgeElements.clear();
+    this.stage = null;
+    this.viewport = null;
+  }
+
+  private getWaveDistances(sourceId: string | null, edges: FieldEdgeInput[]) {
+    const distances = new Map<string, number>();
+    if (!sourceId) return distances;
+    const neighbors = new Map<string, string[]>();
+    edges.forEach((edge) => {
+      neighbors.set(edge.from, [...(neighbors.get(edge.from) || []), edge.to]);
+      neighbors.set(edge.to, [...(neighbors.get(edge.to) || []), edge.from]);
+    });
+    const queue = [sourceId];
+    distances.set(sourceId, 0);
+    while (queue.length) {
+      const current = queue.shift() as string;
+      const distance = distances.get(current) || 0;
+      (neighbors.get(current) || []).forEach((neighbor) => {
+        if (distances.has(neighbor)) return;
+        distances.set(neighbor, distance + 1);
+        queue.push(neighbor);
+      });
+    }
+    return distances;
+  }
+
+  private start() {
+    if (this.frame !== null || this.destroyed || this.paused || document.hidden) return;
+    this.lastFrameAt = performance.now();
+    this.frame = window.requestAnimationFrame(this.tick);
+  }
+
+  private stop() {
+    if (this.frame !== null) window.cancelAnimationFrame(this.frame);
+    this.frame = null;
+  }
+
+  private tick = (frameAt: number) => {
+    this.frame = null;
+    if (this.destroyed || document.hidden) return;
+    const frameScale = clamp((frameAt - this.lastFrameAt) / 16.67, .45, 1.8);
+    this.lastFrameAt = frameAt;
+    const activeNodes = this.getActiveNodes();
+    const forces = new Map<string, FieldPosition>();
+    activeNodes.forEach((node) => forces.set(node.id, { x: 0, y: 0 }));
+
+    activeNodes.forEach((node) => {
+      if (node.pinned || frameAt < node.delayUntil) return;
+      const force = forces.get(node.id) as FieldPosition;
+      const stiffness = (node.selected ? .092 : .064) / node.mass;
+      force.x += (node.target.x - node.x) * stiffness;
+      force.y += (node.target.y - node.y) * stiffness;
+      if (node.parentId) {
+        const parent = this.nodes.get(node.parentId);
+        if (parent) {
+          const currentAngle = Math.atan2(node.y - parent.y, node.x - parent.x);
+          const angularError = Math.atan2(Math.sin(currentAngle - node.targetAngle), Math.cos(currentAngle - node.targetAngle));
+          if (Math.abs(angularError) > node.sectorHalfAngle) {
+            const correction = (Math.abs(angularError) - node.sectorHalfAngle) * Math.sign(angularError) * -.42;
+            force.x += -Math.sin(currentAngle) * correction;
+            force.y += Math.cos(currentAngle) * correction;
+          }
+        }
+      }
+    });
+
+    this.edges.forEach((edge) => {
+      const parent = this.nodes.get(edge.from);
+      const child = this.nodes.get(edge.to);
+      if (!parent || !child) return;
+      const desiredX = child.target.x - parent.target.x;
+      const desiredY = child.target.y - parent.target.y;
+      const errorX = child.x - parent.x - desiredX;
+      const errorY = child.y - parent.y - desiredY;
+      const parentForce = forces.get(parent.id);
+      const childForce = forces.get(child.id);
+      if (parentForce && !parent.pinned) {
+        parentForce.x += errorX * .012 / parent.mass;
+        parentForce.y += errorY * .012 / parent.mass;
+      }
+      if (childForce && !child.pinned) {
+        childForce.x -= errorX * .02 / child.mass;
+        childForce.y -= errorY * .02 / child.mass;
+      }
+    });
+
+    const cellSize = 128;
+    const spatial = new Map<string, FieldNode[]>();
+    activeNodes.forEach((node) => {
+      const key = `${Math.floor(node.x / cellSize)}:${Math.floor(node.y / cellSize)}`;
+      spatial.set(key, [...(spatial.get(key) || []), node]);
+    });
+    activeNodes.forEach((node) => {
+      const cellX = Math.floor(node.x / cellSize);
+      const cellY = Math.floor(node.y / cellSize);
+      for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+          (spatial.get(`${cellX + offsetX}:${cellY + offsetY}`) || []).forEach((other) => {
+            if (other.id <= node.id) return;
+            const dx = other.x - node.x;
+            const dy = other.y - node.y;
+            const rawDistance = Math.hypot(dx, dy);
+            const distance = Math.max(1, rawDistance);
+            const minimum = node.radius + other.radius + 22;
+            if (distance >= minimum) return;
+            const overlap = (minimum - distance) * .052;
+            const angle = rawDistance < 1 ? deterministicAngle(`${node.id}:${other.id}`) : Math.atan2(dy, dx);
+            const pushX = Math.cos(angle) * overlap;
+            const pushY = Math.sin(angle) * overlap;
+            const nodeForce = forces.get(node.id);
+            const otherForce = forces.get(other.id);
+            if (nodeForce && !node.pinned) {
+              nodeForce.x -= pushX / node.mass;
+              nodeForce.y -= pushY / node.mass;
+            }
+            if (otherForce && !other.pinned) {
+              otherForce.x += pushX / other.mass;
+              otherForce.y += pushY / other.mass;
+            }
+          });
+        }
+      }
+    });
+
+    let energy = 0;
+    activeNodes.forEach((node) => {
+      if (node.pinned) {
+        node.x = node.pinned.x;
+        node.y = node.pinned.y;
+        node.vx = 0;
+        node.vy = 0;
+        return;
+      }
+      if (frameAt < node.delayUntil) return;
+      const force = forces.get(node.id) || { x: 0, y: 0 };
+      node.vx = (node.vx + force.x * frameScale) * node.damping;
+      node.vy = (node.vy + force.y * frameScale) * node.damping;
+      const speed = Math.hypot(node.vx, node.vy);
+      if (speed > 16) {
+        node.vx = node.vx / speed * 16;
+        node.vy = node.vy / speed * 16;
+      }
+      node.x += node.vx * frameScale;
+      node.y += node.vy * frameScale;
+      energy += Math.abs(node.vx) + Math.abs(node.vy)
+        + Math.hypot(node.target.x - node.x, node.target.y - node.y) * .008;
+    });
+    this.render();
+    this.quietFrames = energy / Math.max(1, activeNodes.length) < .045 ? this.quietFrames + 1 : 0;
+    if (this.quietFrames < 14) this.frame = window.requestAnimationFrame(this.tick);
+    else if (![...this.nodes.values()].some((node) => node.pinned)) {
+      this.nodes.forEach((node) => {
+        node.x = node.target.x;
+        node.y = node.target.y;
+        node.vx = 0;
+        node.vy = 0;
+      });
+      this.render();
+    }
+  };
+
+  private getActiveNodes() {
+    if (!this.viewport || this.nodes.size <= 170) return [...this.nodes.values()];
+    const left = this.viewport.scrollLeft - 520;
+    const top = this.viewport.scrollTop - 520;
+    const right = left + this.viewport.clientWidth + 1040;
+    const bottom = top + this.viewport.clientHeight + 1040;
+    const related = new Set<string>();
+    let currentId = this.sourceId;
+    while (currentId && !related.has(currentId)) {
+      related.add(currentId);
+      currentId = this.nodes.get(currentId)?.parentId || null;
+    }
+    return [...this.nodes.values()].filter((node) => node.pinned || related.has(node.id)
+      || (node.x >= left && node.x <= right && node.y >= top && node.y <= bottom));
+  }
+
+  private render() {
+    let velocityX = 0;
+    let velocityY = 0;
+    let energy = 0;
+    this.nodes.forEach((node) => {
+      const element = this.nodeElements.get(node.id);
+      if (element) element.style.transform = `translate3d(${node.x.toFixed(2)}px,${node.y.toFixed(2)}px,0)`;
+      velocityX += node.vx;
+      velocityY += node.vy;
+      energy += Math.hypot(node.vx, node.vy);
+    });
+    this.edges.forEach((edge) => this.renderEdge(edge.key));
+    if (this.stage) {
+      const count = Math.max(1, this.nodes.size);
+      this.stage.style.setProperty('--field-x', `${clamp(velocityX / count, -8, 8).toFixed(2)}px`);
+      this.stage.style.setProperty('--field-y', `${clamp(velocityY / count, -8, 8).toFixed(2)}px`);
+      this.stage.style.setProperty('--field-energy', clamp(energy / count / 4, 0, 1).toFixed(3));
+    }
+  }
+
+  private renderEdge(key: string) {
+    const edge = this.edgeByKey.get(key);
+    if (!edge) return;
+      const from = this.nodes.get(edge.from);
+      const to = this.nodes.get(edge.to);
+      if (!from || !to) return;
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const relativeVelocity = (to.vx - from.vx) * -dy / distance + (to.vy - from.vy) * dx / distance;
+      const baseBend = Math.min(44, distance * .105);
+      const bend = clamp(baseBend + relativeVelocity * 2.4, -72, 72);
+      const controlX = (from.x + to.x) / 2 - dy / distance * bend;
+      const controlY = (from.y + to.y) / 2 + dx / distance * bend;
+      const path = `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
+      const reversePath = `M ${to.x.toFixed(2)} ${to.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${from.x.toFixed(2)} ${from.y.toFixed(2)}`;
+      this.edgeElements.get(edge.key)?.setAttribute('d', path);
+      this.reverseEdgeElements.get(edge.key)?.setAttribute('d', reversePath);
+  }
+
+  private handleVisibilityChange = () => {
+    if (document.hidden) this.stop();
+    else if (!this.paused) this.resume();
+  };
+
+  private handleViewportActivity = () => {
+    if (!this.paused && this.nodes.size > 170) this.start();
+  };
+}

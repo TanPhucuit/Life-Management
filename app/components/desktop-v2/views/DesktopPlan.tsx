@@ -54,7 +54,9 @@ type DesktopPlanProps = {
 const spring = { type: 'spring' as const, stiffness: 420, damping: 32, mass: 0.8 };
 const morphSpring = { type: 'spring' as const, stiffness: 380, damping: 34 };
 
-const taskIsDone = (task: ApiTask) => task.status === 'completed' || task.effective_status === 'completed';
+const taskIsDone = (task: ApiTask) => task.effective_status !== undefined
+  ? task.effective_status === 'completed'
+  : task.status === 'completed';
 const taskIsLeaf = (task: ApiTask) => (task.child_count || 0) === 0;
 const dateKeyFromValue = (value?: string | null) => value?.slice(0, 10) || '';
 const localDateKey = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;

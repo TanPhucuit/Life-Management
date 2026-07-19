@@ -41,7 +41,9 @@ const presets = [25, 50, 90] as const;
 const reactorSpring = { type: 'spring' as const, stiffness: 420, damping: 32, mass: .8 };
 
 function isDone(task: ApiTask) {
-  return task.status === 'completed' || task.effective_status === 'completed';
+  return task.effective_status !== undefined
+    ? task.effective_status === 'completed'
+    : task.status === 'completed';
 }
 
 function todayParts() {

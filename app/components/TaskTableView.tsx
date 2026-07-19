@@ -39,7 +39,9 @@ const formatTableDate = (value?: string | null) => {
   return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
-const isTaskDone = (task: ApiTask) => task.effective_status === 'completed' || task.status === 'completed';
+const isTaskDone = (task: ApiTask) => task.effective_status !== undefined
+  ? task.effective_status === 'completed'
+  : task.status === 'completed';
 
 const isTaskOverdue = (task: ApiTask) => {
   if (!task.deadline || isTaskDone(task)) return false;

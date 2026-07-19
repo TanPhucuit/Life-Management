@@ -57,7 +57,9 @@ const chartColors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(
 const insightSpring = { type: 'spring' as const, stiffness: 380, damping: 34 };
 
 function isDone(task: ApiTask) {
-  return task.status === 'completed' || task.effective_status === 'completed';
+  return task.effective_status !== undefined
+    ? task.effective_status === 'completed'
+    : task.status === 'completed';
 }
 
 function isLeaf(task: ApiTask) {

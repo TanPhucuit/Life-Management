@@ -58,7 +58,9 @@ function currentDateKey() {
 }
 
 function isDone(task: ApiTask) {
-  return task.status === 'completed' || task.effective_status === 'completed';
+  return task.effective_status !== undefined
+    ? task.effective_status === 'completed'
+    : task.status === 'completed';
 }
 
 function isLeaf(task: ApiTask) {
