@@ -153,7 +153,8 @@ export class ElasticTopologyField {
       return;
     }
     this.render();
-    this.kick(sourceId || null, .72);
+    this.quietFrames = 0;
+    this.start();
   }
 
   kick(sourceId?: string | null, strength = .58) {
@@ -177,16 +178,27 @@ export class ElasticTopologyField {
     const node = this.nodes.get(id);
     if (!node) return;
     node.pinned = position;
+    node.x = position.x;
+    node.y = position.y;
+    node.vx = 0;
+    node.vy = 0;
     this.quietFrames = 0;
+    this.render();
     this.start();
   }
 
   pinMany(positions: Record<string, FieldPosition>) {
     Object.entries(positions).forEach(([id, position]) => {
       const node = this.nodes.get(id);
-      if (node) node.pinned = position;
+      if (!node) return;
+      node.pinned = position;
+      node.x = position.x;
+      node.y = position.y;
+      node.vx = 0;
+      node.vy = 0;
     });
     this.quietFrames = 0;
+    this.render();
     this.start();
   }
 
@@ -194,7 +206,10 @@ export class ElasticTopologyField {
     const node = this.nodes.get(id);
     if (!node) return;
     node.pinned = null;
-    this.kick(id, .34);
+    node.vx = 0;
+    node.vy = 0;
+    this.quietFrames = 0;
+    this.start();
   }
 
   releaseMany(ids: Iterable<string>) {
@@ -205,7 +220,9 @@ export class ElasticTopologyField {
       node.pinned = null;
       firstReleased ||= id;
     }
-    this.kick(firstReleased, .24);
+    if (!firstReleased) return;
+    this.quietFrames = 0;
+    this.start();
   }
 
   getPosition(id: string): FieldPosition | null {
@@ -270,6 +287,7 @@ export class ElasticTopologyField {
     const frameScale = clamp((frameAt - this.lastFrameAt) / 16.67, .45, 1.8);
     this.lastFrameAt = frameAt;
     const activeNodes = this.getActiveNodes();
+    const directManipulationActive = activeNodes.some((node) => node.pinned !== null);
     const forces = new Map<string, FieldPosition>();
     activeNodes.forEach((node) => forces.set(node.id, { x: 0, y: 0 }));
 
@@ -277,9 +295,15 @@ export class ElasticTopologyField {
       if (frameAt < node.delayUntil) return;
       const force = forces.get(node.id) as FieldPosition;
       if (node.pinned) {
-        const dragStiffness = .58;
-        force.x += (node.pinned.x - node.x) * dragStiffness;
-        force.y += (node.pinned.y - node.y) * dragStiffness;
+        node.x = node.pinned.x;
+        node.y = node.pinned.y;
+        node.vx = 0;
+        node.vy = 0;
+        return;
+      }
+      if (directManipulationActive) {
+        node.vx = 0;
+        node.vy = 0;
         return;
       }
       const stiffness = (node.selected ? .13 : .09) / node.mass;
@@ -299,7 +323,7 @@ export class ElasticTopologyField {
       }
     });
 
-    this.edges.forEach((edge) => {
+    if (!directManipulationActive) this.edges.forEach((edge) => {
       const parent = this.nodes.get(edge.from);
       const child = this.nodes.get(edge.to);
       if (!parent || !child) return;
@@ -321,7 +345,7 @@ export class ElasticTopologyField {
 
     const cellSize = 128;
     const spatial = new Map<string, FieldNode[]>();
-    activeNodes.forEach((node) => {
+    if (!directManipulationActive) activeNodes.forEach((node) => {
       const key = `${Math.floor(node.x / cellSize)}:${Math.floor(node.y / cellSize)}`;
       spatial.set(key, [...(spatial.get(key) || []), node]);
     });

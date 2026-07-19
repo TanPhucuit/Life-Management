@@ -2739,7 +2739,9 @@ function DesktopTaskNetworkCanvas({
   const startCanvasPan = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 || divePhase !== 'idle') return;
     const target = event.target as HTMLElement;
-    if (target.closest('button, aside, .desktop-network-legend')) return;
+    const isTrueCanvasSurface = target === event.currentTarget
+      || target.classList.contains('desktop-network-live-world');
+    if (!isTrueCanvasSurface || target.closest('button, aside, .desktop-network-legend')) return;
     didDragRef.current = false;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -2948,8 +2950,16 @@ function DesktopTaskNetworkCanvas({
             const hovered = Boolean(hoveredNodeId && (edge.from === hoveredNodeId || edge.to === hoveredNodeId));
             const path = `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`;
             const childComplete = completionState.doneById.get(edge.to) === true;
-            const burnDelay = 880 + (completionState.waveLevelById.get(edge.to) || 0) * 1800;
+            const burnDelay = 650 + (completionState.waveLevelById.get(edge.to) || 0) * 2100;
             const reversePath = `M ${to.x} ${to.y} Q ${controlX} ${controlY} ${from.x} ${from.y}`;
+            const burnHeadPoints = Array.from({ length: 20 }, (_, pointIndex) => {
+              const progress = pointIndex / 19;
+              const inverse = 1 - progress;
+              return {
+                x: inverse * inverse * to.x + 2 * inverse * progress * controlX + progress * progress * from.x,
+                y: inverse * inverse * to.y + 2 * inverse * progress * controlY + progress * progress * from.y,
+              };
+            });
             const edgeKey = `${edge.from}:${edge.to}`;
             const replayCompletion = completionReplayIds.has(edge.to);
             return (
@@ -2957,11 +2967,23 @@ function DesktopTaskNetworkCanvas({
                 <path ref={(element) => registerTopologyEdge(edgeKey, element)} d={path} pathLength={1} className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`} style={{ '--edge-opacity': active || hovered ? 1 : .28, '--edge-reveal-delay': reducedMotion ? '0ms' : `${Math.min(edgeIndex, 24) * 38}ms` } as CSSProperties} />
                 {childComplete && edge.from !== topicId && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion && completionReplayPhase === 'playing' ? 'is-replaying' : replayCompletion && completionReplayPhase === 'primed' ? 'is-primed' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
                 {childComplete && edge.from !== topicId && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
-                  <circle key={`${edgeKey}:head:${completionReplayNonce}`} className="desktop-network-completion-head" r="5">
-                    <animateMotion path={reversePath} begin={`${burnDelay}ms`} dur="1020ms" fill="freeze" />
-                    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.84;1" begin={`${burnDelay}ms`} dur="1020ms" fill="freeze" />
-                    <animate attributeName="r" values="3;6;4" begin={`${burnDelay}ms`} dur="1020ms" fill="freeze" />
-                  </circle>
+                  <motion.circle
+                    key={`${edgeKey}:head:${completionReplayNonce}`}
+                    className="desktop-network-completion-head"
+                    initial={{ cx: to.x, cy: to.y, r: 4, opacity: 0 }}
+                    animate={{
+                      cx: burnHeadPoints.map((point) => point.x),
+                      cy: burnHeadPoints.map((point) => point.y),
+                      r: [4, 9, 7, 5],
+                      opacity: [0, 1, 1, 0],
+                    }}
+                    transition={{
+                      cx: { duration: 1.3, delay: burnDelay / 1000, ease: 'easeInOut' },
+                      cy: { duration: 1.3, delay: burnDelay / 1000, ease: 'easeInOut' },
+                      r: { duration: 1.3, delay: burnDelay / 1000, times: [0, .08, .72, 1] },
+                      opacity: { duration: 1.3, delay: burnDelay / 1000, times: [0, .06, .88, 1] },
+                    }}
+                  />
                 )}
               </g>
             );
@@ -3000,7 +3022,7 @@ function DesktopTaskNetworkCanvas({
           const hoverRelated = !hoveredNodeId || hoverNeighborIds.has(task.id);
           const complete = completionState.doneById.get(task.id) === true;
           const tone = complete ? 'complete' : isTaskOverdue(task) ? 'overdue' : isTaskInProgress(task) ? 'progress' : 'open';
-          const completionDelay = 120 + (completionState.waveLevelById.get(task.id) || 0) * 1800;
+          const completionDelay = 80 + (completionState.waveLevelById.get(task.id) || 0) * 2100;
           const size = childCount ? Math.min(70, 50 + Math.log2(childCount + 1) * 9) : 38;
           return (
             <div
