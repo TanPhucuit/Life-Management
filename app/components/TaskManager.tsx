@@ -1591,6 +1591,7 @@ export default function TaskManager({
               onToggleTask={handleToggleLeaf}
               onOpenTask={openTaskDetails}
               onAddChild={(taskId) => openTaskModal(taskId)}
+              onAddRootTask={(topicId) => openTaskModal(null, topicId)}
             />
           )}
           </WorkspaceViewTransition>
@@ -1953,6 +1954,27 @@ function DesktopTaskOutline({
   };
 
   return (
+    <>
+    <DesktopTaskNetworkCanvas
+      topics={topics}
+      selectedTopicId={selectedTopicId}
+      selectedTopic={selectedTopic}
+      tasks={tasks}
+      childrenByParent={childrenByParent}
+      visibleTaskIds={visibleTaskIds}
+      selectedTaskId={selectedTaskId}
+      selectedBranchIds={selectedBranchIds}
+      searchTerm={searchTerm}
+      reducedMotion={reducedMotion}
+      onTopicChange={onTopicChange}
+      onSelectTask={onSelectTask}
+      onOpenTask={onOpenTask}
+      onToggleTask={onToggleTask}
+      onAddChild={onAddChild}
+      onAddRootTask={onAddRootTask}
+      onEditTopic={onEditTopic}
+    />
+    {false && (
     <section className="desktop-task-outline" aria-label="Task hierarchy">
       <header className="desktop-outline-root-card">
         <div className="desktop-outline-root-main">
@@ -2003,6 +2025,283 @@ function DesktopTaskOutline({
         <span><i className="is-open" /> {topicTasks.length - completedCount} active</span>
         <span className="ml-auto"><Move /> Drag the handle to reorder within the same branch</span>
       </footer>
+    </section>
+    )}
+    </>
+  );
+}
+
+function DesktopTaskNetworkCanvas({
+  topics,
+  selectedTopicId,
+  selectedTopic,
+  tasks,
+  childrenByParent,
+  visibleTaskIds,
+  selectedTaskId,
+  selectedBranchIds,
+  searchTerm,
+  reducedMotion,
+  onTopicChange,
+  onSelectTask,
+  onOpenTask,
+  onToggleTask,
+  onAddChild,
+  onAddRootTask,
+  onEditTopic,
+}: {
+  topics: ApiTopic[];
+  selectedTopicId: string;
+  selectedTopic: ApiTopic | null;
+  tasks: ApiTask[];
+  childrenByParent: Map<string | null, ApiTask[]>;
+  visibleTaskIds: Set<string>;
+  selectedTaskId: string | null;
+  selectedBranchIds: Set<string>;
+  searchTerm: string;
+  reducedMotion: boolean;
+  onTopicChange: (topicId: string) => void;
+  onSelectTask: (taskId: string) => void;
+  onOpenTask: (taskId: string) => void;
+  onToggleTask: (task: ApiTask, event?: ReactMouseEvent<HTMLButtonElement>) => void;
+  onAddChild: (taskId: string) => void;
+  onAddRootTask: () => void;
+  onEditTopic: () => void;
+}) {
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const didDragRef = useRef(false);
+  const [stageSize, setStageSize] = useState({ width: 1200, height: 640 });
+  const [zoom, setZoom] = useState(1);
+  const [customPositions, setCustomPositions] = useState<Record<string, NodePosition>>({});
+  const [dragging, setDragging] = useState<{ id: string; pointerId: number; offsetX: number; offsetY: number } | null>(null);
+  const topicTasks = useMemo(
+    () => tasks.filter((task) => task.topic_id === selectedTopicId && visibleTaskIds.has(task.id)),
+    [selectedTopicId, tasks, visibleTaskIds],
+  );
+  const taskById = useMemo(() => new Map(topicTasks.map((task) => [task.id, task])), [topicTasks]);
+  const selectedTask = selectedTaskId ? taskById.get(selectedTaskId) || null : null;
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const updateSize = () => setStageSize({ width: Math.max(720, stage.clientWidth), height: Math.max(460, stage.clientHeight) });
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedTopicId) {
+      setCustomPositions({});
+      return;
+    }
+    try {
+      const saved = window.localStorage.getItem(`desktop-task-network:v1:${selectedTopicId}`);
+      setCustomPositions(saved ? JSON.parse(saved) as Record<string, NodePosition> : {});
+    } catch {
+      setCustomPositions({});
+    }
+  }, [selectedTopicId]);
+
+  const network = useMemo(() => {
+    const center = {
+      x: stageSize.width * (selectedTaskId ? .39 : .48),
+      y: stageSize.height * .52,
+    };
+    const roots = (childrenByParent.get(null) || [])
+      .filter((task) => task.topic_id === selectedTopicId && taskById.has(task.id));
+    const visibleChildren = (taskId: string) => (childrenByParent.get(taskId) || [])
+      .filter((task) => task.topic_id === selectedTopicId && taskById.has(task.id));
+    const leafCount = (task: ApiTask): number => {
+      const children = visibleChildren(task.id);
+      return children.length ? children.reduce((sum, child) => sum + leafCount(child), 0) : 1;
+    };
+    const totalLeaves = Math.max(1, roots.reduce((sum, root) => sum + leafCount(root), 0));
+    const maxDepth = topicTasks.reduce((highest, task) => {
+      let depth = 1;
+      let current = task;
+      const visited = new Set<string>();
+      while (current.parent_task_id && taskById.has(current.parent_task_id) && !visited.has(current.parent_task_id)) {
+        visited.add(current.parent_task_id);
+        current = taskById.get(current.parent_task_id) as ApiTask;
+        depth += 1;
+      }
+      return Math.max(highest, depth);
+    }, 1);
+    const availableRadius = Math.max(150, Math.min(stageSize.width * (selectedTaskId ? .34 : .42), stageSize.height * .44));
+    const ringStep = Math.max(62, Math.min(118, availableRadius / Math.max(1, maxDepth)));
+    const startAngle = -Math.PI * .83;
+    const sweep = Math.PI * 1.66;
+    let leafCursor = 0;
+    const logicalPositions: Record<string, NodePosition> = {};
+    const depths: Record<string, number> = {};
+    const edges: Array<{ from: string; to: string }> = [];
+    const assign = (task: ApiTask, depth: number): number => {
+      depths[task.id] = depth;
+      const children = visibleChildren(task.id);
+      const angle = children.length
+        ? children.reduce((sum, child) => sum + assign(child, depth + 1), 0) / children.length
+        : startAngle + (totalLeaves === 1 ? sweep / 2 : (leafCursor++ / (totalLeaves - 1)) * sweep);
+      const radius = ringStep * depth;
+      logicalPositions[task.id] = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
+      children.forEach((child) => edges.push({ from: task.id, to: child.id }));
+      return angle;
+    };
+    roots.forEach((root) => {
+      assign(root, 1);
+      edges.push({ from: topicNodeId(selectedTopicId), to: root.id });
+    });
+    logicalPositions[topicNodeId(selectedTopicId)] = center;
+    depths[topicNodeId(selectedTopicId)] = 0;
+
+    const positions = Object.fromEntries(Object.entries(logicalPositions).map(([id, position]) => {
+      const logical = customPositions[id] || position;
+      const scaled = {
+        x: center.x + (logical.x - center.x) * zoom,
+        y: center.y + (logical.y - center.y) * zoom,
+      };
+      return [id, {
+        x: Math.max(48, Math.min(stageSize.width - 48, scaled.x)),
+        y: Math.max(48, Math.min(stageSize.height - 48, scaled.y)),
+      }];
+    })) as Record<string, NodePosition>;
+    return { center, positions, logicalPositions, depths, edges, roots };
+  }, [childrenByParent, customPositions, selectedTaskId, selectedTopicId, stageSize, taskById, topicTasks, zoom]);
+
+  const savePositions = (positions: Record<string, NodePosition>) => {
+    if (!selectedTopicId) return;
+    try { window.localStorage.setItem(`desktop-task-network:v1:${selectedTopicId}`, JSON.stringify(positions)); } catch { /* local layout persistence is optional */ }
+  };
+
+  const pointerToLogical = (event: ReactPointerEvent<HTMLElement>) => {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    return {
+      x: network.center.x + (x - network.center.x) / zoom,
+      y: network.center.y + (y - network.center.y) / zoom,
+    };
+  };
+
+  const startNodeDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
+    if (event.button !== 0) return;
+    const pointer = pointerToLogical(event);
+    const displayed = network.positions[id] || network.center;
+    const logical = customPositions[id] || network.logicalPositions[id] || displayed;
+    didDragRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setDragging({ id, pointerId: event.pointerId, offsetX: pointer.x - logical.x, offsetY: pointer.y - logical.y });
+  };
+
+  const moveNode = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging || event.pointerId !== dragging.pointerId) return;
+    const pointer = pointerToLogical(event);
+    didDragRef.current = true;
+    setCustomPositions((current) => ({ ...current, [dragging.id]: { x: pointer.x - dragging.offsetX, y: pointer.y - dragging.offsetY } }));
+  };
+
+  const endNodeDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging || event.pointerId !== dragging.pointerId) return;
+    setDragging(null);
+    savePositions(customPositions);
+  };
+
+  const topicId = topicNodeId(selectedTopicId);
+  const leafTasks = topicTasks.filter((task) => (childrenByParent.get(task.id) || []).length === 0);
+  const completion = leafTasks.length ? Math.round(leafTasks.filter(isTaskDone).length / leafTasks.length * 100) : 0;
+
+  return (
+    <section className="desktop-task-network">
+      <header className="desktop-network-toolbar">
+        <div className="desktop-network-root-select">
+          <span><GitBranch /></span>
+          <label><small>Hierarchy root · Topic</small><select value={selectedTopicId} onChange={(event) => onTopicChange(event.target.value)} disabled={!topics.length}>{!topics.length && <option value="">No topics yet</option>}{topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}</select></label>
+          {selectedTopic && <button type="button" onClick={onEditTopic} title="Rename topic"><Pencil /></button>}
+        </div>
+        <div className="desktop-network-stats"><span><strong>{topicTasks.length}</strong> nodes</span><span><strong>{network.roots.length}</strong> branches</span><span><strong>{completion}%</strong> complete</span>{searchTerm.trim() && <span><Search /> Filtered</span>}</div>
+        <div className="desktop-network-controls">
+          <button type="button" onClick={() => setZoom((value) => Math.max(.72, value - .1))} aria-label="Zoom out">−</button><strong>{Math.round(zoom * 100)}%</strong><button type="button" onClick={() => setZoom((value) => Math.min(1.35, value + .1))} aria-label="Zoom in">+</button>
+          <button type="button" className="is-reflow" onClick={() => { setCustomPositions({}); setZoom(1); savePositions({}); }}><LocateFixed /> Reflow</button>
+        </div>
+      </header>
+
+      <div ref={stageRef} className="desktop-network-stage" onPointerMove={moveNode} onPointerUp={endNodeDrag} onPointerCancel={endNodeDrag} data-dragging={dragging ? 'true' : 'false'}>
+        <div className="desktop-network-atmosphere" aria-hidden="true"><i /><i /><i /></div>
+        <svg className="desktop-network-edges" width={stageSize.width} height={stageSize.height} aria-hidden="true">
+          <defs><filter id="network-edge-glow"><feGaussianBlur stdDeviation="2.4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
+          {network.edges.map((edge) => {
+            const from = network.positions[edge.from];
+            const to = network.positions[edge.to];
+            if (!from || !to) return null;
+            const dx = to.x - from.x;
+            const dy = to.y - from.y;
+            const bend = Math.min(38, Math.hypot(dx, dy) * .12);
+            const controlX = (from.x + to.x) / 2 - (dy / Math.max(1, Math.hypot(dx, dy))) * bend;
+            const controlY = (from.y + to.y) / 2 + (dx / Math.max(1, Math.hypot(dx, dy))) * bend;
+            const active = (edge.from === topicId && selectedBranchIds.has(edge.to)) || (selectedBranchIds.has(edge.from) && selectedBranchIds.has(edge.to));
+            return <motion.path key={`${edge.from}:${edge.to}`} d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`} className={active ? 'is-active' : ''} initial={false} animate={{ pathLength: 1, opacity: active ? 1 : .34 }} transition={{ duration: reducedMotion ? 0 : .32 }} />;
+          })}
+        </svg>
+
+        {selectedTopic && network.positions[topicId] && (
+          <motion.button
+            type="button"
+            className="desktop-network-node is-topic"
+            style={{ left: network.positions[topicId].x, top: network.positions[topicId].y }}
+            onPointerDown={(event) => startNodeDrag(event, topicId)}
+            onClick={() => { if (!didDragRef.current) onTopicChange(selectedTopicId); }}
+            animate={{ x: '-50%', y: '-50%', scale: dragging?.id === topicId ? 1.08 : 1 }}
+            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+          ><span><GitBranch /></span><strong>{selectedTopic.name}</strong><small>Topic root</small></motion.button>
+        )}
+
+        {topicTasks.map((task) => {
+          const position = network.positions[task.id];
+          if (!position) return null;
+          const childCount = (childrenByParent.get(task.id) || []).length;
+          const selected = selectedTaskId === task.id;
+          const branch = selectedBranchIds.has(task.id);
+          const tone = isTaskDone(task) ? 'complete' : isTaskOverdue(task) ? 'overdue' : isTaskInProgress(task) ? 'progress' : 'open';
+          const size = childCount ? Math.min(56, 38 + Math.log2(childCount + 1) * 8) : 32;
+          return (
+            <motion.button
+              type="button"
+              key={task.id}
+              className="desktop-network-node is-task"
+              data-tone={tone}
+              data-selected={selected ? 'true' : 'false'}
+              data-branch={branch ? 'true' : 'false'}
+              style={{ left: position.x, top: position.y, '--node-size': `${size}px` } as CSSProperties}
+              onPointerDown={(event) => startNodeDrag(event, task.id)}
+              onClick={() => { if (!didDragRef.current) onSelectTask(task.id); }}
+              onDoubleClick={() => onOpenTask(task.id)}
+              animate={{ x: '-50%', y: '-50%', scale: dragging?.id === task.id ? 1.13 : selected ? 1.08 : 1 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32, mass: .8 }}
+              title={`${task.title} · double-click for full details`}
+            ><span>{isTaskDone(task) ? <CheckCircle2 /> : childCount ? <GitBranch /> : <Circle />}</span><strong>{task.title}</strong><small>{childCount ? `${childCount} children` : getTaskStatusLabel(task.effective_status)}</small></motion.button>
+          );
+        })}
+
+        {!selectedTopic && <div className="desktop-network-empty"><GitBranch /><strong>Create a topic to become the hierarchy root.</strong></div>}
+
+        <AnimatePresence>
+          <motion.aside key={selectedTask?.id || 'topic'} className="desktop-network-inspector" initial={reducedMotion ? false : { opacity: 0, x: 26, scale: .98 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: 18 }} transition={{ type: 'spring', stiffness: 380, damping: 34 }}>
+            {selectedTask ? (
+              <>
+                <div className="desktop-network-inspector-heading"><span data-tone={isTaskDone(selectedTask) ? 'complete' : isTaskOverdue(selectedTask) ? 'overdue' : isTaskInProgress(selectedTask) ? 'progress' : 'open'}>{(childrenByParent.get(selectedTask.id) || []).length ? <GitBranch /> : <Circle />}</span><div><small>Selected task · depth {network.depths[selectedTask.id]}</small><h3>{selectedTask.title}</h3></div></div>
+                <p className="desktop-network-inspector-description">{selectedTask.description || 'No description has been added yet.'}</p>
+                <dl><div><dt>Status</dt><dd>{getTaskStatusLabel(selectedTask.effective_status)}</dd></div><div><dt>Start</dt><dd>{formatDate(selectedTask.start_date, 'Not scheduled')}</dd></div><div><dt>Deadline</dt><dd>{formatDate(selectedTask.deadline)}</dd></div><div><dt>Children</dt><dd>{(childrenByParent.get(selectedTask.id) || []).length}</dd></div></dl>
+                <div className="desktop-network-inspector-actions"><button type="button" className="is-primary" onClick={() => onOpenTask(selectedTask.id)}><Pencil /> Open details</button><button type="button" onClick={() => onAddChild(selectedTask.id)}><Plus /> Add child</button>{(childrenByParent.get(selectedTask.id) || []).length === 0 && <button type="button" onClick={(event) => onToggleTask(selectedTask, event)}>{isTaskDone(selectedTask) ? <Circle /> : <CheckCircle2 />} {isTaskDone(selectedTask) ? 'Reopen' : 'Complete'}</button>}</div>
+              </>
+            ) : selectedTopic ? (
+              <><div className="desktop-network-inspector-heading"><span data-tone="topic"><GitBranch /></span><div><small>Topic · hierarchy root</small><h3>{selectedTopic.name}</h3></div></div><p className="desktop-network-inspector-description">All task branches originate from this topic. Drag any circle to tune the visual layout without changing hierarchy.</p><dl><div><dt>Tasks</dt><dd>{topicTasks.length}</dd></div><div><dt>Root branches</dt><dd>{network.roots.length}</dd></div><div><dt>Leaf completion</dt><dd>{completion}%</dd></div></dl><div className="desktop-network-inspector-actions"><button type="button" className="is-primary" onClick={onAddRootTask}><Plus /> Add root task</button><button type="button" onClick={onEditTopic}><Pencil /> Rename topic</button></div></>
+            ) : null}
+          </motion.aside>
+        </AnimatePresence>
+        <div className="desktop-network-hint"><Move /> Drag nodes · Click for inspector · Double-click for full details</div>
+      </div>
     </section>
   );
 }

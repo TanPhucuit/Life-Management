@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   AlertCircle,
@@ -26,6 +26,7 @@ type TaskTableViewProps = {
   onToggleTask: (task: ApiTask) => void | Promise<void>;
   onOpenTask: (taskId: string) => void;
   onAddChild: (taskId: string) => void;
+  onAddRootTask?: (topicId: string) => void;
   variant?: 'legacy' | 'desktop-cinematic';
 };
 
@@ -60,9 +61,11 @@ export default function TaskTableView({
   onToggleTask,
   onOpenTask,
   onAddChild,
+  onAddRootTask,
   variant = 'legacy',
 }: TaskTableViewProps) {
   const isDesktopCinematic = variant === 'desktop-cinematic';
+  const [activeTopicId, setActiveTopicId] = useState<string | null>(null);
   const [activeRootId, setActiveRootId] = useState<string | null>(null);
   const [activeLevelOneId, setActiveLevelOneId] = useState<string | null>(null);
   const [activeLevelTwoSheetId, setActiveLevelTwoSheetId] = useState<string | null>(null);
@@ -89,14 +92,23 @@ export default function TaskTableView({
 
   const rootTasks = useMemo(() => {
     const topicOrder = new Map(topics.map((topic, index) => [topic.id, index]));
-    return [...(childrenByParent.get(null) || [])].sort((a, b) => {
+    return [...(childrenByParent.get(null) || [])].filter((task) => !activeTopicId || task.topic_id === activeTopicId).sort((a, b) => {
       const topicDifference = (topicOrder.get(a.topic_id) ?? Number.MAX_SAFE_INTEGER) - (topicOrder.get(b.topic_id) ?? Number.MAX_SAFE_INTEGER);
       if (topicDifference !== 0) return topicDifference;
       const orderDifference = (a.sort_order || 0) - (b.sort_order || 0);
       if (orderDifference !== 0) return orderDifference;
       return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
     });
-  }, [childrenByParent, topics]);
+  }, [activeTopicId, childrenByParent, topics]);
+
+  useEffect(() => {
+    if (isDesktopCinematic) return;
+    if (!topics.length) {
+      setActiveTopicId(null);
+      return;
+    }
+    if (!activeTopicId || !topics.some((topic) => topic.id === activeTopicId)) setActiveTopicId(topics[0].id);
+  }, [activeTopicId, isDesktopCinematic, topics]);
 
   const activeRoot = activeRootId ? taskById.get(activeRootId) || null : null;
   const levelOneSheets = useMemo(
@@ -232,6 +244,21 @@ export default function TaskTableView({
     });
   };
 
+  if (isDesktopCinematic) {
+    return (
+      <DesktopTopicTaskTable
+        tasks={tasks}
+        topics={topics}
+        searchTerm={searchTerm}
+        isLoading={isLoading}
+        onToggleTask={onToggleTask}
+        onOpenTask={onOpenTask}
+        onAddChild={onAddChild}
+        onAddRootTask={onAddRootTask}
+      />
+    );
+  }
+
   if (rootTasks.length === 0) {
     return (
       <section
@@ -240,7 +267,9 @@ export default function TaskTableView({
       >
         <div className="max-w-sm rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
           <Table2 className="mx-auto mb-3 h-8 w-8 text-slate-400" />
-          <p className="text-sm font-medium text-slate-700">No root tasks to display.</p>
+          <p className="text-sm font-medium text-slate-700">This topic does not have any project tasks yet.</p>
+          {topics.length > 0 && <select value={activeTopicId || ''} onChange={(event) => setActiveTopicId(event.target.value || null)} className="mt-4 h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900">{topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}</select>}
+          {activeTopicId && onAddRootTask && <button type="button" onClick={() => onAddRootTask(activeTopicId)} className="mt-3 inline-flex h-10 items-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-medium text-white"><Plus className="h-4 w-4" />Add project task</button>}
         </div>
       </section>
     );
@@ -254,8 +283,24 @@ export default function TaskTableView({
       data-active-sheet-id={activeLevelTwoSheetId || activeLevelOneId || (isDesktopCinematic ? 'all' : undefined)}
     >
       <div className={`border-b border-slate-200 bg-white p-3 sm:p-4 ${isDesktopCinematic ? 'shadow-[0_8px_24px_rgba(15,23,42,.035)]' : ''}`}>
-        <label className="block max-w-xl">
-          <span className="mb-1.5 block text-xs font-semibold uppercase text-slate-500">Root task</span>
+        <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold uppercase text-slate-500">Topic root</span>
+          <select
+            value={activeTopicId || ''}
+            onChange={(event) => {
+              setActiveTopicId(event.target.value || null);
+              setActiveRootId(null);
+              setActiveLevelOneId(null);
+              setActiveLevelTwoSheetId(null);
+            }}
+            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          >
+            {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-semibold uppercase text-slate-500">Project task</span>
           <select
             value={activeRootId || ''}
             onChange={(event) => selectRoot(event.target.value)}
@@ -270,6 +315,7 @@ export default function TaskTableView({
             })}
           </select>
         </label>
+        </div>
       </div>
 
       {isDesktopCinematic || levelOneSheets.length > 0 ? (
@@ -594,4 +640,191 @@ function StatusBadge({ task, overdue }: { task: ApiTask; overdue: boolean }) {
   if (isTaskDone(task)) return <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"><Check className="h-3 w-3" />Completed</span>;
   if (task.status === 'in_progress' || task.effective_status === 'in_progress') return <span className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700"><GitBranch className="h-3 w-3" />In progress</span>;
   return <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600"><Circle className="h-3 w-3" />Not started</span>;
+}
+
+function DesktopTopicTaskTable({
+  tasks,
+  topics,
+  searchTerm,
+  isLoading,
+  onToggleTask,
+  onOpenTask,
+  onAddChild,
+  onAddRootTask,
+}: {
+  tasks: ApiTask[];
+  topics: ApiTopic[];
+  searchTerm: string;
+  isLoading: boolean;
+  onToggleTask: (task: ApiTask) => void | Promise<void>;
+  onOpenTask: (taskId: string) => void;
+  onAddChild: (taskId: string) => void;
+  onAddRootTask?: (topicId: string) => void;
+}) {
+  const reducedMotion = Boolean(useReducedMotion());
+  const initializedRef = useState({ topics: false, tasks: false })[0];
+  const [expandedTopicIds, setExpandedTopicIds] = useState<Set<string>>(new Set());
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+  const normalizedSearch = searchTerm.trim().toLocaleLowerCase('vi-VN');
+
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string | null, ApiTask[]>();
+    tasks.forEach((task) => {
+      const parentId = task.parent_task_id || null;
+      map.set(parentId, [...(map.get(parentId) || []), task]);
+    });
+    map.forEach((items) => items.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+    return map;
+  }, [tasks]);
+
+  useEffect(() => {
+    if (!initializedRef.topics && topics.length) {
+      initializedRef.topics = true;
+      setExpandedTopicIds(new Set(topics.map((topic) => topic.id)));
+    }
+    if (!initializedRef.tasks && tasks.length) {
+      initializedRef.tasks = true;
+      setExpandedTaskIds(new Set(tasks.filter((task) => (childrenByParent.get(task.id) || []).length > 0).map((task) => task.id)));
+    }
+  }, [childrenByParent, initializedRef, tasks, topics]);
+
+  useEffect(() => {
+    if (!normalizedSearch) return;
+    setExpandedTopicIds(new Set(topics.map((topic) => topic.id)));
+    setExpandedTaskIds(new Set(tasks.filter((task) => (childrenByParent.get(task.id) || []).length > 0).map((task) => task.id)));
+  }, [childrenByParent, normalizedSearch, tasks, topics]);
+
+  const topicById = useMemo(() => new Map(topics.map((topic) => [topic.id, topic])), [topics]);
+  const taskMatches = (task: ApiTask) => {
+    if (!normalizedSearch) return true;
+    const topicName = topicById.get(task.topic_id)?.name || '';
+    return `${topicName} ${task.title} ${task.description || ''}`.toLocaleLowerCase('vi-VN').includes(normalizedSearch);
+  };
+  const matchMemo = new Map<string, boolean>();
+  const subtreeMatches = (task: ApiTask): boolean => {
+    const cached = matchMemo.get(task.id);
+    if (cached !== undefined) return cached;
+    const result = taskMatches(task) || (childrenByParent.get(task.id) || []).some(subtreeMatches);
+    matchMemo.set(task.id, result);
+    return result;
+  };
+
+  const visibleTopics = topics.filter((topic) => {
+    if (!normalizedSearch) return true;
+    if (topic.name.toLocaleLowerCase('vi-VN').includes(normalizedSearch)) return true;
+    return tasks.some((task) => task.topic_id === topic.id && subtreeMatches(task));
+  });
+  const leafTasks = tasks.filter((task) => (childrenByParent.get(task.id) || []).length === 0);
+  const completedLeaves = leafTasks.filter(isTaskDone).length;
+  const overdueCount = leafTasks.filter(isTaskOverdue).length;
+  const animateRows = !reducedMotion && tasks.length <= 120;
+
+  const toggleTopic = (topicId: string) => setExpandedTopicIds((current) => {
+    const next = new Set(current);
+    if (next.has(topicId)) next.delete(topicId); else next.add(topicId);
+    return next;
+  });
+  const toggleTask = (taskId: string) => setExpandedTaskIds((current) => {
+    const next = new Set(current);
+    if (next.has(taskId)) next.delete(taskId); else next.add(taskId);
+    return next;
+  });
+
+  const renderTaskRows = (task: ApiTask, depth: number): React.ReactNode => {
+    if (normalizedSearch && !subtreeMatches(task)) return null;
+    const children = (childrenByParent.get(task.id) || []).filter((child) => child.topic_id === task.topic_id);
+    const hasChildren = children.length > 0;
+    const expanded = normalizedSearch || expandedTaskIds.has(task.id);
+    const completed = isTaskDone(task);
+    const overdue = isTaskOverdue(task);
+    const completion = getCompletionPercent(task);
+    return (
+      <Fragment key={task.id}>
+        <motion.tr
+          layout={animateRows ? 'position' : false}
+          initial={animateRows ? { opacity: 0, y: -5 } : false}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: 'spring', stiffness: 420, damping: 34, mass: .75 }}
+          className="desktop-topic-table-task-row group"
+          data-depth={depth}
+        >
+          <td className="desktop-topic-table-name">
+            <div style={{ paddingLeft: 18 + depth * 26, '--task-indent': `${18 + depth * 26}px` } as React.CSSProperties}>
+              <span className="desktop-topic-table-rail" aria-hidden="true" />
+              {hasChildren ? (
+                <button type="button" onClick={() => toggleTask(task.id)} aria-label={expanded ? 'Collapse task branch' : 'Expand task branch'}>
+                  {expanded ? <ChevronDown /> : <ChevronRight />}
+                </button>
+              ) : (
+                <button type="button" className="is-check" onClick={() => void onToggleTask(task)} aria-label={completed ? 'Reopen task' : 'Complete task'}>
+                  {completed ? <Check /> : <Circle />}
+                </button>
+              )}
+              <span className={`desktop-topic-table-node-dot ${completed ? 'is-complete' : overdue ? 'is-overdue' : task.status === 'in_progress' ? 'is-progress' : ''}`} />
+              <button type="button" className="desktop-topic-table-task-copy" onClick={() => onOpenTask(task.id)}>
+                <strong className={completed ? 'is-complete' : ''}>{task.title}</strong>
+                <small>{hasChildren ? `${children.length} direct children` : task.description || 'Leaf task'}</small>
+              </button>
+            </div>
+          </td>
+          <td><StatusBadge task={task} overdue={overdue} /></td>
+          <td className="desktop-topic-table-date">{formatTableDate(task.start_date)}</td>
+          <td className={`desktop-topic-table-date ${overdue ? 'is-overdue' : ''}`}>{formatTableDate(task.deadline)}</td>
+          <td>
+            <div className="desktop-topic-table-progress"><span><motion.i initial={false} animate={{ scaleX: completion / 100 }} /></span><strong>{completion}%</strong></div>
+          </td>
+          <td>
+            <div className="desktop-topic-table-actions">
+              <button type="button" onClick={() => onOpenTask(task.id)} title="Open task"><Pencil /></button>
+              <button type="button" onClick={() => onAddChild(task.id)} title="Add child task"><Plus /></button>
+            </div>
+          </td>
+        </motion.tr>
+        {hasChildren && expanded && children.map((child) => renderTaskRows(child, depth + 1))}
+      </Fragment>
+    );
+  };
+
+  return (
+    <section className="desktop-topic-task-table">
+      <header className="desktop-topic-table-summary">
+        <div><span><Layers /></span><div><small>Hierarchy root</small><strong>{topics.length} Topics</strong><p>Topics contain projects, branches and leaf tasks.</p></div></div>
+        <dl><div><dt>Total tasks</dt><dd>{tasks.length}</dd></div><div><dt>Leaf progress</dt><dd>{completedLeaves}/{leafTasks.length}</dd></div><div><dt>Overdue</dt><dd className={overdueCount ? 'is-danger' : ''}>{overdueCount}</dd></div></dl>
+        <div className="desktop-topic-table-view-actions">
+          <button type="button" onClick={() => { setExpandedTopicIds(new Set(topics.map((topic) => topic.id))); setExpandedTaskIds(new Set(tasks.map((task) => task.id))); }}><ChevronDown /> Expand all</button>
+          <button type="button" onClick={() => { setExpandedTopicIds(new Set()); setExpandedTaskIds(new Set()); }}><ChevronRight /> Collapse all</button>
+        </div>
+      </header>
+      <div className="desktop-topic-table-scroll">
+        <table>
+          <thead><tr><th>Topic / task hierarchy</th><th>Status</th><th>Start</th><th>Deadline</th><th>Progress</th><th>Actions</th></tr></thead>
+          <tbody>
+            {visibleTopics.map((topic, index) => {
+              const topicColor = getTopicColorByName(topic.topic_color, index);
+              const topicTasks = tasks.filter((task) => task.topic_id === topic.id);
+              const roots = (childrenByParent.get(null) || []).filter((task) => task.topic_id === topic.id);
+              const expanded = normalizedSearch || expandedTopicIds.has(topic.id);
+              const topicLeaves = topicTasks.filter((task) => (childrenByParent.get(task.id) || []).length === 0);
+              const topicDone = topicLeaves.filter(isTaskDone).length;
+              const topicProgress = topicLeaves.length ? Math.round(topicDone / topicLeaves.length * 100) : 0;
+              return (
+                <Fragment key={topic.id}>
+                  <tr className="desktop-topic-table-root-row" style={{ '--topic-color': topicColor.text } as React.CSSProperties}>
+                    <td><div><button type="button" onClick={() => toggleTopic(topic.id)}>{expanded ? <ChevronDown /> : <ChevronRight />}</button><span className="desktop-topic-table-root-orb"><Layers /></span><div><small>Topic · hierarchy root</small><strong>{topic.name}</strong></div></div></td>
+                    <td><span className="desktop-topic-table-root-count">{topicTasks.length} tasks</span></td><td>—</td><td>—</td>
+                    <td><div className="desktop-topic-table-progress"><span><i style={{ transform: `scaleX(${topicProgress / 100})` }} /></span><strong>{topicProgress}%</strong></div></td>
+                    <td><div className="desktop-topic-table-actions"><button type="button" onClick={() => onAddRootTask?.(topic.id)} title="Add task to topic"><Plus /></button></div></td>
+                  </tr>
+                  {expanded && roots.map((task) => renderTaskRows(task, 1))}
+                  {expanded && roots.length === 0 && <tr className="desktop-topic-table-empty-row"><td colSpan={6}>No tasks in {topic.name}. <button type="button" onClick={() => onAddRootTask?.(topic.id)}>Add first task</button></td></tr>}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+        {!visibleTopics.length && <div className="desktop-topic-table-no-results">{searchTerm.trim() ? 'No topics or tasks match your search.' : 'Create a topic to start organizing tasks.'}</div>}
+      </div>
+      {isLoading && <footer>Updating task data…</footer>}
+    </section>
+  );
 }
