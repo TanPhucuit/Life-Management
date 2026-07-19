@@ -46,7 +46,7 @@ export class SemanticDiveDirector {
     this.host.style.setProperty('--dive-overlay-opacity', '1');
     this.host.style.setProperty('--dive-overlay-scale', '1');
     this.host.style.setProperty('--dive-live-opacity', '0');
-    this.host.style.setProperty('--dive-live-scale', options.reducedMotion ? '.985' : '.72');
+    this.host.style.setProperty('--dive-live-scale', options.reducedMotion ? '.985' : '.92');
     this.host.style.setProperty('--dive-blur', '0px');
     this.host.style.setProperty('--dive-grid-rotate', '0deg');
     this.host.style.setProperty('--dive-grid-scale', '1');
@@ -105,15 +105,15 @@ export class SemanticDiveDirector {
       const reconstructProgress = easeOut(reconstruct);
       const viewportCenterX = this.host.clientWidth * .5;
       const viewportCenterY = this.host.clientHeight * .5;
-      const travelX = (viewportCenterX - options.portal.x) * diveProgress;
-      const travelY = (viewportCenterY - options.portal.y) * diveProgress;
+      const travelX = (viewportCenterX - options.portal.x) * diveProgress * .62;
+      const travelY = (viewportCenterY - options.portal.y) * diveProgress * .62;
       const diveScale = options.direction === 'forward'
-        ? 1 + diveProgress * 5.8
-        : 1 - diveProgress * .84;
-      const blur = Math.sin(Math.PI * dive) * 3.8;
+        ? 1 + diveProgress * .78
+        : 1 - diveProgress * .3;
+      const blur = Math.sin(Math.PI * dive) * 1.05;
       const liveScale = reconstruct < 1
-        ? .72 + easeOut(reconstruct) * .298
-        : 1.018 - easeOut(settle) * .018;
+        ? .92 + easeOut(reconstruct) * .092
+        : 1.012 - easeOut(settle) * .012;
 
       if (elapsed < 180) this.setPhase('lock');
       else if (elapsed < 650) this.setPhase('dive');
@@ -136,14 +136,14 @@ export class SemanticDiveDirector {
       this.host.style.setProperty('--dive-blur', `${blur.toFixed(2)}px`);
       this.host.style.setProperty('--dive-tunnel', `${tunnel.toFixed(3)}`);
       this.host.style.setProperty('--dive-reconstruct', `${reconstructProgress}`);
-      this.host.style.setProperty('--dive-grid-rotate', `${(direction * lockProgress * 2.4 + tunnel * 58).toFixed(2)}deg`);
-      this.host.style.setProperty('--dive-grid-scale', `${(1 + lockProgress * .025 + diveProgress * 1.6).toFixed(3)}`);
-      this.host.style.setProperty('--dive-grid-size-x', `${(26 - diveProgress * 13).toFixed(2)}px`);
-      this.host.style.setProperty('--dive-grid-size-y', `${(26 + diveProgress * 22).toFixed(2)}px`);
-      this.host.style.setProperty('--dive-portal-scale', `${(.35 + lockProgress * .32 + diveProgress * 1.75).toFixed(3)}`);
-      this.host.style.setProperty('--dive-grid-opacity', `${(.38 + diveProgress * .34).toFixed(3)}`);
+      this.host.style.setProperty('--dive-grid-rotate', `${(direction * lockProgress * 1.2 + tunnel * 10).toFixed(2)}deg`);
+      this.host.style.setProperty('--dive-grid-scale', `${(1 + lockProgress * .018 + diveProgress * .24).toFixed(3)}`);
+      this.host.style.setProperty('--dive-grid-size-x', `${(26 - diveProgress * 5).toFixed(2)}px`);
+      this.host.style.setProperty('--dive-grid-size-y', `${(26 + diveProgress * 8).toFixed(2)}px`);
+      this.host.style.setProperty('--dive-portal-scale', `${(.35 + lockProgress * .3 + diveProgress * .9).toFixed(3)}`);
+      this.host.style.setProperty('--dive-grid-opacity', `${(.38 + diveProgress * .16).toFixed(3)}`);
       this.host.style.setProperty('--dive-portal-opacity', `${(.12 + lockProgress * .88).toFixed(3)}`);
-      this.host.style.setProperty('--dive-field-scale', `${(.3 + lockProgress * .38 + diveProgress * 5.6).toFixed(3)}`);
+      this.host.style.setProperty('--dive-field-scale', `${(.3 + lockProgress * .38 + diveProgress * 1.45).toFixed(3)}`);
     }
 
     if (elapsed >= duration) {
@@ -203,9 +203,9 @@ export class SemanticDiveDirector {
     this.host.querySelectorAll<HTMLElement>('.semantic-dive-node').forEach((element) => {
       const orbit = Number.parseFloat(element.style.getPropertyValue('--snapshot-orbit')) || 0;
       const curve = Math.sin(progress * Math.PI * .82);
-      element.style.setProperty('--dive-orbit-x', `${(orbit * progress * direction).toFixed(2)}px`);
-      element.style.setProperty('--dive-orbit-y', `${(-Math.abs(orbit) * curve * .34).toFixed(2)}px`);
-      element.style.setProperty('--dive-orbit-rotate', `${(orbit * progress * .055 * direction).toFixed(2)}deg`);
+      element.style.setProperty('--dive-orbit-x', `${(orbit * progress * direction * .52).toFixed(2)}px`);
+      element.style.setProperty('--dive-orbit-y', `${(-Math.abs(orbit) * curve * .18).toFixed(2)}px`);
+      element.style.setProperty('--dive-orbit-rotate', `${(orbit * progress * .028 * direction).toFixed(2)}deg`);
     });
   }
 

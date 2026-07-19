@@ -277,12 +277,12 @@ export class ElasticTopologyField {
       if (frameAt < node.delayUntil) return;
       const force = forces.get(node.id) as FieldPosition;
       if (node.pinned) {
-        const dragStiffness = .24 / Math.sqrt(node.mass);
+        const dragStiffness = .58;
         force.x += (node.pinned.x - node.x) * dragStiffness;
         force.y += (node.pinned.y - node.y) * dragStiffness;
         return;
       }
-      const stiffness = (node.selected ? .092 : .064) / node.mass;
+      const stiffness = (node.selected ? .13 : .09) / node.mass;
       force.x += (node.target.x - node.x) * stiffness;
       force.y += (node.target.y - node.y) * stiffness;
       if (node.parentId) {
@@ -361,7 +361,7 @@ export class ElasticTopologyField {
     activeNodes.forEach((node) => {
       if (frameAt < node.delayUntil) return;
       const force = forces.get(node.id) || { x: 0, y: 0 };
-      const damping = node.pinned ? .7 : node.damping;
+      const damping = node.pinned ? .62 : node.damping;
       node.vx = (node.vx + force.x * frameScale) * damping;
       node.vy = (node.vy + force.y * frameScale) * damping;
       const speed = Math.hypot(node.vx, node.vy);
@@ -376,8 +376,8 @@ export class ElasticTopologyField {
         + Math.hypot(node.target.x - node.x, node.target.y - node.y) * .008;
     });
     this.render();
-    this.quietFrames = energy / Math.max(1, activeNodes.length) < .045 ? this.quietFrames + 1 : 0;
-    if (this.quietFrames < 14) this.frame = window.requestAnimationFrame(this.tick);
+    this.quietFrames = energy / Math.max(1, activeNodes.length) < .018 ? this.quietFrames + 1 : 0;
+    if (this.quietFrames < 18) this.frame = window.requestAnimationFrame(this.tick);
     else if (![...this.nodes.values()].some((node) => node.pinned)) {
       this.nodes.forEach((node) => {
         node.x = node.target.x;

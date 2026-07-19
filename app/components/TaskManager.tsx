@@ -279,7 +279,7 @@ export default function TaskManager({
   const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
   const [canvasZoom, setCanvasZoom] = useState(1);
   const [workspaceView, setWorkspaceView] = useState<TaskWorkspaceView>(
-    () => initialView ?? (isDesktopCinematic ? 'table' : 'tree'),
+    () => initialView ?? 'tree',
   );
   const treeCanvasPadding = isDesktopCinematic ? 72 : canvasPadding;
   const treeLevelGap = isDesktopCinematic ? 124 : levelGap;
@@ -2238,15 +2238,16 @@ function DesktopTaskNetworkCanvas({
   }, [childrenByParent, selectedTopicId, taskById, topicTasks]);
   const stageSize = useMemo(() => {
     const visibleRootCount = Math.min(rootLimit, availableRootTasks.length);
+    const extraDepth = Math.max(0, networkMetrics.maxDepth - 1);
     const widthForGraph = focusedRootId
-      ? 930 + networkMetrics.maxDepth * 238
-      : 1180 + Math.max(0, visibleRootCount - 7) * 72 + Math.max(0, networkMetrics.maxDepth - 1) * 96;
+      ? 740 + extraDepth * 232
+      : 980 + extraDepth * 170;
     const heightForGraph = focusedRootId
-      ? 300 + Math.max(visibleRootCount * 84, networkMetrics.leafCount * 104)
-      : 760 + Math.max(0, visibleRootCount - 7) * 54;
+      ? Math.max(620, visibleRootCount * 64 + 160, networkMetrics.leafCount * 78 + 160)
+      : Math.max(620, 540 + Math.max(0, visibleRootCount - 8) * 38 + extraDepth * 90);
     return {
-      width: Math.ceil(Math.max(viewportSize.width + 260, widthForGraph)),
-      height: Math.ceil(Math.max(viewportSize.height + 180, heightForGraph)),
+      width: Math.ceil(Math.max(viewportSize.width, widthForGraph)),
+      height: Math.ceil(Math.max(viewportSize.height, heightForGraph)),
     };
   }, [availableRootTasks.length, focusedRootId, networkMetrics, rootLimit, viewportSize.height, viewportSize.width]);
   const renderedStageSize = useMemo(() => ({
@@ -2325,7 +2326,7 @@ function DesktopTaskNetworkCanvas({
       return;
     }
     try {
-      const saved = window.localStorage.getItem(`desktop-task-network:v4:${selectedTopicId}`);
+      const saved = window.localStorage.getItem(`desktop-task-network:v5:${selectedTopicId}`);
       const next = saved ? JSON.parse(saved) as Record<string, NodePosition> : {};
       customPositionsRef.current = next;
       setCustomPositions(next);
@@ -2334,7 +2335,7 @@ function DesktopTaskNetworkCanvas({
       setCustomPositions({});
     }
     try {
-      const savedViewport = window.localStorage.getItem(`desktop-task-network-view:v2:${selectedTopicId}`);
+      const savedViewport = window.localStorage.getItem(`desktop-task-network-view:v3:${selectedTopicId}`);
       const nextViewport = savedViewport ? JSON.parse(savedViewport) as NodePosition : { x: 0, y: 0 };
       viewportOffsetRef.current = nextViewport;
       setViewportOffset(nextViewport);
@@ -2345,10 +2346,10 @@ function DesktopTaskNetworkCanvas({
   }, [selectedTopicId]);
 
   const network = useMemo(() => {
-    const center = {
-      x: (focusedRootId ? 360 : stageSize.width * .5) + viewportOffset.x,
-      y: stageSize.height * .5 + viewportOffset.y,
-    };
+    const topicId = topicNodeId(selectedTopicId);
+    const center = focusedRootId
+      ? { x: 148 + viewportOffset.x, y: stageSize.height * .5 + viewportOffset.y }
+      : { x: stageSize.width * .5 + viewportOffset.x, y: stageSize.height * .5 + viewportOffset.y };
     const roots = (childrenByParent.get(null) || [])
       .filter((task) => task.topic_id === selectedTopicId && taskById.has(task.id));
     const visibleChildren = (taskId: string) => (childrenByParent.get(taskId) || [])
@@ -2358,21 +2359,10 @@ function DesktopTaskNetworkCanvas({
       return children.length ? children.reduce((sum, child) => sum + leafCount(child), 0) : 1;
     };
     const totalLeaves = Math.max(1, roots.reduce((sum, root) => sum + leafCount(root), 0));
-    const maxDepth = topicTasks.reduce((highest, task) => {
-      let depth = 1;
-      let current = task;
-      const visited = new Set<string>();
-      while (current.parent_task_id && taskById.has(current.parent_task_id) && !visited.has(current.parent_task_id)) {
-        visited.add(current.parent_task_id);
-        current = taskById.get(current.parent_task_id) as ApiTask;
-        depth += 1;
-      }
-      return Math.max(highest, depth);
-    }, 1);
-    const availableRadius = Math.max(150, Math.min(stageSize.width * .44, stageSize.height * .44));
-    const ringStep = Math.max(78, Math.min(172, availableRadius / Math.max(1, maxDepth)));
-    const startAngle = -Math.PI * .83;
-    const sweep = Math.PI * 1.66;
+    const rootRadiusX = Math.max(270, Math.min(430, stageSize.width * .29));
+    const rootRadiusY = Math.max(190, Math.min(285, stageSize.height * .34));
+    const startAngle = -Math.PI / 2;
+    const sweep = Math.PI * 2;
     let leafCursor = 0;
     const logicalPositions: Record<string, NodePosition> = {};
     const depths: Record<string, number> = {};
@@ -2382,9 +2372,13 @@ function DesktopTaskNetworkCanvas({
       const children = visibleChildren(task.id);
       const angle = children.length
         ? children.reduce((sum, child) => sum + assign(child, depth + 1), 0) / children.length
-        : startAngle + (totalLeaves === 1 ? sweep / 2 : (leafCursor++ / (totalLeaves - 1)) * sweep);
-      const radius = ringStep * depth;
-      logicalPositions[task.id] = { x: center.x + Math.cos(angle) * radius, y: center.y + Math.sin(angle) * radius };
+        : startAngle + (totalLeaves === 1 ? 0 : (leafCursor++ / totalLeaves) * sweep);
+      const radiusX = rootRadiusX + (depth - 1) * 176;
+      const radiusY = rootRadiusY + (depth - 1) * 112;
+      logicalPositions[task.id] = {
+        x: center.x + Math.cos(angle) * radiusX,
+        y: center.y + Math.sin(angle) * radiusY,
+      };
       children.forEach((child) => edges.push({ from: task.id, to: child.id }));
       return angle;
     };
@@ -2399,10 +2393,12 @@ function DesktopTaskNetworkCanvas({
       Object.keys(depths).forEach((id) => delete depths[id]);
       edges.splice(0, edges.length);
       const siblingRoots = roots.filter((root) => root.id !== focusedRoot.id);
-      const siblingGap = Math.max(62, Math.min(86, stageSize.height / Math.max(3, siblingRoots.length + 1)));
+      const siblingX = center.x + 180;
+      const focusedX = center.x + 390;
+      const siblingGap = Math.max(58, Math.min(76, (stageSize.height - 170) / Math.max(3, siblingRoots.length)));
       siblingRoots.forEach((root, index) => {
         logicalPositions[root.id] = {
-          x: center.x - 185 - Math.abs(index - (siblingRoots.length - 1) / 2) * 7,
+          x: siblingX - Math.abs(index - (siblingRoots.length - 1) / 2) * 5,
           y: center.y + (index - (siblingRoots.length - 1) / 2) * siblingGap,
         };
         depths[root.id] = 1;
@@ -2411,28 +2407,28 @@ function DesktopTaskNetworkCanvas({
 
       const focusedChildren = visibleChildren(focusedRoot.id);
       const focusedLeafTotal = Math.max(1, focusedChildren.reduce((sum, child) => sum + leafCount(child), 0));
-      const focusedLeafGap = Math.max(72, Math.min(104, stageSize.height / Math.max(3.5, focusedLeafTotal + 1)));
+      const focusedLeafGap = Math.max(62, Math.min(88, (stageSize.height - 150) / Math.max(2, focusedLeafTotal - 1)));
       const focusedStartY = center.y - (focusedLeafTotal - 1) * focusedLeafGap / 2;
       let focusedLeafCursor = 0;
       const assignFocused = (task: ApiTask, depth: number): number => {
         const children = visibleChildren(task.id);
         const childYs = children.map((child) => assignFocused(child, depth + 1));
         const y = childYs.length ? childYs.reduce((sum, value) => sum + value, 0) / childYs.length : focusedStartY + focusedLeafCursor++ * focusedLeafGap;
-        logicalPositions[task.id] = { x: center.x + 170 + (depth - 1) * 190, y };
+        logicalPositions[task.id] = { x: focusedX + (depth - 1) * 232, y };
         depths[task.id] = depth;
         children.forEach((child) => edges.push({ from: task.id, to: child.id }));
         return y;
       };
       focusedChildren.forEach((child) => assignFocused(child, 2));
-      logicalPositions[focusedRoot.id] = { x: center.x + 170, y: center.y };
+      logicalPositions[focusedRoot.id] = { x: focusedX, y: center.y };
       depths[focusedRoot.id] = 1;
       edges.push({ from: topicNodeId(selectedTopicId), to: focusedRoot.id });
       focusedChildren.forEach((child) => {
         if (!edges.some((edge) => edge.from === focusedRoot.id && edge.to === child.id)) edges.push({ from: focusedRoot.id, to: child.id });
       });
     }
-    logicalPositions[topicNodeId(selectedTopicId)] = center;
-    depths[topicNodeId(selectedTopicId)] = 0;
+    logicalPositions[topicId] = center;
+    depths[topicId] = 0;
 
     const positions = Object.fromEntries(Object.entries(logicalPositions).map(([id, position]) => {
       const logical = customPositions[id] || position;
@@ -2445,8 +2441,11 @@ function DesktopTaskNetworkCanvas({
         y: scaled.y,
       }];
     })) as Record<string, NodePosition>;
-    return { center, positions, logicalPositions, depths, edges, roots };
-  }, [childrenByParent, customPositions, focusedRootId, selectedTopicId, stageSize, taskById, topicTasks, viewportOffset.x, viewportOffset.y, zoom]);
+    const focusPosition = focusedRootId && positions[focusedRootId]
+      ? positions[focusedRootId]
+      : center;
+    return { center, focusPosition, positions, logicalPositions, depths, edges, roots };
+  }, [childrenByParent, customPositions, focusedRootId, selectedTopicId, stageSize, taskById, viewportOffset.x, viewportOffset.y, zoom]);
   layoutPositionsRef.current = network.logicalPositions;
   const draggedNodeId = dragging?.mode === 'node' ? dragging.id : null;
   const topologyNodeInputs = useMemo(() => {
@@ -2671,13 +2670,13 @@ function DesktopTaskNetworkCanvas({
     autoScrollKeyRef.current = scrollKey;
     const frame = window.requestAnimationFrame(() => {
       const left = focusedRootId
-        ? Math.max(0, network.center.x - viewport.clientWidth * .26)
+        ? Math.max(0, network.focusPosition.x - viewport.clientWidth * .34)
         : Math.max(0, network.center.x - viewport.clientWidth * .5);
-      const top = Math.max(0, network.center.y - viewport.clientHeight * .5);
-      viewport.scrollTo({ left, top, behavior: reducedMotion ? 'auto' : 'smooth' });
+      const top = Math.max(0, network.focusPosition.y - viewport.clientHeight * .5);
+      viewport.scrollTo({ left, top, behavior: 'auto' });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [divePhase, focusedRootId, network.center.x, network.center.y, reducedMotion, selectedTopicId, stageSize.height, stageSize.width]);
+  }, [divePhase, focusedRootId, network.center.x, network.center.y, network.focusPosition.x, network.focusPosition.y, selectedTopicId, stageSize.height, stageSize.width]);
   const hoverNeighborIds = useMemo(() => {
     const ids = new Set<string>();
     if (!hoveredNodeId) return ids;
@@ -2691,7 +2690,7 @@ function DesktopTaskNetworkCanvas({
 
   const savePositions = (positions: Record<string, NodePosition>) => {
     if (!selectedTopicId) return;
-    try { window.localStorage.setItem(`desktop-task-network:v4:${selectedTopicId}`, JSON.stringify(positions)); } catch { /* local layout persistence is optional */ }
+    try { window.localStorage.setItem(`desktop-task-network:v5:${selectedTopicId}`, JSON.stringify(positions)); } catch { /* local layout persistence is optional */ }
   };
 
   const pointerToLogical = (event: Pick<PointerEvent, 'clientX' | 'clientY'> | ReactPointerEvent<HTMLElement>) => {
@@ -2822,8 +2821,8 @@ function DesktopTaskNetworkCanvas({
         graphDragFieldOriginsRef.current = {};
         setDragging(null);
         if (selectedTopicId) {
-          try { window.localStorage.setItem(`desktop-task-network-view:v2:${selectedTopicId}`, JSON.stringify(finalOffset)); } catch { /* optional */ }
-          try { window.localStorage.setItem(`desktop-task-network:v4:${selectedTopicId}`, JSON.stringify(shiftedCustomPositions)); } catch { /* optional */ }
+          try { window.localStorage.setItem(`desktop-task-network-view:v3:${selectedTopicId}`, JSON.stringify(finalOffset)); } catch { /* optional */ }
+          try { window.localStorage.setItem(`desktop-task-network:v5:${selectedTopicId}`, JSON.stringify(shiftedCustomPositions)); } catch { /* optional */ }
         }
         return;
       }
@@ -2855,7 +2854,7 @@ function DesktopTaskNetworkCanvas({
       pendingReleaseIdsRef.current = new Set([dragging.id]);
       setDragging(null);
       if (selectedTopicId) {
-        try { window.localStorage.setItem(`desktop-task-network:v4:${selectedTopicId}`, JSON.stringify(customPositionsRef.current)); } catch { /* optional */ }
+        try { window.localStorage.setItem(`desktop-task-network:v5:${selectedTopicId}`, JSON.stringify(customPositionsRef.current)); } catch { /* optional */ }
       }
     };
     window.addEventListener('pointermove', handlePointerMove, { passive: false });
@@ -2892,15 +2891,15 @@ function DesktopTaskNetworkCanvas({
             setViewportOffset({ x: 0, y: 0 });
             setZoom(1);
             savePositions({});
-            try { window.localStorage.setItem(`desktop-task-network-view:v2:${selectedTopicId}`, JSON.stringify({ x: 0, y: 0 })); } catch { /* optional */ }
+            try { window.localStorage.setItem(`desktop-task-network-view:v3:${selectedTopicId}`, JSON.stringify({ x: 0, y: 0 })); } catch { /* optional */ }
             window.requestAnimationFrame(() => {
               const viewport = viewportRef.current;
               if (!viewport) return;
-              const centerX = focusedRootId ? 360 : stageSize.width * .5;
+              const centerX = focusedRootId ? 538 : stageSize.width * .5;
               viewport.scrollTo({
-                left: Math.max(0, centerX - viewport.clientWidth * (focusedRootId ? .26 : .5)),
+                left: Math.max(0, centerX - viewport.clientWidth * (focusedRootId ? .34 : .5)),
                 top: Math.max(0, stageSize.height * .5 - viewport.clientHeight * .5),
-                behavior: reducedMotion ? 'auto' : 'smooth',
+                behavior: 'auto',
               });
             });
           }}><LocateFixed /> Reflow</button>
@@ -2957,6 +2956,13 @@ function DesktopTaskNetworkCanvas({
               <g key={edgeKey}>
                 <path ref={(element) => registerTopologyEdge(edgeKey, element)} d={path} pathLength={1} className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`} style={{ '--edge-opacity': active || hovered ? 1 : .28, '--edge-reveal-delay': reducedMotion ? '0ms' : `${Math.min(edgeIndex, 24) * 38}ms` } as CSSProperties} />
                 {childComplete && edge.from !== topicId && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion && completionReplayPhase === 'playing' ? 'is-replaying' : replayCompletion && completionReplayPhase === 'primed' ? 'is-primed' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
+                {childComplete && edge.from !== topicId && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
+                  <circle key={`${edgeKey}:head:${completionReplayNonce}`} className="desktop-network-completion-head" r="5">
+                    <animateMotion path={reversePath} begin={`${burnDelay}ms`} dur="1020ms" fill="freeze" />
+                    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.84;1" begin={`${burnDelay}ms`} dur="1020ms" fill="freeze" />
+                    <animate attributeName="r" values="3;6;4" begin={`${burnDelay}ms`} dur="1020ms" fill="freeze" />
+                  </circle>
+                )}
               </g>
             );
           })}
@@ -2995,7 +3001,7 @@ function DesktopTaskNetworkCanvas({
           const complete = completionState.doneById.get(task.id) === true;
           const tone = complete ? 'complete' : isTaskOverdue(task) ? 'overdue' : isTaskInProgress(task) ? 'progress' : 'open';
           const completionDelay = 120 + (completionState.waveLevelById.get(task.id) || 0) * 1800;
-          const size = childCount ? Math.min(56, 38 + Math.log2(childCount + 1) * 8) : 32;
+          const size = childCount ? Math.min(70, 50 + Math.log2(childCount + 1) * 9) : 38;
           return (
             <div
               key={task.id}
@@ -3032,7 +3038,11 @@ function DesktopTaskNetworkCanvas({
                   if (isLevelOne) {
                     customPositionsRef.current = {};
                     setCustomPositions({});
+                    viewportOffsetRef.current = { x: 0, y: 0 };
+                    setViewportOffset({ x: 0, y: 0 });
+                    setZoom(1);
                     savePositions({});
+                    try { window.localStorage.setItem(`desktop-task-network-view:v3:${selectedTopicId}`, JSON.stringify({ x: 0, y: 0 })); } catch { /* optional */ }
                   }
                   setExpandedTaskIds((current) => {
                     const wasExpanded = current.has(task.id);
