@@ -1048,31 +1048,34 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   flex: 1;
   overflow: hidden;
   touch-action: none;
+  cursor: grab;
   background:
     radial-gradient(circle at 47% 50%, rgba(34,211,238,.09), transparent 17rem),
     radial-gradient(circle at 16% 18%, rgba(59,130,246,.05), transparent 22rem),
     radial-gradient(circle at 84% 75%, rgba(139,92,246,.045), transparent 20rem),
     linear-gradient(180deg,#fbfdff,#f5f9fc);
 }
-.experience-v2 .desktop-network-stage::before { position: absolute; inset: 0; opacity: .38; background-image: radial-gradient(circle,#9fb6c8 1px,transparent 1px); background-size: 26px 26px; content: ''; mask-image: radial-gradient(circle at center,#000,transparent 82%); }
+.experience-v2 .desktop-network-stage::before { position: absolute; inset: -52px; opacity: .38; background-image: radial-gradient(circle,#9fb6c8 1px,transparent 1px); background-position: var(--network-pan-x,0) var(--network-pan-y,0); background-size: 26px 26px; content: ''; mask-image: radial-gradient(circle at center,#000 18%,transparent 88%); will-change: background-position; }
 .experience-v2 .desktop-network-stage[data-dragging='true'] { cursor: grabbing; }
+.experience-v2 .desktop-network-stage[data-layout='focused'] { background: radial-gradient(circle at 63% 50%,rgba(34,211,238,.105),transparent 25rem),radial-gradient(circle at 18% 50%,rgba(59,130,246,.055),transparent 22rem),linear-gradient(90deg,#f8fbfe,#f3f9fc 52%,#f8fbfe); }
 .experience-v2 .desktop-network-legend { position: absolute; z-index: 11; top: 18px; left: 18px; display: grid; min-width: 170px; gap: 7px; padding: 11px 12px; border: 1px solid rgba(205,219,228,.88); border-radius: 13px; color: #617187; background: rgba(255,255,255,.78); box-shadow: 0 9px 28px rgba(15,23,42,.055); font-size: 9px; backdrop-filter: blur(14px); }
 .experience-v2 .desktop-network-legend strong { margin-bottom: 1px; color: #24364d; font-size: 10px; }
 .experience-v2 .desktop-network-legend span { display: flex; align-items: center; gap: 7px; }
 .experience-v2 .desktop-network-legend i { width: 8px; height: 8px; border: 1px solid #94a3b8; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px #edf2f7; }
 .experience-v2 .desktop-network-legend i.is-parent { border-color: #3b82f6; background: #3b82f6; }.experience-v2 .desktop-network-legend i.is-complete { border-color: #10b981; background: #10b981; }
 .experience-v2 .desktop-network-legend small { margin-top: 2px; color: #94a3b8; font-size: 8px; }
+.experience-v2 .desktop-network-atmosphere { position: absolute; inset: 0; transform: translate(var(--network-pan-x,0),var(--network-pan-y,0)); pointer-events: none; will-change: transform; }
 .experience-v2 .desktop-network-atmosphere i { position: absolute; border: 1px solid rgba(14,165,233,.08); border-radius: 50%; animation: desktop-network-orbit 22s linear infinite; }
 .experience-v2 .desktop-network-atmosphere i:nth-child(1) { top: 50%; left: 47%; width: 240px; height: 240px; margin: -120px; }
 .experience-v2 .desktop-network-atmosphere i:nth-child(2) { top: 50%; left: 47%; width: 430px; height: 430px; margin: -215px; animation-duration: 31s; animation-direction: reverse; }
 .experience-v2 .desktop-network-atmosphere i:nth-child(3) { top: 50%; left: 47%; width: 620px; height: 620px; margin: -310px; animation-duration: 42s; }
 @keyframes desktop-network-orbit { to { transform: rotate(360deg); } }
-.experience-v2 .desktop-network-edges { position: absolute; inset: 0; overflow: visible; }
+.experience-v2 .desktop-network-edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
 .experience-v2 .desktop-network-edges path { fill: none; stroke: #82a6be; stroke-width: 1.35; }
 .experience-v2 .desktop-network-edges path.is-active { stroke: #0ea5e9; stroke-width: 2.7; filter: url(#network-edge-glow); }
 .experience-v2 .desktop-network-edges path.is-hovered { stroke: #2563eb; stroke-width: 2.35; stroke-dasharray: 7 6; filter: url(#network-edge-glow); animation: desktop-network-edge-flow .72s linear infinite; }
 @keyframes desktop-network-edge-flow { to { stroke-dashoffset: -13; } }
-.experience-v2 .desktop-network-node { position: absolute; z-index: 5; display: grid; place-items: center; color: #203047; cursor: grab; user-select: none; touch-action: none; }
+.experience-v2 .desktop-network-node { position: absolute; z-index: 5; top: 0; left: 0; display: grid; place-items: center; color: #203047; cursor: grab; user-select: none; touch-action: none; will-change: transform,opacity; }
 .experience-v2 .desktop-network-node:active { cursor: grabbing; }
 .experience-v2 .desktop-network-node[data-dimmed='true'] { opacity: .28 !important; filter: saturate(.55); }
 .experience-v2 .desktop-network-node > span { position: relative; display: grid; place-items: center; border-radius: 50%; transition: box-shadow .2s ease, border-color .2s ease; }
