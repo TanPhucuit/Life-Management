@@ -2070,16 +2070,73 @@ function DesktopTaskNetworkCanvas({
 }) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const didDragRef = useRef(false);
+  const expansionTimerRef = useRef<number | null>(null);
   const [stageSize, setStageSize] = useState({ width: 1200, height: 640 });
   const [zoom, setZoom] = useState(1);
   const [customPositions, setCustomPositions] = useState<Record<string, NodePosition>>({});
-  const [dragging, setDragging] = useState<{ id: string; pointerId: number; offsetX: number; offsetY: number } | null>(null);
-  const topicTasks = useMemo(
-    () => tasks.filter((task) => task.topic_id === selectedTopicId && visibleTaskIds.has(task.id)),
-    [selectedTopicId, tasks, visibleTaskIds],
+  const customPositionsRef = useRef<Record<string, NodePosition>>({});
+  const layoutPositionsRef = useRef<Record<string, NodePosition>>({});
+  const [dragging, setDragging] = useState<{ id: string; pointerId: number; offsetX: number; offsetY: number; startX: number; startY: number } | null>(null);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(new Set());
+  const [rootLimit, setRootLimit] = useState(10);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [expansionPulseId, setExpansionPulseId] = useState<string | null>(null);
+  const completeTopicTasks = useMemo(
+    () => tasks.filter((task) => task.topic_id === selectedTopicId),
+    [selectedTopicId, tasks],
   );
+  const availableTopicTasks = useMemo(
+    () => completeTopicTasks.filter((task) => visibleTaskIds.has(task.id)),
+    [completeTopicTasks, visibleTaskIds],
+  );
+  const allTaskById = useMemo(() => new Map(completeTopicTasks.map((task) => [task.id, task])), [completeTopicTasks]);
+  const availableRootTasks = useMemo(() => {
+    const availableIds = new Set(availableTopicTasks.map((task) => task.id));
+    return (childrenByParent.get(null) || []).filter((task) => task.topic_id === selectedTopicId && availableIds.has(task.id));
+  }, [availableTopicTasks, childrenByParent, selectedTopicId]);
+  const topicTasks = useMemo(() => {
+    const availableIds = new Set(availableTopicTasks.map((task) => task.id));
+    const revealed = new Set<string>();
+    const reveal = (task: ApiTask) => {
+      if (!availableIds.has(task.id) || revealed.has(task.id)) return;
+      revealed.add(task.id);
+      if (!searchTerm.trim() && !expandedTaskIds.has(task.id)) return;
+      (childrenByParent.get(task.id) || []).forEach(reveal);
+    };
+    availableRootTasks.slice(0, rootLimit).forEach(reveal);
+    return availableTopicTasks.filter((task) => revealed.has(task.id));
+  }, [availableRootTasks, availableTopicTasks, childrenByParent, expandedTaskIds, rootLimit, searchTerm]);
   const taskById = useMemo(() => new Map(topicTasks.map((task) => [task.id, task])), [topicTasks]);
   const selectedTask = selectedTaskId ? taskById.get(selectedTaskId) || null : null;
+  const selectedPath = useMemo(() => {
+    if (!selectedTask) return [];
+    const path: ApiTask[] = [];
+    let current: ApiTask | undefined = selectedTask;
+    const visited = new Set<string>();
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id);
+      path.unshift(current);
+      current = current.parent_task_id ? allTaskById.get(current.parent_task_id) : undefined;
+    }
+    return path;
+  }, [allTaskById, selectedTask]);
+
+  useEffect(() => {
+    customPositionsRef.current = customPositions;
+  }, [customPositions]);
+
+  useEffect(() => () => {
+    if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    setExpandedTaskIds(new Set());
+    setRootLimit(10);
+  }, [selectedTopicId]);
+
+  useEffect(() => {
+    setRootLimit(10);
+  }, [searchTerm]);
 
   useEffect(() => {
     const stage = stageRef.current;
@@ -2093,20 +2150,24 @@ function DesktopTaskNetworkCanvas({
 
   useEffect(() => {
     if (!selectedTopicId) {
+      customPositionsRef.current = {};
       setCustomPositions({});
       return;
     }
     try {
-      const saved = window.localStorage.getItem(`desktop-task-network:v1:${selectedTopicId}`);
-      setCustomPositions(saved ? JSON.parse(saved) as Record<string, NodePosition> : {});
+      const saved = window.localStorage.getItem(`desktop-task-network:v2:${selectedTopicId}`);
+      const next = saved ? JSON.parse(saved) as Record<string, NodePosition> : {};
+      customPositionsRef.current = next;
+      setCustomPositions(next);
     } catch {
+      customPositionsRef.current = {};
       setCustomPositions({});
     }
   }, [selectedTopicId]);
 
   const network = useMemo(() => {
     const center = {
-      x: stageSize.width * (selectedTaskId ? .39 : .48),
+      x: stageSize.width * (selectedTask ? .39 : .48),
       y: stageSize.height * .52,
     };
     const roots = (childrenByParent.get(null) || [])
@@ -2129,8 +2190,8 @@ function DesktopTaskNetworkCanvas({
       }
       return Math.max(highest, depth);
     }, 1);
-    const availableRadius = Math.max(150, Math.min(stageSize.width * (selectedTaskId ? .34 : .42), stageSize.height * .44));
-    const ringStep = Math.max(62, Math.min(118, availableRadius / Math.max(1, maxDepth)));
+    const availableRadius = Math.max(150, Math.min(stageSize.width * (selectedTask ? .34 : .42), stageSize.height * .44));
+    const ringStep = Math.max(78, Math.min(172, availableRadius / Math.max(1, maxDepth)));
     const startAngle = -Math.PI * .83;
     const sweep = Math.PI * 1.66;
     let leafCursor = 0;
@@ -2167,14 +2228,25 @@ function DesktopTaskNetworkCanvas({
       }];
     })) as Record<string, NodePosition>;
     return { center, positions, logicalPositions, depths, edges, roots };
-  }, [childrenByParent, customPositions, selectedTaskId, selectedTopicId, stageSize, taskById, topicTasks, zoom]);
+  }, [childrenByParent, customPositions, selectedTask, selectedTopicId, stageSize, taskById, topicTasks, zoom]);
+  layoutPositionsRef.current = network.logicalPositions;
+  const hoverNeighborIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!hoveredNodeId) return ids;
+    ids.add(hoveredNodeId);
+    network.edges.forEach((edge) => {
+      if (edge.from === hoveredNodeId) ids.add(edge.to);
+      if (edge.to === hoveredNodeId) ids.add(edge.from);
+    });
+    return ids;
+  }, [hoveredNodeId, network.edges]);
 
   const savePositions = (positions: Record<string, NodePosition>) => {
     if (!selectedTopicId) return;
-    try { window.localStorage.setItem(`desktop-task-network:v1:${selectedTopicId}`, JSON.stringify(positions)); } catch { /* local layout persistence is optional */ }
+    try { window.localStorage.setItem(`desktop-task-network:v2:${selectedTopicId}`, JSON.stringify(positions)); } catch { /* local layout persistence is optional */ }
   };
 
-  const pointerToLogical = (event: ReactPointerEvent<HTMLElement>) => {
+  const pointerToLogical = (event: Pick<PointerEvent, 'clientX' | 'clientY'> | ReactPointerEvent<HTMLElement>) => {
     const rect = stageRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
     const x = event.clientX - rect.left;
@@ -2191,26 +2263,80 @@ function DesktopTaskNetworkCanvas({
     const displayed = network.positions[id] || network.center;
     const logical = customPositions[id] || network.logicalPositions[id] || displayed;
     didDragRef.current = false;
+    event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDragging({ id, pointerId: event.pointerId, offsetX: pointer.x - logical.x, offsetY: pointer.y - logical.y });
+    setDragging({ id, pointerId: event.pointerId, offsetX: pointer.x - logical.x, offsetY: pointer.y - logical.y, startX: event.clientX, startY: event.clientY });
   };
 
-  const moveNode = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging || event.pointerId !== dragging.pointerId) return;
-    const pointer = pointerToLogical(event);
-    didDragRef.current = true;
-    setCustomPositions((current) => ({ ...current, [dragging.id]: { x: pointer.x - dragging.offsetX, y: pointer.y - dragging.offsetY } }));
-  };
-
-  const endNodeDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragging || event.pointerId !== dragging.pointerId) return;
-    setDragging(null);
-    savePositions(customPositions);
-  };
+  useEffect(() => {
+    if (!dragging) return;
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== dragging.pointerId) return;
+      event.preventDefault();
+      const rect = stageRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const stageX = event.clientX - rect.left;
+      const stageY = event.clientY - rect.top;
+      const pointer = {
+        x: network.center.x + (stageX - network.center.x) / zoom,
+        y: network.center.y + (stageY - network.center.y) / zoom,
+      };
+      if (Math.hypot(event.clientX - dragging.startX, event.clientY - dragging.startY) > 3) didDragRef.current = true;
+      const next = {
+        ...customPositionsRef.current,
+        [dragging.id]: { x: pointer.x - dragging.offsetX, y: pointer.y - dragging.offsetY },
+      };
+      customPositionsRef.current = next;
+      setCustomPositions(next);
+    };
+    const handlePointerEnd = (event: PointerEvent) => {
+      if (event.pointerId !== dragging.pointerId) return;
+      let settled = customPositionsRef.current[dragging.id];
+      if (settled) {
+        const otherPositions = Object.entries(layoutPositionsRef.current).filter(([id]) => id !== dragging.id);
+        for (let pass = 0; pass < 8; pass += 1) {
+          otherPositions.forEach(([id, layoutPosition]) => {
+            const other = customPositionsRef.current[id] || layoutPosition;
+            const dx = settled.x - other.x;
+            const dy = settled.y - other.y;
+            const rawDistance = Math.hypot(dx, dy);
+            const distance = Math.max(1, rawDistance);
+            const minimumDistance = id.startsWith('topic:') ? 128 : 92;
+            if (distance >= minimumDistance) return;
+            const push = minimumDistance - distance;
+            const unitX = rawDistance < 1 ? 1 : dx / rawDistance;
+            const unitY = rawDistance < 1 ? 0 : dy / rawDistance;
+            settled = { x: settled.x + unitX * push, y: settled.y + unitY * push };
+          });
+        }
+        const minX = network.center.x + (48 - network.center.x) / zoom;
+        const maxX = network.center.x + (stageSize.width - 48 - network.center.x) / zoom;
+        const minY = network.center.y + (48 - network.center.y) / zoom;
+        const maxY = network.center.y + (stageSize.height - 48 - network.center.y) / zoom;
+        settled = { x: Math.max(minX, Math.min(maxX, settled.x)), y: Math.max(minY, Math.min(maxY, settled.y)) };
+        const next = { ...customPositionsRef.current, [dragging.id]: settled };
+        customPositionsRef.current = next;
+        setCustomPositions(next);
+      }
+      setDragging(null);
+      if (selectedTopicId) {
+        try { window.localStorage.setItem(`desktop-task-network:v2:${selectedTopicId}`, JSON.stringify(customPositionsRef.current)); } catch { /* optional */ }
+      }
+    };
+    window.addEventListener('pointermove', handlePointerMove, { passive: false });
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+    };
+  }, [dragging, network.center.x, network.center.y, selectedTopicId, stageSize.height, stageSize.width, zoom]);
 
   const topicId = topicNodeId(selectedTopicId);
-  const leafTasks = topicTasks.filter((task) => (childrenByParent.get(task.id) || []).length === 0);
+  const leafTasks = completeTopicTasks.filter((task) => (childrenByParent.get(task.id) || []).filter((child) => child.topic_id === selectedTopicId).length === 0);
   const completion = leafTasks.length ? Math.round(leafTasks.filter(isTaskDone).length / leafTasks.length * 100) : 0;
+  const hiddenRootCount = Math.max(0, availableRootTasks.length - rootLimit);
 
   return (
     <section className="desktop-task-network">
@@ -2220,17 +2346,25 @@ function DesktopTaskNetworkCanvas({
           <label><small>Hierarchy root · Topic</small><select value={selectedTopicId} onChange={(event) => onTopicChange(event.target.value)} disabled={!topics.length}>{!topics.length && <option value="">No topics yet</option>}{topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}</select></label>
           {selectedTopic && <button type="button" onClick={onEditTopic} title="Rename topic"><Pencil /></button>}
         </div>
-        <div className="desktop-network-stats"><span><strong>{topicTasks.length}</strong> nodes</span><span><strong>{network.roots.length}</strong> branches</span><span><strong>{completion}%</strong> complete</span>{searchTerm.trim() && <span><Search /> Filtered</span>}</div>
+        <div className="desktop-network-stats"><span><strong>{topicTasks.length}/{completeTopicTasks.length}</strong> visible</span><span><strong>{network.roots.length}/{availableRootTasks.length}</strong> level 1</span><span><strong>{completion}%</strong> complete</span>{searchTerm.trim() && <span><Search /> Filtered</span>}</div>
         <div className="desktop-network-controls">
           <button type="button" onClick={() => setZoom((value) => Math.max(.72, value - .1))} aria-label="Zoom out">−</button><strong>{Math.round(zoom * 100)}%</strong><button type="button" onClick={() => setZoom((value) => Math.min(1.35, value + .1))} aria-label="Zoom in">+</button>
-          <button type="button" className="is-reflow" onClick={() => { setCustomPositions({}); setZoom(1); savePositions({}); }}><LocateFixed /> Reflow</button>
+          <button type="button" className="is-reflow" onClick={() => { customPositionsRef.current = {}; setCustomPositions({}); setZoom(1); savePositions({}); }}><LocateFixed /> Reflow</button>
         </div>
       </header>
 
-      <div ref={stageRef} className="desktop-network-stage" onPointerMove={moveNode} onPointerUp={endNodeDrag} onPointerCancel={endNodeDrag} data-dragging={dragging ? 'true' : 'false'}>
+      <div ref={stageRef} className="desktop-network-stage" data-dragging={dragging ? 'true' : 'false'} data-density={topicTasks.length > 10 ? 'compact' : 'comfortable'}>
         <div className="desktop-network-atmosphere" aria-hidden="true"><i /><i /><i /></div>
+        <div className="desktop-network-legend">
+          <strong>Task network</strong>
+          <span><i className="is-parent" /> Branch · click to reveal</span>
+          <span><i className="is-leaf" /> Leaf task</span>
+          <span><i className="is-complete" /> Completed</span>
+          <small>Drag any circle to reorganize the view</small>
+        </div>
         <svg className="desktop-network-edges" width={stageSize.width} height={stageSize.height} aria-hidden="true">
           <defs><filter id="network-edge-glow"><feGaussianBlur stdDeviation="2.4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
+          <AnimatePresence initial={false}>
           {network.edges.map((edge) => {
             const from = network.positions[edge.from];
             const to = network.positions[edge.to];
@@ -2241,28 +2375,35 @@ function DesktopTaskNetworkCanvas({
             const controlX = (from.x + to.x) / 2 - (dy / Math.max(1, Math.hypot(dx, dy))) * bend;
             const controlY = (from.y + to.y) / 2 + (dx / Math.max(1, Math.hypot(dx, dy))) * bend;
             const active = (edge.from === topicId && selectedBranchIds.has(edge.to)) || (selectedBranchIds.has(edge.from) && selectedBranchIds.has(edge.to));
-            return <motion.path key={`${edge.from}:${edge.to}`} d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`} className={active ? 'is-active' : ''} initial={false} animate={{ pathLength: 1, opacity: active ? 1 : .34 }} transition={{ duration: reducedMotion ? 0 : .32 }} />;
+            const hovered = Boolean(hoveredNodeId && (edge.from === hoveredNodeId || edge.to === hoveredNodeId));
+            return <motion.path key={`${edge.from}:${edge.to}`} d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`} className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`} initial={reducedMotion ? false : { pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: active || hovered ? 1 : .28 }} exit={{ pathLength: 0, opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .32 }} />;
           })}
+          </AnimatePresence>
         </svg>
 
         {selectedTopic && network.positions[topicId] && (
           <motion.button
             type="button"
             className="desktop-network-node is-topic"
-            style={{ left: network.positions[topicId].x, top: network.positions[topicId].y }}
             onPointerDown={(event) => startNodeDrag(event, topicId)}
+            onPointerEnter={() => setHoveredNodeId(topicId)}
+            onPointerLeave={() => setHoveredNodeId((current) => current === topicId ? null : current)}
             onClick={() => { if (!didDragRef.current) onTopicChange(selectedTopicId); }}
-            animate={{ x: '-50%', y: '-50%', scale: dragging?.id === topicId ? 1.08 : 1 }}
-            transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            animate={{ left: network.positions[topicId].x, top: network.positions[topicId].y, x: '-50%', y: '-50%', scale: dragging?.id === topicId ? 1.08 : 1 }}
+            transition={dragging?.id === topicId ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 32 }}
           ><span><GitBranch /></span><strong>{selectedTopic.name}</strong><small>Topic root</small></motion.button>
         )}
 
+        <AnimatePresence initial={false}>
         {topicTasks.map((task) => {
           const position = network.positions[task.id];
           if (!position) return null;
-          const childCount = (childrenByParent.get(task.id) || []).length;
+          const directChildren = (childrenByParent.get(task.id) || []).filter((child) => child.topic_id === selectedTopicId && visibleTaskIds.has(child.id));
+          const childCount = directChildren.length;
+          const expanded = expandedTaskIds.has(task.id) || Boolean(searchTerm.trim());
           const selected = selectedTaskId === task.id;
           const branch = selectedBranchIds.has(task.id);
+          const hoverRelated = !hoveredNodeId || hoverNeighborIds.has(task.id);
           const tone = isTaskDone(task) ? 'complete' : isTaskOverdue(task) ? 'overdue' : isTaskInProgress(task) ? 'progress' : 'open';
           const size = childCount ? Math.min(56, 38 + Math.log2(childCount + 1) * 8) : 32;
           return (
@@ -2273,16 +2414,36 @@ function DesktopTaskNetworkCanvas({
               data-tone={tone}
               data-selected={selected ? 'true' : 'false'}
               data-branch={branch ? 'true' : 'false'}
-              style={{ left: position.x, top: position.y, '--node-size': `${size}px` } as CSSProperties}
+              data-dimmed={!hoverRelated ? 'true' : 'false'}
+              data-expansion-pulse={expansionPulseId === task.id ? 'true' : 'false'}
+              style={{ '--node-size': `${size}px` } as CSSProperties}
               onPointerDown={(event) => startNodeDrag(event, task.id)}
-              onClick={() => { if (!didDragRef.current) onSelectTask(task.id); }}
+              onPointerEnter={() => setHoveredNodeId(task.id)}
+              onPointerLeave={() => setHoveredNodeId((current) => current === task.id ? null : current)}
+              onClick={() => {
+                if (didDragRef.current) return;
+                onSelectTask(task.id);
+                if (childCount) {
+                  setExpansionPulseId(task.id);
+                  if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
+                  expansionTimerRef.current = window.setTimeout(() => setExpansionPulseId((current) => current === task.id ? null : current), 520);
+                  setExpandedTaskIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(task.id)) next.delete(task.id); else next.add(task.id);
+                    return next;
+                  });
+                }
+              }}
               onDoubleClick={() => onOpenTask(task.id)}
-              animate={{ x: '-50%', y: '-50%', scale: dragging?.id === task.id ? 1.13 : selected ? 1.08 : 1 }}
-              transition={{ type: 'spring', stiffness: 420, damping: 32, mass: .8 }}
+              initial={reducedMotion ? false : { opacity: 0, scale: .35 }}
+              animate={{ left: position.x, top: position.y, x: '-50%', y: '-50%', opacity: 1, scale: dragging?.id === task.id ? 1.13 : selected ? 1.08 : 1 }}
+              exit={reducedMotion ? undefined : { opacity: 0, scale: .35 }}
+              transition={dragging?.id === task.id ? { duration: 0 } : { type: 'spring', stiffness: 420, damping: 32, mass: .8 }}
               title={`${task.title} · double-click for full details`}
-            ><span>{isTaskDone(task) ? <CheckCircle2 /> : childCount ? <GitBranch /> : <Circle />}</span><strong>{task.title}</strong><small>{childCount ? `${childCount} children` : getTaskStatusLabel(task.effective_status)}</small></motion.button>
+            ><span>{isTaskDone(task) ? <CheckCircle2 /> : childCount ? expanded ? <ChevronDown /> : <ChevronRight /> : <Circle />}</span><strong>{task.title}</strong><small>{childCount ? `${expanded ? 'Collapse' : 'Reveal'} ${childCount} children` : getTaskStatusLabel(task.effective_status)}</small></motion.button>
           );
         })}
+        </AnimatePresence>
 
         {!selectedTopic && <div className="desktop-network-empty"><GitBranch /><strong>Create a topic to become the hierarchy root.</strong></div>}
 
@@ -2291,15 +2452,18 @@ function DesktopTaskNetworkCanvas({
             {selectedTask ? (
               <>
                 <div className="desktop-network-inspector-heading"><span data-tone={isTaskDone(selectedTask) ? 'complete' : isTaskOverdue(selectedTask) ? 'overdue' : isTaskInProgress(selectedTask) ? 'progress' : 'open'}>{(childrenByParent.get(selectedTask.id) || []).length ? <GitBranch /> : <Circle />}</span><div><small>Selected task · depth {network.depths[selectedTask.id]}</small><h3>{selectedTask.title}</h3></div></div>
+                <div className="desktop-network-breadcrumb"><span>{selectedTopic?.name}</span>{selectedPath.map((task) => <span key={task.id}>{task.title}</span>)}</div>
                 <p className="desktop-network-inspector-description">{selectedTask.description || 'No description has been added yet.'}</p>
                 <dl><div><dt>Status</dt><dd>{getTaskStatusLabel(selectedTask.effective_status)}</dd></div><div><dt>Start</dt><dd>{formatDate(selectedTask.start_date, 'Not scheduled')}</dd></div><div><dt>Deadline</dt><dd>{formatDate(selectedTask.deadline)}</dd></div><div><dt>Children</dt><dd>{(childrenByParent.get(selectedTask.id) || []).length}</dd></div></dl>
-                <div className="desktop-network-inspector-actions"><button type="button" className="is-primary" onClick={() => onOpenTask(selectedTask.id)}><Pencil /> Open details</button><button type="button" onClick={() => onAddChild(selectedTask.id)}><Plus /> Add child</button>{(childrenByParent.get(selectedTask.id) || []).length === 0 && <button type="button" onClick={(event) => onToggleTask(selectedTask, event)}>{isTaskDone(selectedTask) ? <Circle /> : <CheckCircle2 />} {isTaskDone(selectedTask) ? 'Reopen' : 'Complete'}</button>}</div>
+                {(childrenByParent.get(selectedTask.id) || []).length > 0 && <div className="desktop-network-child-nav"><small>Direct children</small><div>{(childrenByParent.get(selectedTask.id) || []).filter((child) => child.topic_id === selectedTopicId).map((child) => <button type="button" key={child.id} onClick={() => { setExpandedTaskIds((current) => new Set(current).add(selectedTask.id)); onSelectTask(child.id); }}><span />{child.title}<ChevronRight /></button>)}</div></div>}
+                <div className="desktop-network-inspector-actions"><button type="button" className="is-primary" onClick={() => onOpenTask(selectedTask.id)}><Pencil /> Open details</button><button type="button" onClick={() => onAddChild(selectedTask.id)}><Plus /> Add child</button>{(childrenByParent.get(selectedTask.id) || []).length > 0 && <button type="button" onClick={() => setExpandedTaskIds((current) => { const next = new Set(current); if (next.has(selectedTask.id)) next.delete(selectedTask.id); else next.add(selectedTask.id); return next; })}>{expandedTaskIds.has(selectedTask.id) ? <ChevronDown /> : <ChevronRight />} {expandedTaskIds.has(selectedTask.id) ? 'Collapse' : 'Reveal children'}</button>}{(childrenByParent.get(selectedTask.id) || []).length === 0 && <button type="button" onClick={(event) => onToggleTask(selectedTask, event)}>{isTaskDone(selectedTask) ? <Circle /> : <CheckCircle2 />} {isTaskDone(selectedTask) ? 'Reopen' : 'Complete'}</button>}</div>
               </>
             ) : selectedTopic ? (
               <><div className="desktop-network-inspector-heading"><span data-tone="topic"><GitBranch /></span><div><small>Topic · hierarchy root</small><h3>{selectedTopic.name}</h3></div></div><p className="desktop-network-inspector-description">All task branches originate from this topic. Drag any circle to tune the visual layout without changing hierarchy.</p><dl><div><dt>Tasks</dt><dd>{topicTasks.length}</dd></div><div><dt>Root branches</dt><dd>{network.roots.length}</dd></div><div><dt>Leaf completion</dt><dd>{completion}%</dd></div></dl><div className="desktop-network-inspector-actions"><button type="button" className="is-primary" onClick={onAddRootTask}><Plus /> Add root task</button><button type="button" onClick={onEditTopic}><Pencil /> Rename topic</button></div></>
             ) : null}
           </motion.aside>
         </AnimatePresence>
+        {hiddenRootCount > 0 && <button type="button" className="desktop-network-show-more" onClick={() => setRootLimit((current) => current + 10)}><Plus /> Show {Math.min(10, hiddenRootCount)} more level 1 tasks <span>{hiddenRootCount} hidden</span></button>}
         <div className="desktop-network-hint"><Move /> Drag nodes · Click for inspector · Double-click for full details</div>
       </div>
     </section>
