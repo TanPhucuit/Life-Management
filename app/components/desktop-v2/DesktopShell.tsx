@@ -176,7 +176,7 @@ export function DesktopShellFrame({
   }, [commands, navigate]);
 
   return (
-    <div className="experience-v2 relative min-h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'}>
+    <div className="experience-v2 relative min-h-dvh overflow-hidden bg-[var(--background)] text-[var(--foreground)]" data-sidebar-collapsed={sidebarCollapsed ? 'true' : 'false'} data-route={canCollapseSidebar ? 'tasks' : 'default'}>
       <Atmosphere />
       {sceneLayer && (
         <div className="pointer-events-none fixed inset-0 z-0 opacity-70" aria-hidden="true">

@@ -424,6 +424,16 @@ html[data-theme='dark'] .experience-v2 .desktop-classic-workspace {
   box-shadow: 0 28px 90px rgba(24, 39, 72, .16) !important;
 }
 
+.experience-v2[data-route='tasks'] .desktop-v2-header { height: 68px; }
+.experience-v2[data-route='tasks'] .desktop-v2-main { padding-top: 78px !important; padding-right: 12px; }
+.experience-v2[data-route='tasks'] .desktop-classic-tasks { padding-bottom: 0; }
+.experience-v2[data-route='tasks'] .desktop-task-workspace { height: calc(100dvh - 88px); min-height: 620px !important; border-radius: 18px !important; }
+.experience-v2 .desktop-task-workspace[data-task-workspace-view='tree'] .desktop-task-commandbar { min-height: 58px; padding: 8px 14px; }
+.experience-v2 .desktop-task-workspace[data-task-workspace-view='tree'] .desktop-task-commandbar-row { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+.experience-v2 .desktop-task-workspace[data-task-workspace-view='tree'] .desktop-task-intro,
+.experience-v2 .desktop-task-workspace[data-task-workspace-view='tree'] .desktop-task-stats { display: none; }
+.experience-v2 .desktop-task-workspace[data-task-workspace-view='tree'] .desktop-task-commandbar-row > div { flex-direction: row; align-items: center; }
+
 .experience-v2 .desktop-task-workspace > .grid,
 .experience-v2 .desktop-task-workspace > .grid > main {
   height: 100%;
@@ -1020,11 +1030,11 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   position: relative;
   z-index: 20;
   display: grid;
-  min-height: 66px;
+  min-height: 58px;
   grid-template-columns: minmax(240px, 1fr) auto minmax(250px, 1fr);
   align-items: center;
   gap: 18px;
-  padding: 10px 16px;
+  padding: 7px 14px;
   border-bottom: 1px solid #dce8ef;
   background: rgba(255,255,255,.9);
   box-shadow: 0 8px 24px rgba(15,23,42,.035);
@@ -1104,7 +1114,7 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 .experience-v2 .semantic-dive-portal { position: absolute; top: 0; left: 0; width: 112px; height: 112px; transform: translate3d(calc(var(--snapshot-x) - 56px),calc(var(--snapshot-y) - 56px),0) scale(var(--dive-portal-scale,.35)); border: 1px solid rgba(103,232,249,.74); border-radius: 50%; opacity: var(--dive-portal-opacity,.12); background: repeating-conic-gradient(from 12deg,rgba(34,211,238,.17) 0 7deg,transparent 7deg 19deg); box-shadow: 0 0 28px rgba(34,211,238,.32),inset 0 0 34px rgba(37,99,235,.18); animation: semantic-dive-portal-spin 1.7s linear infinite; }
 @keyframes semantic-dive-streak { to { stroke-dashoffset: -21; } }
 @keyframes semantic-dive-portal-spin { to { rotate: 360deg; } }
-.experience-v2 .desktop-network-legend { position: absolute; z-index: 11; top: 18px; left: 18px; display: grid; min-width: 170px; gap: 7px; padding: 11px 12px; border: 1px solid rgba(205,219,228,.88); border-radius: 13px; color: #617187; background: rgba(255,255,255,.78); box-shadow: 0 9px 28px rgba(15,23,42,.055); font-size: 9px; backdrop-filter: blur(14px); }
+.experience-v2 .desktop-network-legend { position: absolute; z-index: 11; top: 18px; left: 18px; display: none; min-width: 170px; gap: 7px; padding: 11px 12px; border: 1px solid rgba(205,219,228,.88); border-radius: 13px; color: #617187; background: rgba(255,255,255,.78); box-shadow: 0 9px 28px rgba(15,23,42,.055); font-size: 9px; backdrop-filter: blur(14px); }
 .experience-v2 .desktop-network-legend strong { margin-bottom: 1px; color: #24364d; font-size: 10px; }
 .experience-v2 .desktop-network-legend span { display: flex; align-items: center; gap: 7px; }
 .experience-v2 .desktop-network-legend i { width: 8px; height: 8px; border: 1px solid #94a3b8; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px #edf2f7; }
@@ -1121,6 +1131,7 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 .experience-v2 .desktop-network-edges path.is-active { stroke: #0ea5e9; stroke-width: 2.7; filter: url(#network-edge-glow); }
 .experience-v2 .desktop-network-edges path.is-hovered { stroke: #2563eb; stroke-width: 2.35; stroke-dasharray: 7 6; filter: url(#network-edge-glow); animation: desktop-network-edge-flow .72s linear infinite; }
 .experience-v2 .desktop-network-edges .desktop-network-completion-burn { fill: none; stroke: #10b981; stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 1; filter: url(#network-edge-glow); animation: none; }
+.experience-v2 .desktop-network-edges .desktop-network-completion-burn.is-primed { stroke-dasharray: .015 .985; stroke-dashoffset: 0; opacity: 0; animation: none; }
 .experience-v2 .desktop-network-edges .desktop-network-completion-burn.is-replaying { stroke-dasharray: .015 .985; stroke-dashoffset: 0; opacity: 0; animation: desktop-network-completion-burn 1.02s cubic-bezier(.22,.8,.22,1) var(--burn-delay,0ms) both; }
 @keyframes desktop-network-edge-flow { to { stroke-dashoffset: -13; } }
 @keyframes desktop-network-edge-enter { from { opacity: 0; } to { opacity: var(--edge-opacity,.28); } }
@@ -1157,8 +1168,8 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 .experience-v2 .desktop-network-node.is-task[data-tone='complete'] > span { color: #fff; background: linear-gradient(145deg,#34d399,#059669); box-shadow: 0 0 0 1px #6ee7b7,0 8px 24px rgba(5,150,105,.24); }
 .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-armed='true'] > span { color: #64748b; background: #e6edf3; box-shadow: 0 0 0 1px #b8c7d3,0 7px 18px rgba(51,65,85,.14); transform: scale(.82); }
 .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-armed='true'] > span svg { opacity: 0; }
-.experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-replay='true'] > span { animation: desktop-network-node-completion .82s cubic-bezier(.16,1,.3,1) var(--completion-delay,0ms) both; }
-.experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-replay='true'] > span svg { stroke-dasharray: 64; stroke-dashoffset: 64; animation: desktop-network-check-draw .62s cubic-bezier(.16,1,.3,1) calc(var(--completion-delay,0ms) + 140ms) both; }
+.experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span { animation: desktop-network-node-completion .82s cubic-bezier(.16,1,.3,1) var(--completion-delay,0ms) both; }
+.experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span svg { stroke-dasharray: 64; stroke-dashoffset: 64; animation: desktop-network-check-draw .62s cubic-bezier(.16,1,.3,1) calc(var(--completion-delay,0ms) + 140ms) both; }
 @keyframes desktop-network-node-completion {
   0%,12% { color: transparent; background: linear-gradient(145deg,#f1f5f9,#dbe5ee); box-shadow: 0 0 0 1px #b6c5d2,0 8px 21px rgba(51,65,85,.15); transform: scale(.84); }
   58% { color: #fff; background: linear-gradient(145deg,#6ee7b7,#10b981); box-shadow: 0 0 0 8px rgba(16,185,129,.1),0 12px 30px rgba(5,150,105,.3); transform: scale(1.16); }
@@ -1597,13 +1608,13 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   .experience-v2 .desktop-network-atmosphere i,
   .experience-v2 .desktop-network-edges path.is-hovered,
   .experience-v2 .desktop-network-edges .desktop-network-completion-burn,
-  .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-replay='true'] > span,
-  .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-replay='true'] > span svg,
+  .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span,
+  .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span svg,
   .experience-v2 .desktop-network-node.is-task[data-tone='overdue'] > span,
   .experience-v2 .desktop-network-node[data-expansion-pulse='true'] > span::after,
   .experience-v2 .semantic-dive-portal,
   .experience-v2 .desktop-network-canvas-shell[data-dive-phase='dive'] .semantic-dive-overlay path { animation: none !important; }
   .experience-v2 .desktop-network-edges .desktop-network-completion-burn { stroke-dashoffset: 0; opacity: 1; }
-  .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-replay='true'] > span svg { stroke-dashoffset: 0; opacity: 1; }
+  .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span svg { stroke-dashoffset: 0; opacity: 1; }
   .experience-v2 .semantic-dive-overlay { filter: none !important; }
 }
