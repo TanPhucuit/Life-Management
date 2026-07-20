@@ -1155,9 +1155,12 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 .experience-v2 .desktop-network-stage[data-layout='focused'] .desktop-network-atmosphere i { left: 148px; }
 @keyframes desktop-network-orbit { to { transform: rotate(360deg); } }
 .experience-v2 .desktop-network-edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
-.experience-v2 .desktop-network-edges path { fill: none; stroke: #3b82f6; stroke-width: 1.6; opacity: var(--edge-opacity,.62); }
+.experience-v2 .desktop-network-edges path { fill: none; stroke: #3b82f6; stroke-width: 1.6; opacity: var(--edge-opacity,.62); transition: stroke .32s ease, stroke-width .32s ease, opacity .24s ease; vector-effect: non-scaling-stroke; }
 .experience-v2 .desktop-network-edges path.is-active { stroke: #3b82f6; stroke-width: 2.15; opacity: .92; filter: url(#network-edge-glow); }
+.experience-v2 .desktop-network-edges path.is-complete { stroke: #10b981; stroke-width: 2.05; opacity: .9; filter: drop-shadow(0 0 5px rgba(16,185,129,.34)); }
+.experience-v2 .desktop-network-edges path.is-active.is-complete { stroke: #10b981; stroke-width: 2.35; opacity: .96; filter: url(#network-edge-glow) drop-shadow(0 0 7px rgba(16,185,129,.45)); }
 .experience-v2 .desktop-network-edges path.is-hovered { stroke: #2563eb; stroke-width: 2.35; stroke-dasharray: 7 6; filter: url(#network-edge-glow); animation: desktop-network-edge-flow .72s linear infinite; }
+.experience-v2 .desktop-network-edges path.is-hovered.is-complete { stroke: #059669; }
 .experience-v2 .desktop-network-edges .desktop-network-completion-burn { fill: none; stroke: #10b981; stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 1; filter: url(#network-edge-glow); animation: none; }
 .experience-v2 .desktop-network-edges .desktop-network-completion-burn.is-primed { stroke-dasharray: .015 .985; stroke-dashoffset: 0; opacity: 0; animation: none; }
 .experience-v2 .desktop-network-edges .desktop-network-completion-burn.is-replaying { stroke-dasharray: .015 .985; stroke-dashoffset: 0; opacity: 0; animation: desktop-network-completion-burn 1.05s cubic-bezier(.22,.8,.22,1) var(--burn-delay,0ms) both; }

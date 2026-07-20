@@ -599,9 +599,8 @@ export class ElasticTopologyField {
       forwardElement?.setAttribute('d', path);
       this.reverseEdgeElements.get(edge.key)?.setAttribute('d', reversePath);
 
-      // Progressive draw: reveal the connector from the child end (path end)
-      // growing back toward the parent (path start). Uses the real path length
-      // so it's immune to the per-frame `d` updates above.
+      // Progressive draw: reveal normal navigation connectors from parent to
+      // child while the physics field updates `d` every frame.
       const reveal = this.edgeReveal.get(key);
       if (forwardElement && reveal) {
         const elapsed = performance.now() - reveal.start;
@@ -610,9 +609,9 @@ export class ElasticTopologyField {
         let length = distance;
         try { length = forwardElement.getTotalLength() || distance; } catch { length = distance; }
         forwardElement.style.strokeDasharray = `${length}`;
-        // offset length*(eased-1): eased 0 → -length (hidden); eased 1 → 0
-        // (fully drawn), sliding the dash in from the child end.
-        forwardElement.style.strokeDashoffset = `${length * (eased - 1)}`;
+        // Positive offset hides the dash before the path start; easing it down
+        // to 0 draws from the parent/start point toward the child/end point.
+        forwardElement.style.strokeDashoffset = `${length * (1 - eased)}`;
         if (t >= 1) {
           this.edgeReveal.delete(key);
           forwardElement.style.strokeDasharray = '';

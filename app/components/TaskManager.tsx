@@ -2147,6 +2147,8 @@ function DesktopTaskNetworkCanvas({
   const topologyNodeElementsRef = useRef(new Map<string, HTMLElement>());
   const topologyEdgeElementsRef = useRef(new Map<string, SVGPathElement>());
   const topologyReverseEdgeElementsRef = useRef(new Map<string, SVGPathElement>());
+  const topologyNodeRefCallbacksRef = useRef(new Map<string, (element: HTMLElement | null) => void>());
+  const topologyEdgeRefCallbacksRef = useRef(new Map<string, (element: SVGPathElement | null) => void>());
   const pendingDragLogicalRef = useRef<NodePosition | null>(null);
   const pendingClusterLogicalRef = useRef<Record<string, NodePosition> | null>(null);
   const pendingGraphOffsetRef = useRef<NodePosition | null>(null);
@@ -2270,6 +2272,23 @@ function DesktopTaskNetworkCanvas({
     }
     return ids;
   }, [childrenByParent, completeTopicTasks, completionReplayRootId, selectedTopicId]);
+
+  useEffect(() => {
+    if (completionReplayPhase !== 'playing') return;
+    if (completionReplayTimerRef.current !== null) window.clearTimeout(completionReplayTimerRef.current);
+    const maximumWave = [...completionReplayIds].reduce((maximum, taskId) => Math.max(maximum, completionState.waveLevelById.get(taskId) || 0), 0);
+    completionReplayTimerRef.current = window.setTimeout(() => {
+      setCompletionReplayPhase('idle');
+      completionReplayTimerRef.current = null;
+    }, reducedMotion ? 0 : 320 + maximumWave * 1180 + 1280);
+    return () => {
+      if (completionReplayTimerRef.current !== null) {
+        window.clearTimeout(completionReplayTimerRef.current);
+        completionReplayTimerRef.current = null;
+      }
+    };
+  }, [completionReplayIds, completionReplayPhase, completionState.waveLevelById, reducedMotion]);
+
   const availableTopicTasks = useMemo(
     () => completeTopicTasks.filter((task) => visibleTaskIds.has(task.id)),
     [completeTopicTasks, visibleTaskIds],
@@ -2778,6 +2797,23 @@ function DesktopTaskNetworkCanvas({
     topologyFieldRef.current?.registerEdge(key, element, reverse);
   };
 
+  const getTopologyNodeRef = (id: string) => {
+    const existing = topologyNodeRefCallbacksRef.current.get(id);
+    if (existing) return existing;
+    const callback = (element: HTMLElement | null) => registerTopologyNode(id, element);
+    topologyNodeRefCallbacksRef.current.set(id, callback);
+    return callback;
+  };
+
+  const getTopologyEdgeRef = (key: string, reverse = false) => {
+    const callbackKey = `${reverse ? 'reverse' : 'forward'}:${key}`;
+    const existing = topologyEdgeRefCallbacksRef.current.get(callbackKey);
+    if (existing) return existing;
+    const callback = (element: SVGPathElement | null) => registerTopologyEdge(key, element, reverse);
+    topologyEdgeRefCallbacksRef.current.set(callbackKey, callback);
+    return callback;
+  };
+
   const captureDiveSnapshot = (worldKey = selectedTopicId, preferOverlay = true, portalNodeId = topicNodeId(selectedTopicId)): NetworkDiveSnapshot | null => {
     const shell = diveShellRef.current;
     const viewport = viewportRef.current;
@@ -3142,7 +3178,10 @@ function DesktopTaskNetworkCanvas({
       const primaryLogical = originLogical[id];
       if (primaryLogical) {
         pendingClusterLogicalRef.current = originLogical;
-        topologyFieldRef.current?.pinMany(originDisplayed);
+        topologyFieldRef.current?.pinSilent(id, originDisplayed[id]);
+        topologyFieldRef.current?.retargetMany(Object.fromEntries(
+          Object.entries(originDisplayed).filter(([nodeId]) => nodeId !== id),
+        ) as Record<string, NodePosition>);
         setDragging({
           mode: 'cluster',
           id,
@@ -3264,7 +3303,10 @@ function DesktopTaskNetworkCanvas({
           return [nodeId, { x: position.x + deltaDisplayX * follow, y: position.y + deltaDisplayY * follow }];
         })) as Record<string, NodePosition>;
         pendingClusterLogicalRef.current = nextLogical;
-        topologyFieldRef.current?.pinMany(groupTargets);
+        topologyFieldRef.current?.pinSilent(dragging.id, groupTargets[dragging.id]);
+        topologyFieldRef.current?.retargetMany(Object.fromEntries(
+          Object.entries(groupTargets).filter(([nodeId]) => nodeId !== dragging.id),
+        ) as Record<string, NodePosition>);
         return;
       }
       const rect = stageRef.current?.getBoundingClientRect();
@@ -3496,16 +3538,18 @@ function DesktopTaskNetworkCanvas({
             });
             const edgeKey = `${edge.from}:${edge.to}`;
             const replayCompletion = completionReplayIds.has(edge.to);
+            const completionBurnActive = childComplete && replayCompletion && completionReplayPhase !== 'idle' && !reducedMotion;
+            const edgeComplete = childComplete && !completionBurnActive;
             const edgeOpacity = active || hovered ? .92 : .62;
             return (
               <g key={edgeKey}>
                 <path
-                  ref={(element) => registerTopologyEdge(edgeKey, element)}
+                  ref={getTopologyEdgeRef(edgeKey)}
                   d={path}
-                  className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`}
+                  className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''} ${edgeComplete ? 'is-complete' : ''}`}
                   style={{ '--edge-opacity': edgeOpacity } as CSSProperties}
                 />
-                {childComplete && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion && completionReplayPhase === 'playing' ? 'is-replaying' : replayCompletion && completionReplayPhase === 'primed' ? 'is-primed' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
+                {childComplete && <path ref={getTopologyEdgeRef(edgeKey, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion && completionReplayPhase === 'playing' ? 'is-replaying' : replayCompletion && completionReplayPhase === 'primed' ? 'is-primed' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
                 {childComplete && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
                   <motion.circle
                     key={`${edgeKey}:head:${completionReplayNonce}`}
@@ -3533,7 +3577,7 @@ function DesktopTaskNetworkCanvas({
 
         {selectedTopic && network.positions[topicId] && (
           <div
-            ref={(element) => registerTopologyNode(topicId, element)}
+            ref={getTopologyNodeRef(topicId)}
             className="desktop-network-node-anchor is-topic"
             style={{ transform: `translate3d(${network.positions[topicId].x}px,${network.positions[topicId].y}px,0)` }}
           >
@@ -3571,7 +3615,7 @@ function DesktopTaskNetworkCanvas({
           return (
             <div
               key={task.id}
-              ref={(element) => registerTopologyNode(task.id, element)}
+              ref={getTopologyNodeRef(task.id)}
               className="desktop-network-node-anchor is-task"
               style={{ transform: `translate3d(${position.x}px,${position.y}px,0)` }}
             >
