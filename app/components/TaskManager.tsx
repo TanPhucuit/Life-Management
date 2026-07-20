@@ -238,14 +238,17 @@ const toDateTimeInputValue = (value?: string | null) => {
 };
 
 export default function TaskManager({
-  variant = 'legacy',
+  variant = 'desktop-cinematic',
   initialView,
 }: {
   variant?: TaskWorkspaceVariant;
   initialView?: TaskWorkspaceView;
 }) {
   const { user } = useAppStore();
-  const isDesktopCinematic = variant === 'desktop-cinematic';
+  // The network renderer is now the canonical Task Tree for every mount.
+  // `variant` remains in the public API for compatibility with existing
+  // callers, but it can no longer route /tasks back to the legacy tree.
+  const isDesktopCinematic = true;
   const reducedMotion = Boolean(useReducedMotion());
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const topScrollRef = useRef<HTMLDivElement | null>(null);
@@ -1250,7 +1253,7 @@ export default function TaskManager({
 
   return (
     <div
-      className={`premium-card overflow-visible text-slate-950 lg:min-h-[calc(100vh-140px)] lg:overflow-hidden ${isDesktopCinematic ? 'desktop-task-workspace rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_24px_80px_rgba(15,23,42,.12)]' : ''}`}
+      className={`premium-card overflow-visible text-slate-950 lg:min-h-[calc(100vh-140px)] lg:overflow-hidden ${isDesktopCinematic ? 'experience-v2 desktop-task-workspace rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_24px_80px_rgba(15,23,42,.12)]' : ''}`}
       data-task-workspace-variant={variant}
       data-task-workspace-view={workspaceView}
     >
