@@ -25,7 +25,7 @@ export interface SceneSnapshot {
 }
 
 export const DESKTOP_EXPERIENCE_QUERY =
-  '(min-width: 1280px) and (pointer: fine) and (hover: hover)';
+  '(min-width: 1024px) and (pointer: fine) and (hover: hover)';
 
 export const DESKTOP_EXPERIENCE_PREFERENCES_KEY =
   'life-manager-desktop-experience';
@@ -77,7 +77,8 @@ export function parseExperiencePreferences(value: string | null): ExperiencePref
 }
 
 export function isDesktopExperienceFlagEnabled(): boolean {
-  // V2 is the default desktop release. Setting the public flag to "false"
-  // remains an instant, deployment-safe rollback to the legacy experience.
-  return process.env.NEXT_PUBLIC_DESKTOP_EXPERIENCE_V2 !== 'false';
+  // The task topology is the released desktop experience, not an optional
+  // experiment. Keeping this deterministic prevents a stale Vercel variable
+  // from silently routing production back to the legacy task tree.
+  return true;
 }
