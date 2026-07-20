@@ -32,7 +32,7 @@ import { useAppStore } from '@/app/lib/store';
 import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
 import TaskTableView from './TaskTableView';
 import { ElasticTopologyField } from './task-network/ElasticTopologyField';
-import type { OrbitPlanetInput } from './topic-orbit/types';
+import type { OrbitPlanetInput, TreeTaskInput } from './topic-orbit/types';
 import { SemanticDiveDirection, SemanticDiveDirector, SemanticDivePhase } from './task-network/SemanticDiveDirector';
 
 type TaskDraft = {
@@ -1312,52 +1312,25 @@ export default function TaskManager({
     }
   };
 
-  // Hands the existing network/tree renderer a view of the data scoped to one
-  // branch: the clicked planet's task becomes the centre node, its children
-  // become the "root" row, and the tree component itself stays untouched.
-  const renderOrbitDetailTree = (taskId: string) => {
-    const rootTask = taskById.get(taskId);
-    if (!rootTask || !selectedRootTopic) return null;
-
-    const subtreeIds = new Set<string>();
-    const collect = (id: string) => {
-      if (subtreeIds.has(id)) return;
-      subtreeIds.add(id);
-      (childrenByParent.get(id) || []).forEach((child) => collect(child.id));
+  // Orbit asks for the shape of a branch; it never asks for tree UI. Task
+  // logic (toggling, editing, ordering) stays here in the workspace.
+  const getOrbitSubtree = useCallback((taskId: string): TreeTaskInput[] => {
+    const flattened: TreeTaskInput[] = [];
+    const visit = (task: ApiTask, parentId: string | null) => {
+      const children = (childrenByParent.get(task.id) || []).filter((child) => child.topic_id === selectedTopicId);
+      flattened.push({
+        id: task.id,
+        parentId,
+        title: task.title,
+        done: isTaskDone(task),
+        isLeaf: children.length === 0,
+      });
+      children.forEach((child) => visit(child, task.id));
     };
-    collect(taskId);
-
-    const scopedTasks = tasks.filter((task) => subtreeIds.has(task.id) && task.id !== taskId);
-    const scopedChildren = new Map<string | null, ApiTask[]>();
-    scopedChildren.set(null, childrenByParent.get(taskId) || []);
-    scopedTasks.forEach((task) => {
-      const children = childrenByParent.get(task.id);
-      if (children?.length) scopedChildren.set(task.id, children);
-    });
-    const scopedTopic: ApiTopic = { ...selectedRootTopic, name: rootTask.title };
-    const scopedVisibleIds = new Set([...subtreeIds].filter((id) => id !== taskId && canvasNodeIds.has(id)));
-
-    return (
-      <DesktopTaskNetworkCanvas
-        topics={[scopedTopic]}
-        selectedTopicId={selectedTopicId}
-        selectedTopic={scopedTopic}
-        tasks={scopedTasks}
-        childrenByParent={scopedChildren}
-        visibleTaskIds={scopedVisibleIds}
-        selectedTaskId={selectedTaskId}
-        selectedBranchIds={selectedBranchIds}
-        searchTerm={searchTerm}
-        reducedMotion={Boolean(reducedMotion)}
-        onTopicChange={() => {}}
-        onSelectTask={setSelectedTaskId}
-        onOpenTask={openTaskDetails}
-        onEditTopic={() => openTaskDetails(taskId)}
-        onToggleTask={handleToggleLeaf}
-        onContextMenu={openTaskContextMenu}
-      />
-    );
-  };
+    const rootTask = taskById.get(taskId);
+    if (rootTask) visit(rootTask, null);
+    return flattened;
+  }, [childrenByParent, selectedTopicId, taskById]);
 
   return (
     <div
@@ -1497,8 +1470,13 @@ export default function TaskManager({
               topicAccent={getTopicColorByName(selectedRootTopic?.topic_color, 0).text}
               planets={orbitPlanets}
               reducedMotion={Boolean(reducedMotion)}
-              renderDetail={renderOrbitDetailTree}
+              getSubtree={getOrbitSubtree}
               onSelectPlanet={(taskId) => setSelectedTaskId(taskId)}
+              onOpenTask={openTaskDetails}
+              onToggleTask={(taskId) => {
+                const task = taskById.get(taskId);
+                if (task) void handleToggleLeaf(task);
+              }}
               controls={
                 <select
                   value={selectedTopicId}
@@ -1512,8 +1490,8 @@ export default function TaskManager({
                 </select>
               }
               emptyState={selectedRootTopic
-                ? 'This life root has no first-level projects yet — add one and it will appear in orbit.'
-                : 'Pick a life root in the Tree view to put its projects into orbit.'}
+                ? 'This life root has no first-level projects yet — add one and it will fall into the disk.'
+                : 'Pick a life root in the Tree view to pull its projects into the disk.'}
             />
           ) : workspaceView === 'tree' ? (
           isDesktopCinematic ? (
