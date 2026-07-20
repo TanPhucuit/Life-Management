@@ -1196,10 +1196,15 @@ export default function TaskManager({
         startDate: taskDraft.startDate || undefined,
         deadline: taskDraft.deadline || undefined,
       });
+      const parentTaskId = taskDraft.parentTaskId;
       setIsTaskModalOpen(false);
       setTaskDraft(emptyTaskDraft);
       await loadData();
-      setSelectedTaskId(created.id);
+      // When adding a CHILD, keep the current selection/view (the network stays
+      // exactly where it was — no jump back to the topic orbit). Only jump to
+      // the new task when it's a brand-new top-level root, where there's no
+      // prior branch context to preserve.
+      if (!parentTaskId) setSelectedTaskId(created.id);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Could not create the task.');
     } finally {
@@ -2150,6 +2155,9 @@ function DesktopTaskNetworkCanvas({
   const completionReplayFramesRef = useRef<number[]>([]);
   const completionReplayTimerRef = useRef<number | null>(null);
   const previousDoneByIdRef = useRef<{ topicId: string; map: Map<string, boolean> }>({ topicId: '', map: new Map() });
+  // Forward-edge keys currently drawn on screen, so we can detect the exact
+  // frame a connector becomes newly visible and kick off its child→parent draw.
+  const revealedEdgeKeysRef = useRef<Set<string>>(new Set());
   const [viewportSize, setViewportSize] = useState({ width: 980, height: 620 });
   const [zoom, setZoom] = useState(1);
   const [viewportOffset, setViewportOffset] = useState<NodePosition>({ x: 0, y: 0 });
@@ -3287,24 +3295,21 @@ function DesktopTaskNetworkCanvas({
         return;
       }
       if (dragging.mode === 'graph') {
-        // Comet drag is a temporary, playful pull. On release we DON'T commit
-        // the dragged offset — we release every pin and reset the layout so the
-        // physics field springs the whole orbit smoothly back into its circle
-        // around the topic (rather than freezing wherever it was dragged).
+        // Comet drag is a temporary, playful pull. React position state was
+        // NEVER mutated during the drag (only the physics field moved nodes),
+        // so `graphDragFieldOriginsRef` still holds every node's pre-drag home.
+        // We retarget the whole field back to those homes and release the pins:
+        // the field eases everyone from where they were dragged smoothly back
+        // into the circle, and because React state already equals home there is
+        // no jump — the settle lands exactly on the rendered layout.
         pendingGraphOffsetRef.current = null;
-        const releaseIds = new Set(Object.keys(graphDragFieldOriginsRef.current));
+        const home = graphDragFieldOriginsRef.current;
+        topologyFieldRef.current?.retargetMany(home);
+        const releaseIds = new Set(Object.keys(home));
         releaseIds.add(dragging.id);
+        topologyFieldRef.current?.releaseMany(releaseIds);
         graphDragFieldOriginsRef.current = {};
-        pendingReleaseIdsRef.current = releaseIds;
-        customPositionsRef.current = {};
-        viewportOffsetRef.current = { x: 0, y: 0 };
-        setCustomPositions({});
-        setViewportOffset({ x: 0, y: 0 });
         setDragging(null);
-        if (selectedTopicId) {
-          try { window.localStorage.removeItem(`desktop-task-network:v7:${selectedTopicId}:${focusedRootId || 'radial'}`); } catch { /* optional */ }
-          try { window.localStorage.setItem(`desktop-task-network-view:v6:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify({ x: 0, y: 0, zoom })); } catch { /* optional */ }
-        }
         return;
       }
       if (dragging.mode === 'cluster') {
@@ -3379,9 +3384,23 @@ function DesktopTaskNetworkCanvas({
   const renderedTopicTasks = focusedRootId
     ? topicTasks.filter((task) => !branchPendingNodeIds.has(task.id))
     : clockwiseRootTasks.filter((task) => !topicStoryActive || storyVisibleNodeIds.has(task.id));
-  const renderedNetworkEdges = focusedRootId
-    ? network.edges.filter((edge) => !branchPendingEdgeIds.has(`${edge.from}:${edge.to}`))
-    : network.edges.filter((edge) => !topicStoryActive || storyVisibleEdgeIds.has(`${edge.from}:${edge.to}`));
+  const renderedNetworkEdges = topicRevealStage >= 2
+    ? (focusedRootId
+      ? network.edges.filter((edge) => !branchPendingEdgeIds.has(`${edge.from}:${edge.to}`))
+      : network.edges.filter((edge) => !topicStoryActive || storyVisibleEdgeIds.has(`${edge.from}:${edge.to}`)))
+    : [];
+  const visibleEdgeKeySignature = renderedNetworkEdges.map((edge) => `${edge.from}:${edge.to}`).join('|');
+  // Kick off the child→parent stroke-draw for each connector the instant it
+  // becomes newly visible (added to the rendered set). Runs after commit, so
+  // the path element is registered with the field and has a real length.
+  useEffect(() => {
+    const currentKeys = new Set(visibleEdgeKeySignature ? visibleEdgeKeySignature.split('|') : []);
+    const previous = revealedEdgeKeysRef.current;
+    currentKeys.forEach((key) => {
+      if (!previous.has(key)) topologyFieldRef.current?.revealEdge(key);
+    });
+    revealedEdgeKeysRef.current = currentKeys;
+  }, [visibleEdgeKeySignature]);
   const completionStoryVisible = focusedRootId
     ? true
     : topicStoryPhase === 'completion' || topicStoryPhase === 'done';
@@ -3460,7 +3479,7 @@ function DesktopTaskNetworkCanvas({
         <svg className="desktop-network-edges" width={renderedStageSize.width} height={renderedStageSize.height} aria-hidden="true">
           <defs><filter id="network-edge-glow"><feGaussianBlur stdDeviation="2.4" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter></defs>
           <AnimatePresence initial={false}>
-          {topicRevealStage >= 2 && renderedNetworkEdges.map((edge, edgeIndex) => {
+          {topicRevealStage >= 2 && renderedNetworkEdges.map((edge) => {
             const from = network.positions[edge.from];
             const to = network.positions[edge.to];
             if (!from || !to) return null;
@@ -3480,7 +3499,7 @@ function DesktopTaskNetworkCanvas({
               && (!topicStoryActive || storyCompletedNodeIds.has(edge.to));
             // A completed node resolves first, then its connector carries the result
             // back to the parent. Each higher level waits for the previous burn to land.
-            const burnDelay = 1000 + (completionState.waveLevelById.get(edge.to) || 0) * 1960;
+            const burnDelay = 320 + (completionState.waveLevelById.get(edge.to) || 0) * 1180;
             const reversePath = `M ${to.x} ${to.y} Q ${controlX} ${controlY} ${from.x} ${from.y}`;
             const burnHeadPoints = Array.from({ length: 20 }, (_, pointIndex) => {
               const progress = pointIndex / 19;
@@ -3492,20 +3511,13 @@ function DesktopTaskNetworkCanvas({
             });
             const edgeKey = `${edge.from}:${edge.to}`;
             const replayCompletion = completionReplayIds.has(edge.to);
-            const edgeDepth = network.depths[edge.to] || 1;
-            const edgeRevealDelay = storyActive ? 0 : Math.min(1320, (edgeDepth - 1) * 155 + Math.min(edgeIndex, 20) * 36);
             const edgeOpacity = active || hovered ? .92 : .62;
             return (
               <g key={edgeKey}>
-                <motion.path
-                  ref={(element: SVGPathElement | null) => registerTopologyEdge(edgeKey, element)}
+                <path
+                  ref={(element) => registerTopologyEdge(edgeKey, element)}
                   d={path}
                   className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`}
-                  initial={reducedMotion ? false : { pathLength: 0, opacity: 0 }}
-                  animate={{ pathLength: 1, opacity: edgeOpacity }}
-                  transition={reducedMotion
-                    ? { duration: 0 }
-                    : { pathLength: { duration: 1.15, ease: [0.22, 1, 0.36, 1], delay: edgeRevealDelay / 1000 }, opacity: { duration: 0.4, ease: 'easeOut', delay: edgeRevealDelay / 1000 } }}
                   style={{ '--edge-opacity': edgeOpacity } as CSSProperties}
                 />
                 {childComplete && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion && completionReplayPhase === 'playing' ? 'is-replaying' : replayCompletion && completionReplayPhase === 'primed' ? 'is-primed' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
@@ -3569,7 +3581,7 @@ function DesktopTaskNetworkCanvas({
           const visualStatus: ApiTaskStatus = actualComplete && !complete && !focusedRootId ? 'not_completed' : complete ? 'completed' : task.status;
           const nodeDepth = network.depths[task.id] || 1;
           const revealDelay = storyActive ? 0 : Math.min(1280, (nodeDepth - 1) * 150 + Math.min(taskIndex, 18) * 42);
-          const completionDelay = 120 + (completionState.waveLevelById.get(task.id) || 0) * 1960;
+          const completionDelay = 220 + (completionState.waveLevelById.get(task.id) || 0) * 1180;
           const size = childCount ? Math.min(70, 50 + Math.log2(childCount + 1) * 9) : 38;
           return (
             <div

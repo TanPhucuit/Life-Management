@@ -63,6 +63,10 @@ export class ElasticTopologyField {
   private viewport: HTMLElement | null = null;
   private paused = false;
   private manipulation: DirectManipulation | null = null;
+  // Per-edge stroke-draw state. While an entry exists the connector is drawn
+  // progressively from the child end toward the parent, using the element's
+  // real geometric length so it works regardless of how `d` changes each frame.
+  private edgeReveal = new Map<string, { start: number; duration: number }>();
 
   constructor(stage: HTMLElement, viewport: HTMLElement) {
     this.stage = stage;
@@ -90,7 +94,20 @@ export class ElasticTopologyField {
       collection.set(key, element);
       this.renderEdge(key);
     }
-    else collection.delete(key);
+    else {
+      collection.delete(key);
+      if (!reverse) this.edgeReveal.delete(key);
+    }
+  }
+
+  // Start (or restart) drawing a forward connector from its child end toward
+  // the parent over `duration` ms. Safe to call the moment the path mounts.
+  revealEdge(key: string, duration = 1150) {
+    if (this.reducedMotion) return;
+    this.edgeReveal.set(key, { start: performance.now(), duration });
+    this.quietFrames = 0;
+    this.renderEdge(key);
+    this.start();
   }
 
   pause() {
@@ -493,7 +510,9 @@ export class ElasticTopologyField {
     });
     this.render();
     this.quietFrames = energy / Math.max(1, activeNodes.length) < .018 ? this.quietFrames + 1 : 0;
-    if (this.quietFrames < 18) this.frame = window.requestAnimationFrame(this.tick);
+    // Keep animating while nodes are still settling OR any connector is still
+    // being drawn, so the stroke-draw always runs to completion.
+    if (this.quietFrames < 18 || this.edgeReveal.size > 0) this.frame = window.requestAnimationFrame(this.tick);
     else if (![...this.nodes.values()].some((node) => node.pinned)) {
       this.nodes.forEach((node) => {
         node.x = node.target.x;
@@ -563,8 +582,30 @@ export class ElasticTopologyField {
       const controlY = (from.y + to.y) / 2 + dx / distance * bend;
       const path = `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
       const reversePath = `M ${to.x.toFixed(2)} ${to.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${from.x.toFixed(2)} ${from.y.toFixed(2)}`;
-      this.edgeElements.get(edge.key)?.setAttribute('d', path);
+      const forwardElement = this.edgeElements.get(edge.key);
+      forwardElement?.setAttribute('d', path);
       this.reverseEdgeElements.get(edge.key)?.setAttribute('d', reversePath);
+
+      // Progressive draw: reveal the connector from the child end (path end)
+      // growing back toward the parent (path start). Uses the real path length
+      // so it's immune to the per-frame `d` updates above.
+      const reveal = this.edgeReveal.get(key);
+      if (forwardElement && reveal) {
+        const elapsed = performance.now() - reveal.start;
+        const t = clamp(elapsed / reveal.duration, 0, 1);
+        const eased = 1 - Math.pow(1 - t, 3);
+        let length = distance;
+        try { length = forwardElement.getTotalLength() || distance; } catch { length = distance; }
+        forwardElement.style.strokeDasharray = `${length}`;
+        // offset length*(eased-1): eased 0 → -length (hidden); eased 1 → 0
+        // (fully drawn), sliding the dash in from the child end.
+        forwardElement.style.strokeDashoffset = `${length * (eased - 1)}`;
+        if (t >= 1) {
+          this.edgeReveal.delete(key);
+          forwardElement.style.strokeDasharray = '';
+          forwardElement.style.strokeDashoffset = '';
+        }
+      }
   }
 
   private handleVisibilityChange = () => {
