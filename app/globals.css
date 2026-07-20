@@ -1155,7 +1155,7 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 .experience-v2 .desktop-network-stage[data-layout='focused'] .desktop-network-atmosphere i { left: 148px; }
 @keyframes desktop-network-orbit { to { transform: rotate(360deg); } }
 .experience-v2 .desktop-network-edges { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
-.experience-v2 .desktop-network-edges path { fill: none; stroke: #3b82f6; stroke-width: 1.5; stroke-dasharray: 1; stroke-dashoffset: 0; opacity: var(--edge-opacity,.62); animation: desktop-network-edge-enter .5s cubic-bezier(.16,1,.3,1) var(--edge-reveal-delay,0ms) both,desktop-network-edge-grow 1.15s cubic-bezier(.16,1,.3,1) var(--edge-reveal-delay,0ms) both; }
+.experience-v2 .desktop-network-edges path { fill: none; stroke: #3b82f6; stroke-width: 1.6; opacity: var(--edge-opacity,.62); }
 .experience-v2 .desktop-network-edges path.is-active { stroke: #3b82f6; stroke-width: 2.15; opacity: .92; filter: url(#network-edge-glow); }
 .experience-v2 .desktop-network-edges path.is-hovered { stroke: #2563eb; stroke-width: 2.35; stroke-dasharray: 7 6; filter: url(#network-edge-glow); animation: desktop-network-edge-flow .72s linear infinite; }
 .experience-v2 .desktop-network-edges .desktop-network-completion-burn { fill: none; stroke: #10b981; stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 1; filter: url(#network-edge-glow); animation: none; }

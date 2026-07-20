@@ -217,6 +217,23 @@ export class ElasticTopologyField {
     this.start();
   }
 
+  // Pin a node hard to a position WITHOUT engaging the manipulation "field"
+  // (the elastic wobble it normally radiates to neighbours). Used for the comet
+  // head so followers move only via their own retargeted spring — no double
+  // push that would make them overshoot.
+  pinSilent(id: string, position: FieldPosition) {
+    const node = this.nodes.get(id);
+    if (!node) return;
+    this.manipulation = null;
+    node.pinned = position;
+    node.x = position.x;
+    node.y = position.y;
+    node.vx = 0;
+    node.vy = 0;
+    this.quietFrames = 0;
+    this.start();
+  }
+
   pinMany(positions: Record<string, FieldPosition>) {
     this.manipulation = null;
     Object.entries(positions).forEach(([id, position]) => {
@@ -369,7 +386,11 @@ export class ElasticTopologyField {
       node.fieldX += (desiredFieldX - node.fieldX) * fieldFollow * frameScale;
       node.fieldY += (desiredFieldY - node.fieldY) * fieldFollow * frameScale;
       if (frameAt < node.delayUntil) return;
-      const stiffness = (directManipulationActive ? .026 : node.selected ? .105 : .065) / node.mass;
+      // While something is being dragged, followers ease toward their retargeted
+      // point with a springier stiffness than before (.026 → .055) so the comet
+      // trail visibly tracks the head instead of lagging so far it feels
+      // disconnected, yet still trails enough to read as a tail.
+      const stiffness = (directManipulationActive ? .055 : node.selected ? .105 : .065) / node.mass;
       force.x += (node.target.x + node.fieldX - node.x) * stiffness;
       force.y += (node.target.y + node.fieldY - node.y) * stiffness;
       if (node.parentId) {

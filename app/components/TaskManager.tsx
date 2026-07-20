@@ -1658,7 +1658,16 @@ export default function TaskManager({
         >
           <button
             type="button"
-            onClick={() => openTaskDetails(taskContextMenu.taskId)}
+            onClick={() => { const taskId = taskContextMenu.taskId; setTaskContextMenu(null); openTaskModal(taskId); }}
+            className={`flex w-full items-center gap-2 px-3 py-2 text-left ${isDesktopCinematic ? 'text-slate-200 hover:bg-white/10 hover:text-white' : 'text-slate-700 hover:bg-slate-50'}`}
+            role="menuitem"
+          >
+            <FolderPlus className="h-4 w-4" />
+            Add child task
+          </button>
+          <button
+            type="button"
+            onClick={() => { const taskId = taskContextMenu.taskId; setTaskContextMenu(null); openTaskDetails(taskId); }}
             className={`flex w-full items-center gap-2 px-3 py-2 text-left ${isDesktopCinematic ? 'text-slate-200 hover:bg-white/10 hover:text-white' : 'text-slate-700 hover:bg-slate-50'}`}
             role="menuitem"
           >
@@ -1667,12 +1676,12 @@ export default function TaskManager({
           </button>
           <button
             type="button"
-            onClick={() => void handleArchiveTask(taskContextMenu.taskId)}
+            onClick={() => { const taskId = taskContextMenu.taskId; setTaskContextMenu(null); void handleArchiveTask(taskId); }}
             className={`flex w-full items-center gap-2 px-3 py-2 text-left ${isDesktopCinematic ? 'text-rose-300 hover:bg-rose-400/10 hover:text-rose-200' : 'text-red-600 hover:bg-red-50'}`}
             role="menuitem"
           >
             <Trash2 className="h-4 w-4" />
-            Archive task
+            Delete task
           </button>
         </div>
       )}
@@ -2021,6 +2030,7 @@ function DesktopTaskOutline({
       onOpenTask={onOpenTask}
       onEditTopic={onEditTopic}
       onToggleTask={onToggleTask}
+      onContextMenu={onContextMenu}
     />
     {false && (
     <section className="desktop-task-outline" aria-label="Task hierarchy">
@@ -2095,6 +2105,7 @@ function DesktopTaskNetworkCanvas({
   onOpenTask,
   onEditTopic,
   onToggleTask,
+  onContextMenu,
 }: {
   topics: ApiTopic[];
   selectedTopicId: string;
@@ -2111,6 +2122,7 @@ function DesktopTaskNetworkCanvas({
   onOpenTask: (taskId: string) => void;
   onEditTopic: () => void;
   onToggleTask: (task: ApiTask, clickEvent?: ReactMouseEvent<HTMLElement>) => void;
+  onContextMenu: (event: ReactMouseEvent<HTMLElement>, taskId: string) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -2218,12 +2230,19 @@ function DesktopTaskNetworkCanvas({
   useEffect(() => {
     const isNewTopic = previousDoneByIdRef.current.topicId !== selectedTopicId;
     const previous = isNewTopic ? new Map<string, boolean>() : previousDoneByIdRef.current.map;
-    let changed = false;
+    // Collect ids that just flipped to done, then pick the deepest one (largest
+    // waveLevel means an ancestor — smallest means the leaf that triggered the
+    // cascade). Replaying from the leaf scopes the burn to just this subtree +
+    // its ancestor chain, instead of re-burning every completed edge on the map.
+    const newlyDone: string[] = [];
     completionState.doneById.forEach((done, id) => {
-      if (done && previous.get(id) !== true) changed = true;
+      if (done && previous.get(id) !== true) newlyDone.push(id);
     });
     previousDoneByIdRef.current = { topicId: selectedTopicId, map: new Map(completionState.doneById) };
-    if (!isNewTopic && changed) startCompletionReplay(null);
+    if (!isNewTopic && newlyDone.length) {
+      const leafFirst = newlyDone.sort((a, b) => (completionState.waveLevelById.get(a) || 0) - (completionState.waveLevelById.get(b) || 0));
+      startCompletionReplay(leafFirst[0]);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completionState.doneById, selectedTopicId]);
   const completionReplayIds = useMemo(() => {
@@ -2643,8 +2662,10 @@ function DesktopTaskNetworkCanvas({
       const timer = window.setTimeout(callback, delay);
       branchStoryTimersRef.current.push(timer);
     };
-    const edgeTravelDuration = 760;
-    const nodeRevealDuration = 500;
+    // edgeTravelDuration matches the 1.15s pathLength draw so the child node
+    // pops the moment its incoming connector finishes being drawn from parent.
+    const edgeTravelDuration = 1150;
+    const nodeRevealDuration = 360;
     const completionStepDuration = 420;
     let cursor = 160;
 
@@ -3049,7 +3070,7 @@ function DesktopTaskNetworkCanvas({
       // Comet-trail: only the topic node is pinned 1:1 to the pointer. Every
       // other node keeps easing toward a retargeted point instead of snapping,
       // so it visibly trails behind and catches up once the drag stops.
-      topologyFieldRef.current?.pin(id, graphDragFieldOriginsRef.current[id] || network.positions[id]);
+      topologyFieldRef.current?.pinSilent(id, graphDragFieldOriginsRef.current[id] || network.positions[id]);
       setDragging({
         mode: 'graph',
         id,
@@ -3193,7 +3214,7 @@ function DesktopTaskNetworkCanvas({
         };
         pendingGraphOffsetRef.current = nextOffset;
         const topicPosition = { x: (graphDragFieldOriginsRef.current[dragging.id]?.x ?? 0) + deltaX, y: (graphDragFieldOriginsRef.current[dragging.id]?.y ?? 0) + deltaY };
-        topologyFieldRef.current?.pin(dragging.id, topicPosition);
+        topologyFieldRef.current?.pinSilent(dragging.id, topicPosition);
         const followerTargets = Object.fromEntries(Object.entries(graphDragFieldOriginsRef.current).filter(([id]) => id !== dragging.id).map(([id, position]) => [id, {
           x: position.x + deltaX,
           y: position.y + deltaY,
@@ -3266,25 +3287,23 @@ function DesktopTaskNetworkCanvas({
         return;
       }
       if (dragging.mode === 'graph') {
-        const finalOffset = pendingGraphOffsetRef.current || dragging.originOffset;
-        const deltaX = finalOffset.x - dragging.originOffset.x;
-        const deltaY = finalOffset.y - dragging.originOffset.y;
-        const shiftedCustomPositions = Object.fromEntries(Object.entries(dragging.originCustomPositions).map(([id, position]) => [id, {
-          x: position.x + deltaX,
-          y: position.y + deltaY,
-        }])) as Record<string, NodePosition>;
+        // Comet drag is a temporary, playful pull. On release we DON'T commit
+        // the dragged offset — we release every pin and reset the layout so the
+        // physics field springs the whole orbit smoothly back into its circle
+        // around the topic (rather than freezing wherever it was dragged).
         pendingGraphOffsetRef.current = null;
-        viewportOffsetRef.current = finalOffset;
-        customPositionsRef.current = shiftedCustomPositions;
-        setViewportOffset(finalOffset);
-        setCustomPositions(shiftedCustomPositions);
-        pendingReleaseIdsRef.current = new Set(Object.keys(graphDragFieldOriginsRef.current));
+        const releaseIds = new Set(Object.keys(graphDragFieldOriginsRef.current));
+        releaseIds.add(dragging.id);
         graphDragFieldOriginsRef.current = {};
+        pendingReleaseIdsRef.current = releaseIds;
+        customPositionsRef.current = {};
+        viewportOffsetRef.current = { x: 0, y: 0 };
+        setCustomPositions({});
+        setViewportOffset({ x: 0, y: 0 });
         setDragging(null);
         if (selectedTopicId) {
-          try { window.localStorage.setItem(`desktop-task-network-view:v6:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify({ ...finalOffset, zoom })); } catch { /* optional */ }
-          try { window.localStorage.setItem(`desktop-task-network:v7:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify(shiftedCustomPositions)); } catch { /* optional */ }
-          try { window.localStorage.setItem(`desktop-task-network-zoom:v1:${selectedTopicId}`, JSON.stringify(zoom)); } catch { /* optional */ }
+          try { window.localStorage.removeItem(`desktop-task-network:v7:${selectedTopicId}:${focusedRootId || 'radial'}`); } catch { /* optional */ }
+          try { window.localStorage.setItem(`desktop-task-network-view:v6:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify({ x: 0, y: 0, zoom })); } catch { /* optional */ }
         }
         return;
       }
@@ -3453,7 +3472,12 @@ function DesktopTaskNetworkCanvas({
             const active = (edge.from === topicId && selectedBranchIds.has(edge.to)) || (selectedBranchIds.has(edge.from) && selectedBranchIds.has(edge.to));
             const hovered = Boolean(hoveredNodeId && (edge.from === hoveredNodeId || edge.to === hoveredNodeId));
             const path = `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`;
-            const childComplete = completionState.doneById.get(edge.to) === true;
+            // Gate the green completion edge with the same reveal rules as the
+            // node's green tick, so during the topic/branch reveal the green
+            // connector never shows before the "reveal completion" phase.
+            const childComplete = completionState.doneById.get(edge.to) === true
+              && !branchPendingCompletionIds.has(edge.to)
+              && (!topicStoryActive || storyCompletedNodeIds.has(edge.to));
             // A completed node resolves first, then its connector carries the result
             // back to the parent. Each higher level waits for the previous burn to land.
             const burnDelay = 1000 + (completionState.waveLevelById.get(edge.to) || 0) * 1960;
@@ -3470,11 +3494,22 @@ function DesktopTaskNetworkCanvas({
             const replayCompletion = completionReplayIds.has(edge.to);
             const edgeDepth = network.depths[edge.to] || 1;
             const edgeRevealDelay = storyActive ? 0 : Math.min(1320, (edgeDepth - 1) * 155 + Math.min(edgeIndex, 20) * 36);
+            const edgeOpacity = active || hovered ? .92 : .62;
             return (
               <g key={edgeKey}>
-                <path ref={(element) => registerTopologyEdge(edgeKey, element)} d={path} pathLength={1} className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`} style={{ '--edge-opacity': active || hovered ? .92 : .62, '--edge-reveal-delay': reducedMotion ? '0ms' : `${edgeRevealDelay}ms` } as CSSProperties} />
-                {childComplete && edge.from !== topicId && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion && completionReplayPhase === 'playing' ? 'is-replaying' : replayCompletion && completionReplayPhase === 'primed' ? 'is-primed' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
-                {childComplete && edge.from !== topicId && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
+                <motion.path
+                  ref={(element: SVGPathElement | null) => registerTopologyEdge(edgeKey, element)}
+                  d={path}
+                  className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''}`}
+                  initial={reducedMotion ? false : { pathLength: 0, opacity: 0 }}
+                  animate={{ pathLength: 1, opacity: edgeOpacity }}
+                  transition={reducedMotion
+                    ? { duration: 0 }
+                    : { pathLength: { duration: 1.15, ease: [0.22, 1, 0.36, 1], delay: edgeRevealDelay / 1000 }, opacity: { duration: 0.4, ease: 'easeOut', delay: edgeRevealDelay / 1000 } }}
+                  style={{ '--edge-opacity': edgeOpacity } as CSSProperties}
+                />
+                {childComplete && <path ref={(element) => registerTopologyEdge(edgeKey, element, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion && completionReplayPhase === 'playing' ? 'is-replaying' : replayCompletion && completionReplayPhase === 'primed' ? 'is-primed' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
+                {childComplete && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
                   <motion.circle
                     key={`${edgeKey}:head:${completionReplayNonce}`}
                     className="desktop-network-completion-head"
@@ -3565,6 +3600,7 @@ function DesktopTaskNetworkCanvas({
                 if (didDragRef.current) return;
                 enterTaskBranch(task, childCount);
               }}
+              onContextMenu={(event) => onContextMenu(event, task.id)}
               onDoubleClick={() => onOpenTask(task.id)}
               initial={reducedMotion && !storyActive ? false : { opacity: 0, scale: storyActive ? 0 : .35 }}
               animate={{ opacity: 1, scale: draggedNodeId === task.id ? 1.13 : selected ? 1.08 : 1 }}
@@ -4463,14 +4499,21 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const modalRef = useRef<HTMLDivElement | null>(null);
+  // Keep the latest onClose in a ref so the setup effect can run exactly ONCE
+  // on mount. Previously the effect depended on `onClose` (a fresh closure each
+  // render), so every keystroke re-ran it and called firstFocusable.focus(),
+  // which interrupts IME composition — Vietnamese/Telex typing would stop after
+  // a single character.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const firstFocusable = modalRef.current?.querySelector<HTMLElement>('input, button, select, textarea, [tabindex]:not([tabindex="-1"])');
     firstFocusable?.focus();
-    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    const handleKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') onCloseRef.current(); };
     window.addEventListener('keydown', handleKeyDown);
     return () => { window.removeEventListener('keydown', handleKeyDown); previouslyFocused?.focus(); };
-  }, [onClose]);
+  }, []);
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4" onMouseDown={onClose}>
       <div ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="task-modal-title" onMouseDown={(event) => event.stopPropagation()} className="glass-panel max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-t-[28px] p-4 shadow-xl sm:max-h-[calc(100vh-2rem)] sm:rounded-[28px] sm:p-5">
