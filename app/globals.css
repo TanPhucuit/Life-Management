@@ -1026,6 +1026,15 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   color: #132238;
   background: #f8fbfd;
 }
+.experience-v2 .desktop-task-network[data-fullscreen='true'] {
+  position: fixed;
+  z-index: 80;
+  inset: 10px;
+  border: 1px solid #d6e4ee;
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: 0 24px 90px rgba(15,23,42,.24);
+}
 .experience-v2 .desktop-network-toolbar {
   position: relative;
   z-index: 20;
@@ -1060,7 +1069,9 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 .experience-v2 .desktop-network-controls strong { min-width: 48px; border-right: 0; border-left: 0; color: #1f344d; }
 .experience-v2 .desktop-network-controls button:nth-child(3) { border-radius: 0 9px 9px 0; }
 .experience-v2 .desktop-network-controls button:hover { z-index: 1; border-color: #7dd3e4; color: #0785a6; }
-.experience-v2 .desktop-network-controls button.is-reflow { display: inline-flex; width: auto; margin-left: 8px; gap: 6px; padding: 0 10px; border-radius: 9px; font-weight: 650; }
+.experience-v2 .desktop-network-controls button.is-reflow,
+.experience-v2 .desktop-network-controls button.is-fullscreen { display: inline-flex; width: auto; margin-left: 8px; gap: 6px; padding: 0 10px; border-radius: 9px; font-weight: 650; }
+.experience-v2 .desktop-network-controls button.is-fullscreen { width: 34px; padding: 0; color: #1f344d; }
 .experience-v2 .desktop-network-controls button.is-portal { display: inline-flex; width: auto; margin-left: 8px; gap: 5px; padding: 0 10px; border-radius: 9px; color: #087d9e; background: #ecfeff; font-weight: 680; }
 .experience-v2 .desktop-network-controls button.is-portal svg { transform: rotate(180deg); }
 .experience-v2 .desktop-network-controls svg { width: 13px; height: 13px; }
@@ -1262,6 +1273,7 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 @media (max-width: 1023px) {
   .experience-v2.desktop-task-workspace { min-height: calc(100dvh - 120px); overflow: hidden; }
   .experience-v2 .desktop-task-network { min-height: 640px; }
+  .experience-v2 .desktop-task-network[data-fullscreen='true'] { inset: 6px; min-height: auto; border-radius: 18px; }
   .experience-v2 .desktop-network-toolbar { min-height: 0; grid-template-columns: minmax(0,1fr); gap: 9px; padding: 10px 12px; }
   .experience-v2 .desktop-network-root-select select { width: 100%; max-width: none; }
   .experience-v2 .desktop-network-stats { justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
@@ -1269,13 +1281,15 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   .experience-v2 .desktop-network-stats span { flex: none; }
   .experience-v2 .desktop-network-controls { justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
   .experience-v2 .desktop-network-controls button.is-portal,
-  .experience-v2 .desktop-network-controls button.is-reflow { flex: none; }
+  .experience-v2 .desktop-network-controls button.is-reflow,
+  .experience-v2 .desktop-network-controls button.is-fullscreen { flex: none; }
   .experience-v2 .desktop-network-hint { display: none; }
 }
 
 @media (max-width: 600px) {
   .experience-v2.desktop-task-workspace { min-height: calc(100dvh - 96px); border-radius: 18px; }
   .experience-v2 .desktop-task-network { min-height: 580px; }
+  .experience-v2 .desktop-task-network[data-fullscreen='true'] { inset: 0; border-radius: 0; }
   .experience-v2 .desktop-network-root-select > span { width: 34px; height: 34px; }
   .experience-v2 .desktop-network-root-select small { font-size: 8px; }
   .experience-v2 .desktop-network-root-select select { font-size: 14px; }
@@ -1673,3 +1687,151 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   .experience-v2 .semantic-dive-overlay { filter: none !important; }
   .experience-v2 .semantic-dive-reconstruction-node { filter: none !important; }
 }
+
+/* ---------------------------------------------------------------------------
+   Topic Orbit — the 3D "task tree" view. Only the shell/HUD/detail panel live
+   here; everything inside the canvas is drawn by three.js, and the tree inside
+   the detail panel keeps its own existing styling.
+--------------------------------------------------------------------------- */
+.topic-orbit-shell {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 62vh;
+  overflow: hidden;
+  background: radial-gradient(120% 110% at 50% 12%, #0b1730 0%, #03060f 62%, #01030a 100%);
+  isolation: isolate;
+}
+.topic-orbit-shell canvas { display: block; touch-action: none; }
+.topic-orbit-loading,
+.topic-orbit-empty {
+  display: grid;
+  place-items: center;
+  min-height: 62vh;
+  padding: 0 2rem;
+  text-align: center;
+  color: rgba(226, 232, 240, .62);
+  font-size: .875rem;
+  background: radial-gradient(120% 110% at 50% 12%, #0b1730 0%, #03060f 70%);
+}
+
+.topic-orbit-planet-label,
+.topic-orbit-topic-label {
+  white-space: nowrap;
+  transform: translateZ(0);
+  color: #e2e8f0;
+  text-shadow: 0 1px 12px rgba(2, 6, 23, .95);
+  user-select: none;
+}
+.topic-orbit-planet-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, .48);
+  border: 1px solid rgba(148, 163, 184, .18);
+}
+.topic-orbit-planet-label[data-status='completed'] { color: #86efac; border-color: rgba(52, 211, 153, .3); }
+.topic-orbit-planet-label[data-status='in_progress'] { color: #bfdbfe; border-color: rgba(96, 165, 250, .3); }
+.topic-orbit-topic-label {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  text-transform: none;
+}
+
+.topic-orbit-hud {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+  padding: .85rem 1.1rem;
+  background: linear-gradient(to top, rgba(2, 6, 23, .82), rgba(2, 6, 23, 0));
+  pointer-events: none;
+}
+.topic-orbit-hud > * { pointer-events: auto; }
+.topic-orbit-hud-select,
+.topic-orbit-hud-chip,
+.topic-orbit-hud-replay {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  height: 32px;
+  padding: 0 .7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, .22);
+  background: rgba(15, 23, 42, .62);
+  color: rgba(226, 232, 240, .84);
+  font-size: 11px;
+  font-weight: 600;
+  backdrop-filter: blur(14px);
+}
+.topic-orbit-hud-select { max-width: 15rem; outline: none; }
+.topic-orbit-hud-select:focus { border-color: rgba(125, 211, 252, .55); }
+.topic-orbit-hud-replay { cursor: pointer; transition: border-color .18s ease, color .18s ease; }
+.topic-orbit-hud-replay:hover { border-color: rgba(125, 211, 252, .5); color: #e0f2fe; }
+.topic-orbit-hud-hint {
+  margin-right: auto;
+  font-size: 11px;
+  color: rgba(148, 163, 184, .62);
+  pointer-events: none;
+}
+
+.topic-orbit-detail {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 62vw);
+  border-left: 1px solid rgba(148, 163, 184, .16);
+  background: linear-gradient(180deg, rgba(6, 12, 26, .96), rgba(2, 6, 23, .97));
+  box-shadow: -32px 0 80px rgba(2, 6, 23, .6);
+  backdrop-filter: blur(22px);
+}
+@media (max-width: 860px) {
+  .topic-orbit-detail { width: 100%; }
+}
+.topic-orbit-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.15rem .85rem;
+  border-bottom: 1px solid rgba(148, 163, 184, .12);
+}
+.topic-orbit-detail-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: rgba(125, 211, 252, .58);
+}
+.topic-orbit-detail-title {
+  margin-top: .15rem;
+  font-size: 1.15rem;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  color: #e2e8f0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topic-orbit-detail-sub { margin-top: .2rem; font-size: 11px; color: rgba(148, 163, 184, .68); }
+.topic-orbit-detail-close {
+  display: grid;
+  place-items: center;
+  height: 32px;
+  width: 32px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, .2);
+  color: rgba(226, 232, 240, .78);
+  transition: border-color .18s ease, background .18s ease;
+}
+.topic-orbit-detail-close:hover { border-color: rgba(248, 113, 113, .5); background: rgba(248, 113, 113, .1); }
+.topic-orbit-detail-body { flex: 1 1 auto; min-height: 0; display: flex; }
+.topic-orbit-detail-tree { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.topic-orbit-detail-tree > .desktop-task-network { flex: 1 1 auto; min-height: 0; }

@@ -13,7 +13,10 @@ import {
   GitBranch,
   MoreHorizontal,
   LocateFixed,
+  Maximize2,
+  Minimize2,
   Move,
+  Orbit,
   Pencil,
   Plus,
   Search,
@@ -22,12 +25,14 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import { flushSync } from 'react-dom';
 import { api, ApiTask, ApiTaskStatus, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
 import TaskTableView from './TaskTableView';
 import { ElasticTopologyField } from './task-network/ElasticTopologyField';
+import type { OrbitPlanetInput } from './topic-orbit/types';
 import { SemanticDiveDirection, SemanticDiveDirector, SemanticDivePhase } from './task-network/SemanticDiveDirector';
 
 type TaskDraft = {
@@ -82,7 +87,7 @@ type NetworkDragState =
       originOffset: NodePosition;
       originCustomPositions: Record<string, NodePosition>;
     };
-export type TaskWorkspaceView = 'tree' | 'table';
+export type TaskWorkspaceView = 'tree' | 'table' | 'orbit';
 export type TaskWorkspaceVariant = 'legacy' | 'desktop-cinematic';
 type TreeMotionMode = 'cinematic' | 'balanced' | 'minimal';
 type CompletionReplayPhase = 'idle' | 'primed' | 'playing';
@@ -251,6 +256,13 @@ const toDateTimeInputValue = (value?: string | null) => {
   return offsetDate.toISOString().slice(0, 16);
 };
 
+// Three.js only ever loads when the user actually opens the 3D view, and never
+// on the server — the orbit scene needs a real WebGL context.
+const TopicOrbitView = dynamic(() => import('./topic-orbit/TopicOrbitView').then((module) => module.TopicOrbitView), {
+  ssr: false,
+  loading: () => <div className="topic-orbit-loading">Charting the system…</div>,
+});
+
 export default function TaskManager({
   variant = 'desktop-cinematic',
   initialView,
@@ -384,6 +396,28 @@ export default function TaskManager({
 
   const selectedTask = selectedTaskId ? taskById.get(selectedTaskId) || null : null;
   const selectedTaskChildren = selectedTask ? childrenByParent.get(selectedTask.id) || [] : [];
+
+  // ---- Topic Orbit (3D task tree) -----------------------------------------
+  // Only the selected topic and its FIRST-LEVEL tasks ever become celestial
+  // objects. Everything deeper stays the job of the existing 2D tree.
+  const orbitPlanets = useMemo<OrbitPlanetInput[]>(() => {
+    const level1 = rootTasks.filter((task) => task.topic_id === selectedTopicId);
+    const heaviest = level1.reduce((maximum, task) => Math.max(maximum, task.descendant_count || 0), 0);
+    return level1.map((task, index) => {
+      const leaves = task.leaf_count || 0;
+      const done = isTaskDone(task);
+      return {
+        id: task.id,
+        title: task.title,
+        status: done ? 'completed' : isTaskInProgress(task) ? 'in_progress' : 'not_completed',
+        // Size encodes how much work hangs off this branch.
+        importance: heaviest ? Math.min(1, (task.descendant_count || 0) / heaviest) : 0.4,
+        childCount: (childrenByParent.get(task.id) || []).length,
+        accent: getTopicColorByName(task.task_color, index).text,
+        completion: leaves ? (task.completed_leaf_count || 0) / leaves : done ? 1 : 0,
+      };
+    });
+  }, [childrenByParent, rootTasks, selectedTopicId]);
 
   const diagramNodes = useMemo<DiagramNode[]>(() => {
     const search = searchTerm.trim().toLowerCase();
@@ -1278,6 +1312,53 @@ export default function TaskManager({
     }
   };
 
+  // Hands the existing network/tree renderer a view of the data scoped to one
+  // branch: the clicked planet's task becomes the centre node, its children
+  // become the "root" row, and the tree component itself stays untouched.
+  const renderOrbitDetailTree = (taskId: string) => {
+    const rootTask = taskById.get(taskId);
+    if (!rootTask || !selectedRootTopic) return null;
+
+    const subtreeIds = new Set<string>();
+    const collect = (id: string) => {
+      if (subtreeIds.has(id)) return;
+      subtreeIds.add(id);
+      (childrenByParent.get(id) || []).forEach((child) => collect(child.id));
+    };
+    collect(taskId);
+
+    const scopedTasks = tasks.filter((task) => subtreeIds.has(task.id) && task.id !== taskId);
+    const scopedChildren = new Map<string | null, ApiTask[]>();
+    scopedChildren.set(null, childrenByParent.get(taskId) || []);
+    scopedTasks.forEach((task) => {
+      const children = childrenByParent.get(task.id);
+      if (children?.length) scopedChildren.set(task.id, children);
+    });
+    const scopedTopic: ApiTopic = { ...selectedRootTopic, name: rootTask.title };
+    const scopedVisibleIds = new Set([...subtreeIds].filter((id) => id !== taskId && canvasNodeIds.has(id)));
+
+    return (
+      <DesktopTaskNetworkCanvas
+        topics={[scopedTopic]}
+        selectedTopicId={selectedTopicId}
+        selectedTopic={scopedTopic}
+        tasks={scopedTasks}
+        childrenByParent={scopedChildren}
+        visibleTaskIds={scopedVisibleIds}
+        selectedTaskId={selectedTaskId}
+        selectedBranchIds={selectedBranchIds}
+        searchTerm={searchTerm}
+        reducedMotion={Boolean(reducedMotion)}
+        onTopicChange={() => {}}
+        onSelectTask={setSelectedTaskId}
+        onOpenTask={openTaskDetails}
+        onEditTopic={() => openTaskDetails(taskId)}
+        onToggleTask={handleToggleLeaf}
+        onContextMenu={openTaskContextMenu}
+      />
+    );
+  };
+
   return (
     <div
       className={`premium-card overflow-visible text-slate-950 lg:min-h-[calc(100vh-140px)] lg:overflow-hidden ${isDesktopCinematic ? 'experience-v2 desktop-task-workspace rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_24px_80px_rgba(15,23,42,.12)]' : ''}`}
@@ -1340,6 +1421,26 @@ export default function TaskManager({
                     <Table2 className="relative h-3.5 w-3.5" />
                     <span className="relative">Table</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceView('orbit')}
+                    aria-pressed={workspaceView === 'orbit'}
+                    className={`relative isolate inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
+                      isDesktopCinematic
+                        ? workspaceView === 'orbit' ? 'text-slate-950' : 'text-slate-500 hover:text-slate-900'
+                        : workspaceView === 'orbit' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    {isDesktopCinematic && workspaceView === 'orbit' && (
+                      <motion.span
+                        layoutId={reducedMotion ? undefined : 'desktop-task-workspace-view'}
+                        className="absolute inset-0 -z-10 rounded bg-white shadow-sm"
+                        transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 34 }}
+                      />
+                    )}
+                    <Orbit className="relative h-3.5 w-3.5" />
+                    <span className="relative">3D tree</span>
+                  </button>
                 </div>
               </div>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:flex-nowrap">
@@ -1390,7 +1491,31 @@ export default function TaskManager({
           </header>
 
           <WorkspaceViewTransition enabled={isDesktopCinematic && !reducedMotion} view={workspaceView}>
-          {workspaceView === 'tree' ? (
+          {workspaceView === 'orbit' ? (
+            <TopicOrbitView
+              topicName={selectedRootTopic?.name || 'No topic selected'}
+              topicAccent={getTopicColorByName(selectedRootTopic?.topic_color, 0).text}
+              planets={orbitPlanets}
+              reducedMotion={Boolean(reducedMotion)}
+              renderDetail={renderOrbitDetailTree}
+              onSelectPlanet={(taskId) => setSelectedTaskId(taskId)}
+              controls={
+                <select
+                  value={selectedTopicId}
+                  onChange={(event) => { setSelectedTopicId(event.target.value); setSelectedTaskId(null); }}
+                  disabled={topics.length === 0}
+                  aria-label="Choose a life root to put in orbit"
+                  className="topic-orbit-hud-select"
+                >
+                  {topics.length === 0 && <option value="">No roots yet</option>}
+                  {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
+                </select>
+              }
+              emptyState={selectedRootTopic
+                ? 'This life root has no first-level projects yet — add one and it will appear in orbit.'
+                : 'Pick a life root in the Tree view to put its projects into orbit.'}
+            />
+          ) : workspaceView === 'tree' ? (
           isDesktopCinematic ? (
             <DesktopTaskOutline
               topics={topics}
@@ -2168,6 +2293,7 @@ function DesktopTaskNetworkCanvas({
   const previousDoneByIdRef = useRef<{ topicId: string; map: Map<string, boolean> }>({ topicId: '', map: new Map() });
   const [viewportSize, setViewportSize] = useState({ width: 980, height: 620 });
   const [zoom, setZoom] = useState(1);
+  const [isNetworkFullscreen, setIsNetworkFullscreen] = useState(false);
   const [viewportOffset, setViewportOffset] = useState<NodePosition>({ x: 0, y: 0 });
   const viewportOffsetRef = useRef<NodePosition>({ x: 0, y: 0 });
   const [customPositions, setCustomPositions] = useState<Record<string, NodePosition>>({});
@@ -2390,6 +2516,15 @@ function DesktopTaskNetworkCanvas({
     viewportOffsetRef.current = viewportOffset;
   }, [viewportOffset]);
 
+  useEffect(() => {
+    if (!isNetworkFullscreen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsNetworkFullscreen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isNetworkFullscreen]);
+
   useEffect(() => () => {
     if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
     if (topicNodeRevealTimerRef.current !== null) window.clearTimeout(topicNodeRevealTimerRef.current);
@@ -2487,14 +2622,18 @@ function DesktopTaskNetworkCanvas({
       setZoom(1);
       return;
     }
+    const isMobileViewport = viewportSize.width < 768;
+    const defaultZoom = focusedRootId
+      ? isMobileViewport ? .54 : .74
+      : isMobileViewport ? .48 : .68;
     try {
-      const savedZoom = window.localStorage.getItem(`desktop-task-network-zoom:v1:${selectedTopicId}`);
+      const savedZoom = window.localStorage.getItem(`desktop-task-network-zoom:v2:${selectedTopicId}:${focusedRootId || 'radial'}`);
       const parsed = savedZoom ? Number(JSON.parse(savedZoom)) : NaN;
-      setZoom(Number.isFinite(parsed) ? Math.min(1.5, Math.max(.4, parsed)) : 1);
+      setZoom(Number.isFinite(parsed) ? Math.min(1.5, Math.max(.35, parsed)) : defaultZoom);
     } catch {
-      setZoom(1);
+      setZoom(defaultZoom);
     }
-  }, [selectedTopicId]);
+  }, [focusedRootId, selectedTopicId, viewportSize.width]);
 
   const network = useMemo(() => {
     const topicId = topicNodeId(selectedTopicId);
@@ -2680,7 +2819,7 @@ function DesktopTaskNetworkCanvas({
   // edge-then-node stagger for just those ids. Everything else already on
   // screen (ancestors, siblings, cousins, previously-settled nodes) is never
   // touched, so it never disappears while this subtree grows in.
-  const startBranchReveal = (rootId: string) => {
+  const startBranchReveal = (rootId: string, onDone?: () => void) => {
     const steps: Array<{ from: string; to: string; edgeKey: string }> = [];
     const seen = new Set<string>([rootId]);
     const visit = (parentId: string) => {
@@ -2694,13 +2833,16 @@ function DesktopTaskNetworkCanvas({
         });
     };
     visit(rootId);
-    if (!steps.length) return;
+    if (!steps.length) {
+      onDone?.();
+      return;
+    }
 
     const newPendingNodeIds = steps.map((step) => step.to);
     const newPendingEdgeIds = steps.map((step) => step.edgeKey);
     setBranchPendingNodeIds((current) => new Set([...current, ...newPendingNodeIds]));
     setBranchPendingEdgeIds((current) => new Set([...current, ...newPendingEdgeIds]));
-    const completionPendingIds = newPendingNodeIds.filter((taskId) => completionState.doneById.get(taskId) === true);
+    const completionPendingIds = [rootId, ...newPendingNodeIds].filter((taskId) => completionState.doneById.get(taskId) === true);
     if (completionPendingIds.length) {
       setBranchPendingCompletionIds((current) => new Set([...current, ...completionPendingIds]));
     }
@@ -2714,7 +2856,6 @@ function DesktopTaskNetworkCanvas({
     // own descendants.
     const edgeTravelDuration = 1150;
     const nodeRevealDuration = 360;
-    const completionStepDuration = 420;
     let cursor = 160;
 
     steps.forEach((step) => {
@@ -2747,15 +2888,15 @@ function DesktopTaskNetworkCanvas({
       cursor += nodeRevealDuration;
     });
 
-    completionPendingIds.forEach((taskId, index) => {
-      const timer = window.setTimeout(() => setBranchPendingCompletionIds((current) => {
-        if (!current.has(taskId)) return current;
+    const doneTimer = window.setTimeout(() => {
+      setBranchPendingCompletionIds((current) => {
         const next = new Set(current);
-        next.delete(taskId);
+        completionPendingIds.forEach((taskId) => next.delete(taskId));
         return next;
-      }), cursor + index * completionStepDuration);
-      branchStoryTimersRef.current.push(timer);
-    });
+      });
+      onDone?.();
+    }, cursor + 120);
+    branchStoryTimersRef.current.push(doneTimer);
   };
   layoutPositionsRef.current = network.logicalPositions;
   const draggedNodeId = dragging?.mode === 'node' || dragging?.mode === 'cluster' ? dragging.id : null;
@@ -3021,7 +3162,7 @@ function DesktopTaskNetworkCanvas({
     autoScrollKeyRef.current = scrollKey;
     const frame = window.requestAnimationFrame(() => {
       const left = focusedRootId
-        ? Math.max(0, network.focusPosition.x - viewport.clientWidth * .34)
+        ? Math.max(0, network.focusPosition.x - viewport.clientWidth * .5)
         : Math.max(0, network.center.x - viewport.clientWidth * .5);
       const top = Math.max(0, network.focusPosition.y - viewport.clientHeight * .5);
       viewport.scrollTo({ left, top, behavior: 'auto' });
@@ -3057,6 +3198,7 @@ function DesktopTaskNetworkCanvas({
     const isLevelOne = !task.parent_task_id;
     let siblingRootIds: string[] = [];
     let siblingEdgeIds: string[] = [];
+    let levelOneCompletionIds: string[] = [];
     if (isLevelOne) {
       customPositionsRef.current = {};
       setCustomPositions({});
@@ -3070,6 +3212,12 @@ function DesktopTaskNetworkCanvas({
       if (siblingRootIds.length) {
         setBranchPendingNodeIds((current) => new Set([...current, ...siblingRootIds]));
         setBranchPendingEdgeIds((current) => new Set([...current, ...siblingEdgeIds]));
+      }
+      levelOneCompletionIds = completeTopicTasks
+        .filter((candidate) => completionState.doneById.get(candidate.id) === true)
+        .map((candidate) => candidate.id);
+      if (levelOneCompletionIds.length) {
+        setBranchPendingCompletionIds((current) => new Set([...current, ...levelOneCompletionIds]));
       }
     }
     // Read directly off the CURRENT state value rather than mutating a local
@@ -3109,7 +3257,17 @@ function DesktopTaskNetworkCanvas({
       // Data is revealed all at once above (needed for layout/positions), but
       // the visible reveal is gated by the pending sets — it grows the
       // subtree node-by-node, edge-by-edge, in DFS order.
-      if (wasFreshExpand) startBranchReveal(task.id);
+      const replayCompletionAfterReveal = () => {
+        if (isLevelOne && levelOneCompletionIds.length) {
+          setBranchPendingCompletionIds((current) => {
+            const next = new Set(current);
+            levelOneCompletionIds.forEach((taskId) => next.delete(taskId));
+            return next;
+          });
+        }
+        startCompletionReplay(isLevelOne ? null : task.id);
+      };
+      if (wasFreshExpand) startBranchReveal(task.id, replayCompletionAfterReveal);
       if (siblingRootIds.length) {
         // These OTHER level-1 siblings never went through "duyệt cây" — they
         // just settle back after the layout re-centers on the clicked node.
@@ -3161,14 +3319,6 @@ function DesktopTaskNetworkCanvas({
         // camera has actually finished moving — running this concurrently
         // with the dive itself was the main source of visual clutter.
         reveal?.();
-        if (reducedMotion) {
-          startCompletionReplay(task.id);
-          return;
-        }
-        completionReplayTimerRef.current = window.setTimeout(() => {
-          completionReplayTimerRef.current = null;
-          startCompletionReplay(task.id);
-        }, 820);
       },
     );
   };
@@ -3541,17 +3691,20 @@ function DesktopTaskNetworkCanvas({
   const leafTasks = completeTopicTasks.filter((task) => (childrenByParent.get(task.id) || []).filter((child) => child.topic_id === selectedTopicId).length === 0);
   const completion = leafTasks.length ? Math.round(leafTasks.filter((task) => completionState.doneById.get(task.id)).length / leafTasks.length * 100) : 0;
   const hiddenRootCount = Math.max(0, availableRootTasks.length - rootLimit);
+  const defaultNetworkZoom = focusedRootId
+    ? viewportSize.width < 768 ? .54 : .74
+    : viewportSize.width < 768 ? .48 : .68;
   const updateNetworkZoom = (nextZoom: number) => {
-    const clampedZoom = Math.min(1.5, Math.max(.4, nextZoom));
+    const clampedZoom = Math.min(1.5, Math.max(.35, nextZoom));
     setZoom(clampedZoom);
     try {
       window.localStorage.setItem(`desktop-task-network-view:v6:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify({ ...viewportOffsetRef.current, zoom: clampedZoom }));
-      window.localStorage.setItem(`desktop-task-network-zoom:v1:${selectedTopicId}`, JSON.stringify(clampedZoom));
+      window.localStorage.setItem(`desktop-task-network-zoom:v2:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify(clampedZoom));
     } catch { /* optional */ }
   };
 
   return (
-    <section className="desktop-task-network" data-dive-active={divePhase !== 'idle' ? 'true' : 'false'} data-drag-scope={focusedRootId ? 'branch' : 'network'} data-topic-story-phase={topicStoryPhase}>
+    <section className="desktop-task-network" data-dive-active={divePhase !== 'idle' ? 'true' : 'false'} data-drag-scope={focusedRootId ? 'branch' : 'network'} data-topic-story-phase={topicStoryPhase} data-fullscreen={isNetworkFullscreen ? 'true' : 'false'}>
       <header className="desktop-network-toolbar">
         <div className="desktop-network-root-select">
           <span><GitBranch /></span>
@@ -3562,20 +3715,21 @@ function DesktopTaskNetworkCanvas({
         <div className="desktop-network-controls">
           <button type="button" onClick={() => updateNetworkZoom(zoom - .1)} aria-label="Zoom out">−</button><strong>{Math.round(zoom * 100)}%</strong><button type="button" onClick={() => updateNetworkZoom(zoom + .1)} aria-label="Zoom in">+</button>
           {topicRevealStage > 0 && <button type="button" className="is-portal" onClick={replayCurrentTopicStory}><ChevronRight /> Topic orbit</button>}
+          <button type="button" className="is-fullscreen" onClick={() => setIsNetworkFullscreen((current) => !current)} aria-label={isNetworkFullscreen ? 'Exit fullscreen task tree' : 'Open fullscreen task tree'}>{isNetworkFullscreen ? <Minimize2 /> : <Maximize2 />}</button>
           <button type="button" className="is-reflow" onClick={() => {
             customPositionsRef.current = {};
             setCustomPositions({});
             viewportOffsetRef.current = { x: 0, y: 0 };
             setViewportOffset({ x: 0, y: 0 });
-            updateNetworkZoom(1);
+            updateNetworkZoom(defaultNetworkZoom);
             savePositions({});
-            try { window.localStorage.setItem(`desktop-task-network-view:v6:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify({ x: 0, y: 0, zoom: 1 })); } catch { /* optional */ }
+            try { window.localStorage.setItem(`desktop-task-network-view:v6:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify({ x: 0, y: 0, zoom: defaultNetworkZoom })); } catch { /* optional */ }
             window.requestAnimationFrame(() => {
               const viewport = viewportRef.current;
               if (!viewport) return;
-              const centerX = focusedRootId ? 538 : stageSize.width * .5;
+              const centerX = focusedRootId ? network.focusPosition.x : stageSize.width * .5;
               viewport.scrollTo({
-                left: Math.max(0, centerX - viewport.clientWidth * (focusedRootId ? .34 : .5)),
+                left: Math.max(0, centerX - viewport.clientWidth * .5),
                 top: Math.max(0, stageSize.height * .5 - viewport.clientHeight * .5),
                 behavior: 'auto',
               });
@@ -4700,5 +4854,3 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
     </div>
   );
 }
-
-
