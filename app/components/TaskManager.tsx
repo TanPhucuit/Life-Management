@@ -2093,7 +2093,7 @@ function DesktopTaskNetworkCanvas({
   const semanticDiveRef = useRef<SemanticDiveDirector | null>(null);
   const diveActiveRef = useRef(false);
   const diveRequestTokenRef = useRef(0);
-  const captureDiveSnapshotRef = useRef<(worldKey?: string, preferOverlay?: boolean) => NetworkDiveSnapshot | null>(() => null);
+  const captureDiveSnapshotRef = useRef<(worldKey?: string, preferOverlay?: boolean, portalNodeId?: string) => NetworkDiveSnapshot | null>(() => null);
   const didDragRef = useRef(false);
   const expansionTimerRef = useRef<number | null>(null);
   const topicNodeRevealTimerRef = useRef<number | null>(null);
@@ -2530,7 +2530,7 @@ function DesktopTaskNetworkCanvas({
     topologyFieldRef.current?.registerEdge(key, element, reverse);
   };
 
-  const captureDiveSnapshot = (worldKey = selectedTopicId, preferOverlay = true): NetworkDiveSnapshot | null => {
+  const captureDiveSnapshot = (worldKey = selectedTopicId, preferOverlay = true, portalNodeId = topicNodeId(selectedTopicId)): NetworkDiveSnapshot | null => {
     const shell = diveShellRef.current;
     const viewport = viewportRef.current;
     if (!shell || !viewport) return null;
@@ -2552,7 +2552,9 @@ function DesktopTaskNetworkCanvas({
         const controlY = (from.y + to.y) / 2 + (to.x - from.x) / distance * bend;
         return [{ ...edge, d: `M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}` }];
       });
-      const portal = overlayNodes.find((node) => node.kind === 'topic') || overlayNodes[0];
+      const portal = overlayNodes.find((node) => node.id === portalNodeId)
+        || overlayNodes.find((node) => node.kind === 'topic')
+        || overlayNodes[0];
       return { ...diveSnapshots.from, portal: portal ? { x: portal.x, y: portal.y } : diveSnapshots.from.portal, nodes: overlayNodes, edges: overlayEdges };
     }
     const positions = new Map<string, NodePosition>();
@@ -2596,17 +2598,25 @@ function DesktopTaskNetworkCanvas({
           || (selectedBranchIds.has(edge.from) && selectedBranchIds.has(edge.to)),
       }];
     });
-    const portal = positions.get(topicNodeId(selectedTopicId)) || { x: shell.clientWidth / 2, y: shell.clientHeight / 2 };
+    const portal = positions.get(portalNodeId)
+      || positions.get(topicNodeId(selectedTopicId))
+      || { x: shell.clientWidth / 2, y: shell.clientHeight / 2 };
     return { worldKey, stage: { ...renderedStageSize }, portal, nodes, edges };
   };
   captureDiveSnapshotRef.current = captureDiveSnapshot;
 
-  const requestSemanticDive = (nextTopicId: string, direction: SemanticDiveDirection = 'forward') => {
+  const requestSemanticDive = (
+    nextTopicId: string,
+    direction: SemanticDiveDirection = 'forward',
+    portalNodeId = topicNodeId(selectedTopicId),
+    reconstructWorld?: () => void,
+  ) => {
     if (!nextTopicId) return;
     const shell = diveShellRef.current;
-    const snapshot = captureDiveSnapshot();
+    const snapshot = captureDiveSnapshot(selectedTopicId, true, portalNodeId);
     if (!shell || !snapshot || reducedMotion && !selectedTopicId) {
       onTopicChange(nextTopicId);
+      reconstructWorld?.();
       return;
     }
     const requestToken = ++diveRequestTokenRef.current;
@@ -2637,6 +2647,7 @@ function DesktopTaskNetworkCanvas({
           if (topicNodeRevealTimerRef.current !== null) window.clearTimeout(topicNodeRevealTimerRef.current);
           if (topicEdgeRevealTimerRef.current !== null) window.clearTimeout(topicEdgeRevealTimerRef.current);
           setTopicRevealStage(0);
+          reconstructWorld?.();
           if (direction === 'reverse') setExpandedTaskIds(new Set());
           if (nextTopicId !== selectedTopicId) onTopicChange(nextTopicId);
           else {
@@ -2654,7 +2665,7 @@ function DesktopTaskNetworkCanvas({
           setDivePhase('idle');
           diveActiveRef.current = false;
           topologyFieldRef.current?.resume();
-          topologyFieldRef.current?.kick(topicNodeId(nextTopicId), .2);
+          topologyFieldRef.current?.kick(portalNodeId, .42);
         },
       });
     });
@@ -2698,6 +2709,47 @@ function DesktopTaskNetworkCanvas({
   const savePositions = (positions: Record<string, NodePosition>) => {
     if (!selectedTopicId) return;
     try { window.localStorage.setItem(`desktop-task-network:v5:${selectedTopicId}`, JSON.stringify(positions)); } catch { /* local layout persistence is optional */ }
+  };
+
+  const reconstructTaskBranch = (task: ApiTask) => {
+    onSelectTask(task.id);
+    startCompletionReplay(task.id);
+    setExpansionPulseId(task.id);
+    if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
+    expansionTimerRef.current = window.setTimeout(() => setExpansionPulseId((current) => current === task.id ? null : current), 520);
+    const isLevelOne = !task.parent_task_id;
+    if (isLevelOne) {
+      customPositionsRef.current = {};
+      setCustomPositions({});
+      viewportOffsetRef.current = { x: 0, y: 0 };
+      setViewportOffset({ x: 0, y: 0 });
+      setZoom(1);
+      savePositions({});
+      try { window.localStorage.setItem(`desktop-task-network-view:v3:${selectedTopicId}`, JSON.stringify({ x: 0, y: 0 })); } catch { /* optional */ }
+    }
+    setExpandedTaskIds((current) => {
+      const wasExpanded = current.has(task.id);
+      const next = isLevelOne ? new Set<string>() : new Set(current);
+      if (!wasExpanded && isLevelOne) {
+        const revealBranch = (branchTask: ApiTask) => {
+          const children = (childrenByParent.get(branchTask.id) || []).filter((child) => child.topic_id === selectedTopicId && visibleTaskIds.has(child.id));
+          if (!children.length) return;
+          next.add(branchTask.id);
+          children.forEach(revealBranch);
+        };
+        revealBranch(task);
+      } else if (!wasExpanded) next.add(task.id);
+      else if (!isLevelOne) next.delete(task.id);
+      return next;
+    });
+  };
+
+  const enterTaskBranch = (task: ApiTask, childCount: number) => {
+    if (!childCount) {
+      onSelectTask(task.id);
+      return;
+    }
+    requestSemanticDive(selectedTopicId, 'forward', task.id, () => reconstructTaskBranch(task));
   };
 
   const pointerToLogical = (event: Pick<PointerEvent, 'clientX' | 'clientY'> | ReactPointerEvent<HTMLElement>) => {
@@ -2892,7 +2944,7 @@ function DesktopTaskNetworkCanvas({
         <div className="desktop-network-stats"><span><strong>{topicTasks.length}/{completeTopicTasks.length}</strong> visible</span><span><strong>{network.roots.length}/{availableRootTasks.length}</strong> level 1</span><span><strong>{completion}%</strong> complete</span>{searchTerm.trim() && <span><Search /> Filtered</span>}</div>
         <div className="desktop-network-controls">
           <button type="button" onClick={() => setZoom((value) => Math.max(.72, value - .1))} aria-label="Zoom out">−</button><strong>{Math.round(zoom * 100)}%</strong><button type="button" onClick={() => setZoom((value) => Math.min(1.35, value + .1))} aria-label="Zoom in">+</button>
-          {topicRevealStage > 0 && <button type="button" className="is-portal" onClick={() => requestSemanticDive(selectedTopicId, 'reverse')}><ChevronRight /> Topic orbit</button>}
+          {topicRevealStage > 0 && <button type="button" className="is-portal" onClick={() => requestSemanticDive(selectedTopicId, 'reverse', focusedRootId || topicId)}><ChevronRight /> Topic orbit</button>}
           <button type="button" className="is-reflow" onClick={() => {
             customPositionsRef.current = {};
             setCustomPositions({});
@@ -3057,38 +3109,7 @@ function DesktopTaskNetworkCanvas({
               onPointerLeave={() => setHoveredNodeId((current) => current === task.id ? null : current)}
               onClick={() => {
                 if (didDragRef.current) return;
-                onSelectTask(task.id);
-                if (childCount) {
-                  startCompletionReplay(task.id);
-                  setExpansionPulseId(task.id);
-                  if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
-                  expansionTimerRef.current = window.setTimeout(() => setExpansionPulseId((current) => current === task.id ? null : current), 520);
-                  const isLevelOne = !task.parent_task_id;
-                  if (isLevelOne) {
-                    customPositionsRef.current = {};
-                    setCustomPositions({});
-                    viewportOffsetRef.current = { x: 0, y: 0 };
-                    setViewportOffset({ x: 0, y: 0 });
-                    setZoom(1);
-                    savePositions({});
-                    try { window.localStorage.setItem(`desktop-task-network-view:v3:${selectedTopicId}`, JSON.stringify({ x: 0, y: 0 })); } catch { /* optional */ }
-                  }
-                  setExpandedTaskIds((current) => {
-                    const wasExpanded = current.has(task.id);
-                    const next = isLevelOne ? new Set<string>() : new Set(current);
-                    if (!wasExpanded && isLevelOne) {
-                      const revealBranch = (branchTask: ApiTask) => {
-                        const children = (childrenByParent.get(branchTask.id) || []).filter((child) => child.topic_id === selectedTopicId && visibleTaskIds.has(child.id));
-                        if (!children.length) return;
-                        next.add(branchTask.id);
-                        children.forEach(revealBranch);
-                      };
-                      revealBranch(task);
-                    } else if (!wasExpanded) next.add(task.id);
-                    else if (!isLevelOne) next.delete(task.id);
-                    return next;
-                  });
-                }
+                enterTaskBranch(task, childCount);
               }}
               onDoubleClick={() => onOpenTask(task.id)}
               initial={reducedMotion ? false : { opacity: 0, scale: .35 }}

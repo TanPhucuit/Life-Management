@@ -108,12 +108,12 @@ export class SemanticDiveDirector {
       const reconstructProgress = easeOut(reconstruct);
       const viewportCenterX = this.host.clientWidth * .5;
       const viewportCenterY = this.host.clientHeight * .5;
-      const travelX = (viewportCenterX - options.portal.x) * diveProgress * .62;
-      const travelY = (viewportCenterY - options.portal.y) * diveProgress * .62;
+      const travelX = (viewportCenterX - options.portal.x) * diveProgress * .86;
+      const travelY = (viewportCenterY - options.portal.y) * diveProgress * .86;
       const diveScale = options.direction === 'forward'
-        ? 1 + diveProgress * .78
-        : 1 - diveProgress * .3;
-      const blur = Math.sin(Math.PI * dive) * 1.05;
+        ? 1 + diveProgress * 1.42
+        : 1 - diveProgress * .42;
+      const blur = Math.sin(Math.PI * dive) * 4.2;
       const liveScale = reconstruct < 1
         ? .92 + easeOut(reconstruct) * .092
         : 1.012 - easeOut(settle) * .012;
@@ -124,7 +124,7 @@ export class SemanticDiveDirector {
       else this.setPhase('settle');
       if (!this.swapped && elapsed >= 650) this.swap();
       this.applyTargetLock(lockProgress, options.portal);
-      this.applyDiveField(diveProgress, direction);
+      this.applyDiveField(diveProgress, direction, options.portal);
       this.applyReconstruction(reconstructProgress, false);
 
       const tunnel = diveProgress * (1 - reconstruct);
@@ -143,10 +143,10 @@ export class SemanticDiveDirector {
       this.host.style.setProperty('--dive-reconstruct', `${reconstructProgress}`);
       this.host.style.setProperty('--dive-reconstruction-opacity', `${reconstructionHandoff.toFixed(3)}`);
       this.host.style.setProperty('--dive-grid-rotate', `${(direction * (lockProgress * 1.2 + tunnel * 10)).toFixed(2)}deg`);
-      this.host.style.setProperty('--dive-grid-scale', `${(1 + lockProgress * .018 + diveProgress * .24).toFixed(3)}`);
-      this.host.style.setProperty('--dive-grid-size-x', `${(26 - diveProgress * 5).toFixed(2)}px`);
-      this.host.style.setProperty('--dive-grid-size-y', `${(26 + diveProgress * 8).toFixed(2)}px`);
-      this.host.style.setProperty('--dive-portal-scale', `${(.35 + lockProgress * .3 + diveProgress * .9).toFixed(3)}`);
+      this.host.style.setProperty('--dive-grid-scale', `${(1 + lockProgress * .025 + diveProgress * .58).toFixed(3)}`);
+      this.host.style.setProperty('--dive-grid-size-x', `${(26 - diveProgress * 11).toFixed(2)}px`);
+      this.host.style.setProperty('--dive-grid-size-y', `${(26 + diveProgress * 22).toFixed(2)}px`);
+      this.host.style.setProperty('--dive-portal-scale', `${(.35 + lockProgress * .42 + diveProgress * 1.85).toFixed(3)}`);
       this.host.style.setProperty('--dive-grid-opacity', `${(.38 + diveProgress * .16).toFixed(3)}`);
       this.host.style.setProperty('--dive-portal-opacity', `${(.12 + lockProgress * .88).toFixed(3)}`);
       this.host.style.setProperty('--dive-field-scale', `${(.3 + lockProgress * .38 + diveProgress * 1.45).toFixed(3)}`);
@@ -205,13 +205,21 @@ export class SemanticDiveDirector {
     });
   }
 
-  private applyDiveField(progress: number, direction: number) {
+  private applyDiveField(progress: number, direction: number, portal: { x: number; y: number }) {
     this.host.querySelectorAll<HTMLElement>('.semantic-dive-node').forEach((element) => {
       const orbit = Number.parseFloat(element.style.getPropertyValue('--snapshot-orbit')) || 0;
+      const x = Number.parseFloat(element.style.getPropertyValue('--snapshot-x')) || portal.x;
+      const y = Number.parseFloat(element.style.getPropertyValue('--snapshot-y')) || portal.y;
+      const dx = x - portal.x;
+      const dy = y - portal.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
       const curve = Math.sin(progress * Math.PI * .82);
-      element.style.setProperty('--dive-orbit-x', `${(orbit * progress * direction * .52).toFixed(2)}px`);
-      element.style.setProperty('--dive-orbit-y', `${(-Math.abs(orbit) * curve * .18).toFixed(2)}px`);
-      element.style.setProperty('--dive-orbit-rotate', `${(orbit * progress * .028 * direction).toFixed(2)}deg`);
+      const eject = Math.min(260, distance * .72) * Math.pow(progress, 1.35) * direction;
+      element.style.setProperty('--dive-eject-x', `${(dx / distance * eject).toFixed(2)}px`);
+      element.style.setProperty('--dive-eject-y', `${(dy / distance * eject).toFixed(2)}px`);
+      element.style.setProperty('--dive-orbit-x', `${(orbit * progress * direction * 1.18).toFixed(2)}px`);
+      element.style.setProperty('--dive-orbit-y', `${(-Math.abs(orbit) * curve * .42).toFixed(2)}px`);
+      element.style.setProperty('--dive-orbit-rotate', `${(orbit * progress * .075 * direction).toFixed(2)}deg`);
     });
   }
 

@@ -205,6 +205,18 @@ export class ElasticTopologyField {
         current: { ...position },
       };
     } else {
+      const deltaX = position.x - this.manipulation.current.x;
+      const deltaY = position.y - this.manipulation.current.y;
+      if (Math.abs(deltaX) + Math.abs(deltaY) > .01) {
+        this.nodes.forEach((candidate) => {
+          if (candidate.id === id || candidate.pinned) return;
+          const follow = .54 + candidate.fieldResponse * .43;
+          candidate.x += deltaX * follow;
+          candidate.y += deltaY * follow;
+          candidate.vx += deltaX * (.08 + candidate.fieldResponse * .08);
+          candidate.vy += deltaY * (.08 + candidate.fieldResponse * .08);
+        });
+      }
       this.manipulation.current = { ...position };
     }
     node.pinned = position;
@@ -479,8 +491,10 @@ export class ElasticTopologyField {
     this.edges.forEach((edge) => this.renderEdge(edge.key));
     if (this.stage) {
       const count = Math.max(1, this.nodes.size);
-      this.stage.style.setProperty('--field-x', `${clamp(velocityX / count, -8, 8).toFixed(2)}px`);
-      this.stage.style.setProperty('--field-y', `${clamp(velocityY / count, -8, 8).toFixed(2)}px`);
+      const dragX = this.manipulation ? (this.manipulation.current.x - this.manipulation.origin.x) * .085 : 0;
+      const dragY = this.manipulation ? (this.manipulation.current.y - this.manipulation.origin.y) * .085 : 0;
+      this.stage.style.setProperty('--field-x', `${clamp(velocityX / count + dragX, -28, 28).toFixed(2)}px`);
+      this.stage.style.setProperty('--field-y', `${clamp(velocityY / count + dragY, -28, 28).toFixed(2)}px`);
       const normalizedEnergy = clamp(energy / count / 4, 0, 1);
       this.stage.style.setProperty('--field-energy', normalizedEnergy.toFixed(3));
       this.stage.style.setProperty('--field-scale', (1 + normalizedEnergy * .008).toFixed(4));
