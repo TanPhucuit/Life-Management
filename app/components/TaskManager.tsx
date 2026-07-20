@@ -2142,6 +2142,15 @@ function DesktopTaskNetworkCanvas({
   const topicEdgeRevealTimerRef = useRef<number | null>(null);
   const topicStoryTimersRef = useRef<number[]>([]);
   const branchStoryTimersRef = useRef<number[]>([]);
+  // Per-id timers for the branch/duyệt-cây reveal, keyed by edge key / node
+  // id. Unlike a flat array, scheduling a new reveal for an id that already
+  // has one in flight (collapse + re-expand before the last run finished)
+  // cancels JUST that stale timer first — so it can never fire later and
+  // re-toggle that node/edge out of order, which is what caused nodes to
+  // visibly reappear in repeated waves seconds after they'd already settled.
+  const edgeRevealTimersRef = useRef(new Map<string, number>());
+  const nodeRevealTimersRef = useRef(new Map<string, number>());
+  const siblingRevealTimerRef = useRef<number | null>(null);
   const autoScrollKeyRef = useRef('');
   const topologyFieldRef = useRef<ElasticTopologyField | null>(null);
   const topologyNodeElementsRef = useRef(new Map<string, HTMLElement>());
@@ -2387,6 +2396,9 @@ function DesktopTaskNetworkCanvas({
     if (topicEdgeRevealTimerRef.current !== null) window.clearTimeout(topicEdgeRevealTimerRef.current);
     topicStoryTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     branchStoryTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    edgeRevealTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    nodeRevealTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    if (siblingRevealTimerRef.current !== null) window.clearTimeout(siblingRevealTimerRef.current);
     if (completionReplayTimerRef.current !== null) window.clearTimeout(completionReplayTimerRef.current);
     completionReplayFramesRef.current.forEach((frame) => window.cancelAnimationFrame(frame));
     topologyFieldRef.current?.destroy();
@@ -2693,10 +2705,6 @@ function DesktopTaskNetworkCanvas({
       setBranchPendingCompletionIds((current) => new Set([...current, ...completionPendingIds]));
     }
 
-    const schedule = (callback: () => void, delay: number) => {
-      const timer = window.setTimeout(callback, delay);
-      branchStoryTimersRef.current.push(timer);
-    };
     // edgeTravelDuration matches the 1.15s pathLength draw so the child node
     // pops the moment its incoming connector finishes being drawn from parent.
     // "Duyệt cây" itself always stays sequential/DFS, one connector at a time —
@@ -2710,29 +2718,43 @@ function DesktopTaskNetworkCanvas({
     let cursor = 160;
 
     steps.forEach((step) => {
-      schedule(() => setBranchPendingEdgeIds((current) => {
-        if (!current.has(step.edgeKey)) return current;
-        const next = new Set(current);
-        next.delete(step.edgeKey);
-        return next;
-      }), cursor);
+      const previousEdgeTimer = edgeRevealTimersRef.current.get(step.edgeKey);
+      if (previousEdgeTimer !== undefined) window.clearTimeout(previousEdgeTimer);
+      const edgeTimer = window.setTimeout(() => {
+        edgeRevealTimersRef.current.delete(step.edgeKey);
+        setBranchPendingEdgeIds((current) => {
+          if (!current.has(step.edgeKey)) return current;
+          const next = new Set(current);
+          next.delete(step.edgeKey);
+          return next;
+        });
+      }, cursor);
+      edgeRevealTimersRef.current.set(step.edgeKey, edgeTimer);
       cursor += edgeTravelDuration;
-      schedule(() => setBranchPendingNodeIds((current) => {
-        if (!current.has(step.to)) return current;
-        const next = new Set(current);
-        next.delete(step.to);
-        return next;
-      }), cursor);
+
+      const previousNodeTimer = nodeRevealTimersRef.current.get(step.to);
+      if (previousNodeTimer !== undefined) window.clearTimeout(previousNodeTimer);
+      const nodeTimer = window.setTimeout(() => {
+        nodeRevealTimersRef.current.delete(step.to);
+        setBranchPendingNodeIds((current) => {
+          if (!current.has(step.to)) return current;
+          const next = new Set(current);
+          next.delete(step.to);
+          return next;
+        });
+      }, cursor);
+      nodeRevealTimersRef.current.set(step.to, nodeTimer);
       cursor += nodeRevealDuration;
     });
 
     completionPendingIds.forEach((taskId, index) => {
-      schedule(() => setBranchPendingCompletionIds((current) => {
+      const timer = window.setTimeout(() => setBranchPendingCompletionIds((current) => {
         if (!current.has(taskId)) return current;
         const next = new Set(current);
         next.delete(taskId);
         return next;
       }), cursor + index * completionStepDuration);
+      branchStoryTimersRef.current.push(timer);
     });
   };
   layoutPositionsRef.current = network.logicalPositions;
@@ -3092,8 +3114,14 @@ function DesktopTaskNetworkCanvas({
         // These OTHER level-1 siblings never went through "duyệt cây" — they
         // just settle back after the layout re-centers on the clicked node.
         // So unlike a real branch reveal they all fade back in together, at
-        // the SAME moment (topic-orbit style), not DFS-staggered.
-        const timer = window.setTimeout(() => {
+        // the SAME moment (topic-orbit style), not DFS-staggered. Only one
+        // sibling-reveal can ever be meaningfully in flight, so cancel any
+        // earlier one outright (e.g. clicking a different level-1 node again
+        // before the last reveal finished) instead of letting it fire later
+        // and re-toggle a now-unrelated set of siblings.
+        if (siblingRevealTimerRef.current !== null) window.clearTimeout(siblingRevealTimerRef.current);
+        siblingRevealTimerRef.current = window.setTimeout(() => {
+          siblingRevealTimerRef.current = null;
           setBranchPendingEdgeIds((current) => {
             const next = new Set(current);
             siblingEdgeIds.forEach((edgeId) => next.delete(edgeId));
@@ -3105,7 +3133,6 @@ function DesktopTaskNetworkCanvas({
             return next;
           });
         }, 260);
-        branchStoryTimersRef.current.push(timer);
       }
     };
   };
