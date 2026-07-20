@@ -91,7 +91,20 @@ export class ElasticTopologyField {
   registerEdge(key: string, element: SVGPathElement | null, reverse = false) {
     const collection = reverse ? this.reverseEdgeElements : this.edgeElements;
     if (element) {
+      // A brand-new forward connector must start hidden BEFORE its first paint.
+      // Ref callbacks fire synchronously during commit, so marking it for reveal
+      // here — before the first renderEdge() call below — means the very first
+      // frame already shows the hidden (dashoffset = -length) state. Waiting for
+      // a separate effect to call revealEdge() one tick later would let the
+      // browser paint the fully-drawn line for a frame first (a visible flash),
+      // which is exactly the "appears instantly" symptom this replaces.
+      const isNewForward = !reverse && !collection.has(key);
       collection.set(key, element);
+      if (isNewForward && !this.reducedMotion) {
+        this.edgeReveal.set(key, { start: performance.now(), duration: 1150 });
+        this.quietFrames = 0;
+        this.start();
+      }
       this.renderEdge(key);
     }
     else {

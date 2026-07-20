@@ -2155,9 +2155,6 @@ function DesktopTaskNetworkCanvas({
   const completionReplayFramesRef = useRef<number[]>([]);
   const completionReplayTimerRef = useRef<number | null>(null);
   const previousDoneByIdRef = useRef<{ topicId: string; map: Map<string, boolean> }>({ topicId: '', map: new Map() });
-  // Forward-edge keys currently drawn on screen, so we can detect the exact
-  // frame a connector becomes newly visible and kick off its child→parent draw.
-  const revealedEdgeKeysRef = useRef<Set<string>>(new Set());
   const [viewportSize, setViewportSize] = useState({ width: 980, height: 620 });
   const [zoom, setZoom] = useState(1);
   const [viewportOffset, setViewportOffset] = useState<NodePosition>({ x: 0, y: 0 });
@@ -3389,18 +3386,6 @@ function DesktopTaskNetworkCanvas({
       ? network.edges.filter((edge) => !branchPendingEdgeIds.has(`${edge.from}:${edge.to}`))
       : network.edges.filter((edge) => !topicStoryActive || storyVisibleEdgeIds.has(`${edge.from}:${edge.to}`)))
     : [];
-  const visibleEdgeKeySignature = renderedNetworkEdges.map((edge) => `${edge.from}:${edge.to}`).join('|');
-  // Kick off the child→parent stroke-draw for each connector the instant it
-  // becomes newly visible (added to the rendered set). Runs after commit, so
-  // the path element is registered with the field and has a real length.
-  useEffect(() => {
-    const currentKeys = new Set(visibleEdgeKeySignature ? visibleEdgeKeySignature.split('|') : []);
-    const previous = revealedEdgeKeysRef.current;
-    currentKeys.forEach((key) => {
-      if (!previous.has(key)) topologyFieldRef.current?.revealEdge(key);
-    });
-    revealedEdgeKeysRef.current = currentKeys;
-  }, [visibleEdgeKeySignature]);
   const completionStoryVisible = focusedRootId
     ? true
     : topicStoryPhase === 'completion' || topicStoryPhase === 'done';
