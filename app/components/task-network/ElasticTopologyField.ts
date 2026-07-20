@@ -233,6 +233,32 @@ export class ElasticTopologyField {
     this.start();
   }
 
+  // Unlike pin/pinMany (which snap a node's position exactly, every frame),
+  // retarget only moves the spring's destination — the node still eases
+  // toward it under its own stiffness/damping. Used for a "comet trail" drag:
+  // the dragged node tracks the pointer 1:1 (pinned), while its followers
+  // retarget toward a moving point and visibly lag behind, catching up once
+  // the target stops moving.
+  retarget(id: string, target: FieldPosition) {
+    const node = this.nodes.get(id);
+    if (!node) return;
+    node.pinned = null;
+    node.target = target;
+    this.quietFrames = 0;
+    this.start();
+  }
+
+  retargetMany(targets: Record<string, FieldPosition>) {
+    Object.entries(targets).forEach(([id, target]) => {
+      const node = this.nodes.get(id);
+      if (!node) return;
+      node.pinned = null;
+      node.target = target;
+    });
+    this.quietFrames = 0;
+    this.start();
+  }
+
   release(id: string) {
     const node = this.nodes.get(id);
     if (!node) return;
