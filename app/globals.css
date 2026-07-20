@@ -1114,12 +1114,31 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 .experience-v2 .semantic-dive-node[data-tone='progress'] i { color: #fff; background: linear-gradient(145deg,#38bdf8,#2563eb); }
 .experience-v2 .semantic-dive-node[data-tone='overdue'] i { color: #fff; background: linear-gradient(145deg,#fb923c,#ef4444); }
 .experience-v2 .semantic-dive-portal { position: absolute; top: 0; left: 0; width: 112px; height: 112px; transform: translate3d(calc(var(--snapshot-x) - 56px),calc(var(--snapshot-y) - 56px),0) scale(var(--dive-portal-scale,.35)); border: 1px solid rgba(103,232,249,.74); border-radius: 50%; opacity: var(--dive-portal-opacity,.12); background: repeating-conic-gradient(from 12deg,rgba(34,211,238,.17) 0 7deg,transparent 7deg 19deg); box-shadow: 0 0 28px rgba(34,211,238,.32),inset 0 0 34px rgba(37,99,235,.18); animation: semantic-dive-portal-spin 1.7s linear infinite; }
+.experience-v2 .semantic-dive-reconstruction { position: absolute; z-index: 31; inset: 0; overflow: hidden; opacity: var(--dive-reconstruction-opacity,1); pointer-events: none; will-change: opacity; }
+.experience-v2 .semantic-dive-reconstruction > svg { position: absolute; inset: 0; overflow: visible; }
+.experience-v2 .semantic-dive-reconstruction path { fill: none; stroke: rgba(73,117,149,.58); stroke-width: 1.35; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 3px rgba(34,211,238,.18)); }
+.experience-v2 .semantic-dive-reconstruction path[data-active='true'] { stroke: #0ea5e9; stroke-width: 2.3; }
+.experience-v2 .semantic-dive-reconstruction-node { position: absolute; top: 0; left: 0; display: grid; place-items: center; color: #60738a; transform-origin: center; will-change: transform,opacity,filter; }
+.experience-v2 .semantic-dive-reconstruction-node i { display: grid; width: 100%; height: 100%; place-items: center; border: 3px solid #fff; border-radius: 50%; background: linear-gradient(145deg,#f1f5f9,#dbe5ee); box-shadow: 0 0 0 1px #b6c5d2,0 8px 23px rgba(51,65,85,.18); }
+.experience-v2 .semantic-dive-reconstruction-node i svg { width: 42%; height: 42%; }
+.experience-v2 .semantic-dive-reconstruction-node span { position: absolute; top: calc(100% + 6px); left: 50%; max-width: 150px; transform: translateX(-50%); overflow: hidden; padding: 2px 6px; border: 1px solid rgba(205,218,228,.8); border-radius: 6px; color: #31435a; background: rgba(255,255,255,.88); font-size: 9px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.experience-v2 .semantic-dive-reconstruction-node[data-kind='topic'] { color: #fff; }
+.experience-v2 .semantic-dive-reconstruction-node[data-kind='topic'] i { background: linear-gradient(145deg,#06b6d4,#2563eb 68%,#7c3aed); box-shadow: 0 0 0 1px #67d3e5,0 0 38px rgba(34,211,238,.34); }
+.experience-v2 .semantic-dive-reconstruction-node[data-tone='complete'] i { color: #fff; background: linear-gradient(145deg,#34d399,#059669); }
+.experience-v2 .semantic-dive-reconstruction-node[data-tone='progress'] i { color: #fff; background: linear-gradient(145deg,#38bdf8,#2563eb); }
+.experience-v2 .semantic-dive-reconstruction-node[data-tone='overdue'] i { color: #fff; background: linear-gradient(145deg,#fb923c,#ef4444); }
 @keyframes semantic-dive-streak { to { stroke-dashoffset: -21; } }
 @keyframes semantic-dive-portal-spin { to { rotate: 360deg; } }
 @keyframes semantic-dive-tunnel {
   0% { transform: translate(-50%,-50%) scale(.08); opacity: 0; filter: blur(1px); }
   28% { opacity: .72; }
   100% { transform: translate(-50%,-50%) scale(1.1); opacity: 0; filter: blur(.25px); }
+}
+.experience-v2 .desktop-network-canvas-shell[data-dive-direction='reverse'][data-dive-phase='dive'] .semantic-dive-overlay::after { animation-name: semantic-dive-tunnel-reverse; }
+@keyframes semantic-dive-tunnel-reverse {
+  0% { transform: translate(-50%,-50%) scale(1.1); opacity: 0; filter: blur(.25px); }
+  45% { opacity: .64; }
+  100% { transform: translate(-50%,-50%) scale(.08); opacity: 0; filter: blur(1px); }
 }
 .experience-v2 .desktop-network-legend { position: absolute; z-index: 11; top: 18px; left: 18px; display: none; min-width: 170px; gap: 7px; padding: 11px 12px; border: 1px solid rgba(205,219,228,.88); border-radius: 13px; color: #617187; background: rgba(255,255,255,.78); box-shadow: 0 9px 28px rgba(15,23,42,.055); font-size: 9px; backdrop-filter: blur(14px); }
 .experience-v2 .desktop-network-legend strong { margin-bottom: 1px; color: #24364d; font-size: 10px; }
@@ -1628,4 +1647,5 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   .experience-v2 .desktop-network-edges .desktop-network-completion-burn { stroke-dashoffset: 0; opacity: 1; }
   .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span svg { stroke-dashoffset: 0; opacity: 1; }
   .experience-v2 .semantic-dive-overlay { filter: none !important; }
+  .experience-v2 .semantic-dive-reconstruction-node { filter: none !important; }
 }

@@ -2088,6 +2088,7 @@ function DesktopTaskNetworkCanvas({
   const stageRef = useRef<HTMLDivElement | null>(null);
   const diveShellRef = useRef<HTMLDivElement | null>(null);
   const semanticDiveRef = useRef<SemanticDiveDirector | null>(null);
+  const diveActiveRef = useRef(false);
   const diveRequestTokenRef = useRef(0);
   const captureDiveSnapshotRef = useRef<(worldKey?: string, preferOverlay?: boolean) => NetworkDiveSnapshot | null>(() => null);
   const didDragRef = useRef(false);
@@ -2288,15 +2289,17 @@ function DesktopTaskNetworkCanvas({
     }
     setCompletionReplayPhase('primed');
     setTopicRevealStage(0);
+    const nodeDelay = diveActiveRef.current ? 48 : 260;
+    const edgeDelay = diveActiveRef.current ? 220 : 720;
     topicNodeRevealTimerRef.current = window.setTimeout(() => {
       setTopicRevealStage(1);
       topicNodeRevealTimerRef.current = null;
-    }, 260);
+    }, nodeDelay);
     topicEdgeRevealTimerRef.current = window.setTimeout(() => {
       setTopicRevealStage(2);
       startCompletionReplay(null);
       topicEdgeRevealTimerRef.current = null;
-    }, 720);
+    }, edgeDelay);
     return () => {
       if (topicNodeRevealTimerRef.current !== null) window.clearTimeout(topicNodeRevealTimerRef.current);
       if (topicEdgeRevealTimerRef.current !== null) window.clearTimeout(topicEdgeRevealTimerRef.current);
@@ -2604,6 +2607,7 @@ function DesktopTaskNetworkCanvas({
       return;
     }
     const requestToken = ++diveRequestTokenRef.current;
+    diveActiveRef.current = true;
     if (dragging?.mode === 'node' || dragging?.mode === 'graph') topologyFieldRef.current?.release(dragging.id);
     setDragging(null);
     flushSync(() => {
@@ -2630,15 +2634,14 @@ function DesktopTaskNetworkCanvas({
           if (topicNodeRevealTimerRef.current !== null) window.clearTimeout(topicNodeRevealTimerRef.current);
           if (topicEdgeRevealTimerRef.current !== null) window.clearTimeout(topicEdgeRevealTimerRef.current);
           setTopicRevealStage(0);
-          if (direction === 'forward') {
-            if (nextTopicId !== selectedTopicId) onTopicChange(nextTopicId);
-            else {
-              topicNodeRevealTimerRef.current = window.setTimeout(() => setTopicRevealStage(1), reducedMotion ? 0 : 90);
-              topicEdgeRevealTimerRef.current = window.setTimeout(() => {
-                setTopicRevealStage(2);
-                startCompletionReplay(null);
-              }, reducedMotion ? 0 : 360);
-            }
+          if (direction === 'reverse') setExpandedTaskIds(new Set());
+          if (nextTopicId !== selectedTopicId) onTopicChange(nextTopicId);
+          else {
+            topicNodeRevealTimerRef.current = window.setTimeout(() => setTopicRevealStage(1), reducedMotion ? 0 : 48);
+            topicEdgeRevealTimerRef.current = window.setTimeout(() => {
+              setTopicRevealStage(2);
+              startCompletionReplay(null);
+            }, reducedMotion ? 0 : 220);
           }
         },
         onComplete: () => {
@@ -2646,6 +2649,7 @@ function DesktopTaskNetworkCanvas({
           if (direction === 'forward') setTopicRevealStage(2);
           setDiveSnapshots(null);
           setDivePhase('idle');
+          diveActiveRef.current = false;
           topologyFieldRef.current?.resume();
           topologyFieldRef.current?.kick(topicNodeId(nextTopicId), .2);
         },
@@ -3117,6 +3121,33 @@ function DesktopTaskNetworkCanvas({
               ><i>{node.kind === 'topic' ? <GitBranch /> : node.tone === 'complete' ? <CheckCircle2 /> : <Circle />}</i><span>{node.label}</span></div>
             ))}
             <div className="semantic-dive-portal" style={{ '--snapshot-x': `${diveSnapshots.from.portal.x}px`, '--snapshot-y': `${diveSnapshots.from.portal.y}px` } as CSSProperties} />
+          </div>
+        )}
+        {diveSnapshots?.to && (
+          <div className="semantic-dive-reconstruction" aria-hidden="true">
+            <svg width="100%" height="100%" preserveAspectRatio="none">
+              {diveSnapshots.to.edges.map((edge) => <path key={edge.key} d={edge.d} pathLength={1} data-active={edge.active ? 'true' : 'false'} />)}
+            </svg>
+            {diveSnapshots.to.nodes.map((node) => {
+              const previous = node.kind === 'topic'
+                ? diveSnapshots.from.nodes.find((candidate) => candidate.id === node.id)
+                : undefined;
+              const origin = previous || { x: diveSnapshots.from.portal.x, y: diveSnapshots.from.portal.y };
+              return (
+                <div
+                  key={node.id}
+                  className="semantic-dive-reconstruction-node"
+                  data-from-x={origin.x}
+                  data-from-y={origin.y}
+                  data-to-x={node.x}
+                  data-to-y={node.y}
+                  data-radius={node.radius}
+                  data-kind={node.kind}
+                  data-tone={node.tone}
+                  style={{ width: node.radius * 2, height: node.radius * 2, opacity: 0 }}
+                ><i>{node.kind === 'topic' ? <GitBranch /> : node.tone === 'complete' ? <CheckCircle2 /> : <Circle />}</i><span>{node.label}</span></div>
+              );
+            })}
           </div>
         )}
         </div>

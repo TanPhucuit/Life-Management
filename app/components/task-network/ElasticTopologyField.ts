@@ -24,6 +24,15 @@ type FieldNode = FieldNodeInput & {
   pinned: FieldPosition | null;
   targetAngle: number;
   sectorHalfAngle: number;
+  fieldX: number;
+  fieldY: number;
+  fieldResponse: number;
+};
+
+type DirectManipulation = {
+  sourceId: string;
+  origin: FieldPosition;
+  current: FieldPosition;
 };
 
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
@@ -53,6 +62,7 @@ export class ElasticTopologyField {
   private stage: HTMLElement | null = null;
   private viewport: HTMLElement | null = null;
   private paused = false;
+  private manipulation: DirectManipulation | null = null;
 
   constructor(stage: HTMLElement, viewport: HTMLElement) {
     this.stage = stage;
@@ -122,6 +132,7 @@ export class ElasticTopologyField {
           delayUntil: now + delay,
           targetAngle,
           sectorHalfAngle: clamp(.7 / Math.max(1, input.depth), .18, .62),
+          fieldResponse: clamp(Math.exp(-(waveDistance.get(input.id) || 0) * .34), .18, 1),
         });
         return;
       }
@@ -138,6 +149,9 @@ export class ElasticTopologyField {
         pinned: null,
         targetAngle,
         sectorHalfAngle: clamp(.7 / Math.max(1, input.depth), .18, .62),
+        fieldX: 0,
+        fieldY: 0,
+        fieldResponse: clamp(Math.exp(-(waveDistance.get(input.id) || 0) * .34), .18, 1),
       });
     });
 
@@ -177,6 +191,22 @@ export class ElasticTopologyField {
   pin(id: string, position: FieldPosition) {
     const node = this.nodes.get(id);
     if (!node) return;
+    if (!node.pinned || this.manipulation?.sourceId !== id) {
+      const distances = this.getWaveDistances(id, this.edges);
+      this.nodes.forEach((candidate) => {
+        const graphDistance = distances.get(candidate.id);
+        candidate.fieldResponse = graphDistance === undefined
+          ? .18
+          : clamp(Math.exp(-graphDistance * .34), .18, 1);
+      });
+      this.manipulation = {
+        sourceId: id,
+        origin: { x: node.x, y: node.y },
+        current: { ...position },
+      };
+    } else {
+      this.manipulation.current = { ...position };
+    }
     node.pinned = position;
     node.x = position.x;
     node.y = position.y;
@@ -188,6 +218,7 @@ export class ElasticTopologyField {
   }
 
   pinMany(positions: Record<string, FieldPosition>) {
+    this.manipulation = null;
     Object.entries(positions).forEach(([id, position]) => {
       const node = this.nodes.get(id);
       if (!node) return;
@@ -206,8 +237,7 @@ export class ElasticTopologyField {
     const node = this.nodes.get(id);
     if (!node) return;
     node.pinned = null;
-    node.vx = 0;
-    node.vy = 0;
+    if (this.manipulation?.sourceId === id) this.manipulation = null;
     this.quietFrames = 0;
     this.start();
   }
@@ -221,6 +251,7 @@ export class ElasticTopologyField {
       firstReleased ||= id;
     }
     if (!firstReleased) return;
+    this.manipulation = null;
     this.quietFrames = 0;
     this.start();
   }
@@ -244,6 +275,7 @@ export class ElasticTopologyField {
     this.nodeElements.clear();
     this.edgeElements.clear();
     this.reverseEdgeElements.clear();
+    this.manipulation = null;
     this.stage = null;
     this.viewport = null;
   }
@@ -292,7 +324,6 @@ export class ElasticTopologyField {
     activeNodes.forEach((node) => forces.set(node.id, { x: 0, y: 0 }));
 
     activeNodes.forEach((node) => {
-      if (frameAt < node.delayUntil) return;
       const force = forces.get(node.id) as FieldPosition;
       if (node.pinned) {
         node.x = node.pinned.x;
@@ -301,14 +332,16 @@ export class ElasticTopologyField {
         node.vy = 0;
         return;
       }
-      if (directManipulationActive) {
-        node.vx = 0;
-        node.vy = 0;
-        return;
-      }
-      const stiffness = (node.selected ? .13 : .09) / node.mass;
-      force.x += (node.target.x - node.x) * stiffness;
-      force.y += (node.target.y - node.y) * stiffness;
+      const manipulation = this.manipulation;
+      const desiredFieldX = manipulation ? (manipulation.current.x - manipulation.origin.x) * node.fieldResponse : 0;
+      const desiredFieldY = manipulation ? (manipulation.current.y - manipulation.origin.y) * node.fieldResponse : 0;
+      const fieldFollow = manipulation ? .14 + node.fieldResponse * .16 : .11;
+      node.fieldX += (desiredFieldX - node.fieldX) * fieldFollow * frameScale;
+      node.fieldY += (desiredFieldY - node.fieldY) * fieldFollow * frameScale;
+      if (frameAt < node.delayUntil) return;
+      const stiffness = (directManipulationActive ? .045 : node.selected ? .13 : .09) / node.mass;
+      force.x += (node.target.x + node.fieldX - node.x) * stiffness;
+      force.y += (node.target.y + node.fieldY - node.y) * stiffness;
       if (node.parentId) {
         const parent = this.nodes.get(node.parentId);
         if (parent) {
@@ -323,7 +356,7 @@ export class ElasticTopologyField {
       }
     });
 
-    if (!directManipulationActive) this.edges.forEach((edge) => {
+    this.edges.forEach((edge) => {
       const parent = this.nodes.get(edge.from);
       const child = this.nodes.get(edge.to);
       if (!parent || !child) return;
@@ -334,18 +367,18 @@ export class ElasticTopologyField {
       const parentForce = forces.get(parent.id);
       const childForce = forces.get(child.id);
       if (parentForce && !parent.pinned) {
-        parentForce.x += errorX * .012 / parent.mass;
-        parentForce.y += errorY * .012 / parent.mass;
+        parentForce.x += errorX * (directManipulationActive ? .02 : .012) / parent.mass;
+        parentForce.y += errorY * (directManipulationActive ? .02 : .012) / parent.mass;
       }
       if (childForce && !child.pinned) {
-        childForce.x -= errorX * .02 / child.mass;
-        childForce.y -= errorY * .02 / child.mass;
+        childForce.x -= errorX * (directManipulationActive ? .034 : .02) / child.mass;
+        childForce.y -= errorY * (directManipulationActive ? .034 : .02) / child.mass;
       }
     });
 
     const cellSize = 128;
     const spatial = new Map<string, FieldNode[]>();
-    if (!directManipulationActive) activeNodes.forEach((node) => {
+    activeNodes.forEach((node) => {
       const key = `${Math.floor(node.x / cellSize)}:${Math.floor(node.y / cellSize)}`;
       spatial.set(key, [...(spatial.get(key) || []), node]);
     });
@@ -397,7 +430,8 @@ export class ElasticTopologyField {
       node.x += node.vx * frameScale;
       node.y += node.vy * frameScale;
       energy += Math.abs(node.vx) + Math.abs(node.vy)
-        + Math.hypot(node.target.x - node.x, node.target.y - node.y) * .008;
+        + Math.hypot(node.target.x + node.fieldX - node.x, node.target.y + node.fieldY - node.y) * .008
+        + Math.hypot(node.fieldX, node.fieldY) * .002;
     });
     this.render();
     this.quietFrames = energy / Math.max(1, activeNodes.length) < .018 ? this.quietFrames + 1 : 0;
@@ -408,6 +442,8 @@ export class ElasticTopologyField {
         node.y = node.target.y;
         node.vx = 0;
         node.vy = 0;
+        node.fieldX = 0;
+        node.fieldY = 0;
       });
       this.render();
     }
