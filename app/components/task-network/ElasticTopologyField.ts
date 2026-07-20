@@ -128,7 +128,7 @@ export class ElasticTopologyField {
       if (existing) {
         Object.assign(existing, input, {
           mass,
-          damping: clamp(.78 + mass * .018, .8, .9),
+          damping: clamp(.72 + mass * .018, .74, .84),
           delayUntil: now + delay,
           targetAngle,
           sectorHalfAngle: clamp(.7 / Math.max(1, input.depth), .18, .62),
@@ -144,7 +144,7 @@ export class ElasticTopologyField {
         vx: 0,
         vy: 0,
         mass,
-        damping: clamp(.78 + mass * .018, .8, .9),
+        damping: clamp(.72 + mass * .018, .74, .84),
         delayUntil: now + delay,
         pinned: null,
         targetAngle,
@@ -205,18 +205,6 @@ export class ElasticTopologyField {
         current: { ...position },
       };
     } else {
-      const deltaX = position.x - this.manipulation.current.x;
-      const deltaY = position.y - this.manipulation.current.y;
-      if (Math.abs(deltaX) + Math.abs(deltaY) > .01) {
-        this.nodes.forEach((candidate) => {
-          if (candidate.id === id || candidate.pinned) return;
-          const follow = .54 + candidate.fieldResponse * .43;
-          candidate.x += deltaX * follow;
-          candidate.y += deltaY * follow;
-          candidate.vx += deltaX * (.08 + candidate.fieldResponse * .08);
-          candidate.vy += deltaY * (.08 + candidate.fieldResponse * .08);
-        });
-      }
       this.manipulation.current = { ...position };
     }
     node.pinned = position;
@@ -345,13 +333,17 @@ export class ElasticTopologyField {
         return;
       }
       const manipulation = this.manipulation;
-      const desiredFieldX = manipulation ? (manipulation.current.x - manipulation.origin.x) * node.fieldResponse : 0;
-      const desiredFieldY = manipulation ? (manipulation.current.y - manipulation.origin.y) * node.fieldResponse : 0;
+      const manipulationX = manipulation ? manipulation.current.x - manipulation.origin.x : 0;
+      const manipulationY = manipulation ? manipulation.current.y - manipulation.origin.y : 0;
+      const manipulationDistance = Math.max(1, Math.hypot(manipulationX, manipulationY));
+      const boundedManipulation = Math.min(150, manipulationDistance);
+      const desiredFieldX = manipulation ? manipulationX / manipulationDistance * boundedManipulation * node.fieldResponse : 0;
+      const desiredFieldY = manipulation ? manipulationY / manipulationDistance * boundedManipulation * node.fieldResponse : 0;
       const fieldFollow = manipulation ? .14 + node.fieldResponse * .16 : .11;
       node.fieldX += (desiredFieldX - node.fieldX) * fieldFollow * frameScale;
       node.fieldY += (desiredFieldY - node.fieldY) * fieldFollow * frameScale;
       if (frameAt < node.delayUntil) return;
-      const stiffness = (directManipulationActive ? .045 : node.selected ? .13 : .09) / node.mass;
+      const stiffness = (directManipulationActive ? .026 : node.selected ? .105 : .065) / node.mass;
       force.x += (node.target.x + node.fieldX - node.x) * stiffness;
       force.y += (node.target.y + node.fieldY - node.y) * stiffness;
       if (node.parentId) {
@@ -372,8 +364,12 @@ export class ElasticTopologyField {
       const parent = this.nodes.get(edge.from);
       const child = this.nodes.get(edge.to);
       if (!parent || !child) return;
-      const desiredX = child.target.x - parent.target.x;
-      const desiredY = child.target.y - parent.target.y;
+      const targetX = child.target.x - parent.target.x;
+      const targetY = child.target.y - parent.target.y;
+      const targetDistance = Math.max(1, Math.hypot(targetX, targetY));
+      const desiredDistance = clamp(targetDistance, 100, 220);
+      const desiredX = targetX / targetDistance * desiredDistance;
+      const desiredY = targetY / targetDistance * desiredDistance;
       const errorX = child.x - parent.x - desiredX;
       const errorY = child.y - parent.y - desiredY;
       const parentForce = forces.get(parent.id);
@@ -388,7 +384,7 @@ export class ElasticTopologyField {
       }
     });
 
-    const cellSize = 128;
+    const cellSize = 260;
     const spatial = new Map<string, FieldNode[]>();
     activeNodes.forEach((node) => {
       const key = `${Math.floor(node.x / cellSize)}:${Math.floor(node.y / cellSize)}`;
@@ -406,11 +402,14 @@ export class ElasticTopologyField {
             const rawDistance = Math.hypot(dx, dy);
             const distance = Math.max(1, rawDistance);
             const minimum = node.radius + other.radius + 22;
-            if (distance >= minimum) return;
-            const overlap = (minimum - distance) * .052;
+            const influenceRadius = Math.max(260, minimum);
+            if (distance >= influenceRadius) return;
+            const normalizedDistance = (influenceRadius - distance) / influenceRadius;
+            const repulsion = normalizedDistance * normalizedDistance * (directManipulationActive ? .2 : .34);
+            const overlap = distance < minimum ? (minimum - distance) * .052 : 0;
             const angle = rawDistance < 1 ? deterministicAngle(`${node.id}:${other.id}`) : Math.atan2(dy, dx);
-            const pushX = Math.cos(angle) * overlap;
-            const pushY = Math.sin(angle) * overlap;
+            const pushX = Math.cos(angle) * (overlap + repulsion);
+            const pushY = Math.sin(angle) * (overlap + repulsion);
             const nodeForce = forces.get(node.id);
             const otherForce = forces.get(other.id);
             if (nodeForce && !node.pinned) {
