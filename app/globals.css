@@ -1662,7 +1662,6 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   .experience-v2 .desktop-scene-host canvas { visibility: hidden; }
   .experience-v2 .desktop-network-atmosphere i,
   .experience-v2 .desktop-network-edges path.is-hovered,
-  .experience-v2 .desktop-network-edges .desktop-network-completion-burn,
   .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span,
   .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span svg,
   .experience-v2 .desktop-network-node.is-task[data-tone='overdue'] > span,
@@ -1670,7 +1669,6 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   .experience-v2 .semantic-dive-portal,
   .experience-v2 .semantic-dive-overlay::after,
   .experience-v2 .desktop-network-canvas-shell[data-dive-phase='dive'] .semantic-dive-overlay path { animation: none !important; }
-  .experience-v2 .desktop-network-edges .desktop-network-completion-burn { stroke-dashoffset: 0; opacity: 1; }
   .experience-v2 .desktop-network-node.is-task[data-tone='complete'][data-completion-phase='playing'] > span svg { stroke-dashoffset: 0; opacity: 1; }
   .experience-v2 .semantic-dive-overlay { filter: none !important; }
   .experience-v2 .semantic-dive-reconstruction-node { filter: none !important; }

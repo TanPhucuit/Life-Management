@@ -205,7 +205,12 @@ export class ElasticTopologyField {
         node.vy = 0;
       });
       this.render();
-      this.stop();
+      if (this.edgeReveal.size > 0) {
+        this.quietFrames = 0;
+        this.start();
+      } else {
+        this.stop();
+      }
       return;
     }
     this.render();
@@ -613,14 +618,14 @@ export class ElasticTopologyField {
       const bend = clamp(baseBend + relativeVelocity * 2.4, -72, 72);
       const controlX = (from.x + to.x) / 2 - dy / distance * bend;
       const controlY = (from.y + to.y) / 2 + dx / distance * bend;
+      const path = `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
       const reversePath = `M ${to.x.toFixed(2)} ${to.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${from.x.toFixed(2)} ${from.y.toFixed(2)}`;
       const forwardElement = this.edgeElements.get(edge.key);
-      // The forward (always-visible) connector is drawn using the CHILD→PARENT
-      // path geometry (same curve, opposite winding). A fully-drawn line looks
-      // identical either way, but it lets the standard "dasharray = length,
-      // dashoffset: length → 0" reveal technique grow the stroke starting at
-      // the child end and finishing at the parent — matching "con → cha".
-      forwardElement?.setAttribute('d', reversePath);
+      // The forward (topology) connector uses the PARENT→CHILD path geometry —
+      // "duyệt cây" and the topic-orbit reveal must grow from parent to child.
+      // (Completion coloring is a SEPARATE concept: see the reverse/burn path,
+      // which uses the child→parent geometry and is driven entirely by CSS.)
+      forwardElement?.setAttribute('d', path);
       this.reverseEdgeElements.get(edge.key)?.setAttribute('d', reversePath);
 
       const reveal = this.edgeReveal.get(key);
@@ -630,7 +635,7 @@ export class ElasticTopologyField {
         try { length = forwardElement.getTotalLength() || distance; } catch { length = distance; }
         forwardElement.style.strokeDasharray = `${length}`;
         // offset = length (fully hidden) → 0 (fully drawn), growing from the
-        // path's start point (child, since `d` is now the child→parent curve).
+        // path's start point (parent, since `d` is the parent→child curve).
         forwardElement.style.strokeDashoffset = `${length * (1 - eased)}`;
         if (reveal.progress >= 1) {
           this.edgeReveal.delete(key);

@@ -2186,7 +2186,7 @@ function DesktopTaskNetworkCanvas({
   const [completionReplayNonce, setCompletionReplayNonce] = useState(0);
   const [completionReplayRootId, setCompletionReplayRootId] = useState<string | null>(null);
   const [completionReplayPhase, setCompletionReplayPhase] = useState<CompletionReplayPhase>('primed');
-  const startCompletionReplay = useCallback((rootId: string | null) => {
+  const startCompletionReplay = useCallback((rootId: string | null, settleAfterMs = 4200) => {
     if (completionReplayTimerRef.current !== null) {
       window.clearTimeout(completionReplayTimerRef.current);
       completionReplayTimerRef.current = null;
@@ -2204,6 +2204,16 @@ function DesktopTaskNetworkCanvas({
       completionReplayFramesRef.current.push(secondFrame);
     });
     completionReplayFramesRef.current.push(firstFrame);
+    // Without this, completionReplayPhase stays 'playing' forever (nothing
+    // else ever resets it), which permanently pins data-completion-armed
+    // true and the CSS-driven scale(.82) on that node's inner span for the
+    // rest of the session — a plausible cause of "this node won't drag"
+    // reports for whichever task last triggered the burst.
+    completionReplayTimerRef.current = window.setTimeout(() => {
+      setCompletionReplayPhase('idle');
+      setCompletionReplayRootId(null);
+      completionReplayTimerRef.current = null;
+    }, settleAfterMs);
   }, []);
   const completeTopicTasks = useMemo(
     () => tasks.filter((task) => task.topic_id === selectedTopicId),
@@ -2248,7 +2258,8 @@ function DesktopTaskNetworkCanvas({
     previousDoneByIdRef.current = { topicId: selectedTopicId, map: new Map(completionState.doneById) };
     if (!isNewTopic && newlyDone.length) {
       const leafFirst = newlyDone.sort((a, b) => (completionState.waveLevelById.get(a) || 0) - (completionState.waveLevelById.get(b) || 0));
-      startCompletionReplay(leafFirst[0]);
+      const maxWave = Math.max(0, ...newlyDone.map((id) => completionState.waveLevelById.get(id) || 0));
+      startCompletionReplay(leafFirst[0], 1400 + maxWave * 1180);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completionState.doneById, selectedTopicId]);
@@ -2691,24 +2702,33 @@ function DesktopTaskNetworkCanvas({
     const edgeTravelDuration = 1150;
     const nodeRevealDuration = 360;
     const completionStepDuration = 420;
-    let cursor = 160;
+    const initialDelay = 160;
 
+    // Direct children of the clicked node all burst outward together — same
+    // start time, same duration — like the topic-orbit reveal fanning out.
+    // Anything DEEPER stays sequential (DFS, one at a time), starting only
+    // once its own parent's reveal has actually landed, so it still reads as
+    // a signal propagating rather than everything popping at once.
+    const readyAt = new Map<string, number>([[rootId, 0]]);
     steps.forEach((step) => {
+      const parentReadyAt = readyAt.get(step.from) ?? 0;
+      const edgeStart = step.from === rootId ? initialDelay : parentReadyAt;
       schedule(() => setBranchPendingEdgeIds((current) => {
         if (!current.has(step.edgeKey)) return current;
         const next = new Set(current);
         next.delete(step.edgeKey);
         return next;
-      }), cursor);
-      cursor += edgeTravelDuration;
+      }), edgeStart);
+      const nodeReadyAt = edgeStart + edgeTravelDuration + nodeRevealDuration;
       schedule(() => setBranchPendingNodeIds((current) => {
         if (!current.has(step.to)) return current;
         const next = new Set(current);
         next.delete(step.to);
         return next;
-      }), cursor);
-      cursor += nodeRevealDuration;
+      }), edgeStart + edgeTravelDuration);
+      readyAt.set(step.to, nodeReadyAt);
     });
+    const cursor = Math.max(0, ...[...readyAt.values()]);
 
     completionPendingIds.forEach((taskId, index) => {
       schedule(() => setBranchPendingCompletionIds((current) => {
@@ -3017,6 +3037,28 @@ function DesktopTaskNetworkCanvas({
       setCustomPositions({});
       viewportOffsetRef.current = { x: 0, y: 0 };
       setViewportOffset({ x: 0, y: 0 });
+      const topicId = topicNodeId(selectedTopicId);
+      const siblingRootIds = availableRootTasks
+        .filter((root) => root.id !== task.id && visibleTaskIds.has(root.id))
+        .map((root) => root.id);
+      const siblingEdgeIds = siblingRootIds.map((rootId) => `${topicId}:${rootId}`);
+      if (siblingRootIds.length) {
+        setBranchPendingNodeIds((current) => new Set([...current, ...siblingRootIds]));
+        setBranchPendingEdgeIds((current) => new Set([...current, ...siblingEdgeIds]));
+        const timer = window.setTimeout(() => {
+          setBranchPendingEdgeIds((current) => {
+            const next = new Set(current);
+            siblingEdgeIds.forEach((edgeId) => next.delete(edgeId));
+            return next;
+          });
+          setBranchPendingNodeIds((current) => {
+            const next = new Set(current);
+            siblingRootIds.forEach((rootId) => next.delete(rootId));
+            return next;
+          });
+        }, 340);
+        branchStoryTimersRef.current.push(timer);
+      }
     }
     setExpandedTaskIds((current) => {
       const wasExpanded = current.has(task.id);
@@ -3549,7 +3591,8 @@ function DesktopTaskNetworkCanvas({
             // machine to be visible (that state can end up invisible mid-cycle
             // or get remounted away by an unrelated nonce bump). So the forward
             // connector goes green the instant the child is complete, full stop.
-            const edgeComplete = childComplete;
+            const completionBurnActive = childComplete && replayCompletion && completionReplayPhase !== 'idle';
+            const edgeComplete = childComplete && !completionBurnActive;
             const edgeOpacity = active || hovered ? .92 : .62;
             return (
               <g key={edgeKey}>
@@ -3670,10 +3713,10 @@ function DesktopTaskNetworkCanvas({
             ><span
                 key={`${task.id}:${completionReplayNonce}`}
                 className="desktop-network-node-toggle"
-                onPointerDown={(event) => { if (!childCount) event.stopPropagation(); }}
                 onClick={(event) => {
                   if (childCount) return;
                   event.stopPropagation();
+                  if (didDragRef.current) return;
                   onToggleTask(task, event);
                 }}
               >{complete ? <CheckCircle2 /> : childCount ? expanded ? <ChevronDown /> : <ChevronRight /> : <Circle />}</span><strong>{task.title}</strong><small>{childCount ? `${expanded ? 'Collapse' : 'Reveal'} ${childCount} children` : getTaskStatusLabel(visualStatus)}</small></motion.button>
