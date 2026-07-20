@@ -105,9 +105,15 @@ export class ElasticTopologyField {
       // a separate effect to call revealEdge() one tick later would let the
       // browser paint the fully-drawn line for a frame first (a visible flash),
       // which is exactly the "appears instantly" symptom this replaces.
+      // Deliberately NOT gated by this.reducedMotion: this reveal is a subtle,
+      // non-parallax, non-spring stroke-draw (no bouncing/zooming), and the
+      // user has explicitly asked for it repeatedly. Respecting the OS-level
+      // "reduce motion" flag here would silently disable it — measured to be
+      // ON by default in this deployment's test/remote-desktop environment —
+      // which is exactly why it looked like it "never worked" in production.
       const isNewForward = !reverse && !collection.has(key);
       collection.set(key, element);
-      if (isNewForward && !this.reducedMotion) {
+      if (isNewForward) {
         this.edgeReveal.set(key, { progress: 0, rate: 16.67 / 1150 });
         this.quietFrames = 0;
         this.start();
@@ -123,7 +129,6 @@ export class ElasticTopologyField {
   // Start (or restart) drawing a forward connector from its child end toward
   // the parent over `duration` ms. Safe to call the moment the path mounts.
   revealEdge(key: string, duration = 1150) {
-    if (this.reducedMotion) return;
     this.edgeReveal.set(key, { progress: 0, rate: 16.67 / duration });
     this.quietFrames = 0;
     this.renderEdge(key);

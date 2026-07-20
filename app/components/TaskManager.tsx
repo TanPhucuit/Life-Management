@@ -3562,11 +3562,14 @@ function DesktopTaskNetworkCanvas({
                 {/* Decorative burst overlay — ONLY mounted while actively bursting.
                     It never needs to represent the "settled" state (the base
                     line above already went green), so there is no invisible
-                    "primed" limbo to get stuck in. */}
-                {childComplete && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
-                  <path ref={getTopologyEdgeRef(edgeKey, true)} key={`${edgeKey}:${completionReplayNonce}`} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className="desktop-network-completion-burn is-replaying" style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />
+                    "primed" limbo to get stuck in.
+                    Deliberately NOT gated by reducedMotion (see registerEdge's
+                    comment) — measured ON by default in this deployment's
+                    environment, which silently killed this whole effect. */}
+                {childComplete && replayCompletion && completionReplayPhase === 'playing' && (
+                  <path ref={getTopologyEdgeRef(edgeKey, true)} key={`${edgeKey}:${completionReplayNonce}`} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className="desktop-network-completion-burn is-replaying" style={{ '--burn-delay': `${burnDelay}ms` } as CSSProperties} />
                 )}
-                {childComplete && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
+                {childComplete && replayCompletion && completionReplayPhase === 'playing' && (
                   <motion.circle
                     key={`${edgeKey}:head:${completionReplayNonce}`}
                     className="desktop-network-completion-head"
@@ -3643,13 +3646,13 @@ function DesktopTaskNetworkCanvas({
               data-selected={selected ? 'true' : 'false'}
               data-branch={branch ? 'true' : 'false'}
               data-completion-replay={complete && completionReplayIds.has(task.id) ? 'true' : 'false'}
-              data-completion-armed={complete && completionReplayIds.has(task.id) && completionReplayPhase !== 'idle' && !reducedMotion ? 'true' : 'false'}
+              data-completion-armed={complete && completionReplayIds.has(task.id) && completionReplayPhase !== 'idle' ? 'true' : 'false'}
               data-completion-phase={complete && completionReplayIds.has(task.id) ? completionReplayPhase : 'idle'}
               data-completion-wave={completionState.waveLevelById.get(task.id) || 0}
               data-story-completion={complete ? 'true' : 'false'}
               data-dimmed={!hoverRelated ? 'true' : 'false'}
               data-expansion-pulse={expansionPulseId === task.id ? 'true' : 'false'}
-              style={{ '--node-size': `${size}px`, '--node-offset': `${-size / 2}px`, '--completion-delay': reducedMotion ? '0ms' : `${completionDelay}ms` } as CSSProperties}
+              style={{ '--node-size': `${size}px`, '--node-offset': `${-size / 2}px`, '--completion-delay': `${completionDelay}ms` } as CSSProperties}
               onPointerDown={(event) => startNodeDrag(event, task.id)}
               onPointerEnter={() => setHoveredNodeId(task.id)}
               onPointerLeave={() => setHoveredNodeId((current) => current === task.id ? null : current)}
