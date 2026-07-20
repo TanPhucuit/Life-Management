@@ -2699,36 +2699,32 @@ function DesktopTaskNetworkCanvas({
     };
     // edgeTravelDuration matches the 1.15s pathLength draw so the child node
     // pops the moment its incoming connector finishes being drawn from parent.
+    // "Duyệt cây" itself always stays sequential/DFS, one connector at a time —
+    // the parallel/simultaneous fade-in only applies to the OTHER level-1
+    // siblings still attached to the topic (handled separately, see the
+    // sibling-reveal effect in reconstructTaskBranch), never to this node's
+    // own descendants.
     const edgeTravelDuration = 1150;
     const nodeRevealDuration = 360;
     const completionStepDuration = 420;
-    const initialDelay = 160;
+    let cursor = 160;
 
-    // Direct children of the clicked node all burst outward together — same
-    // start time, same duration — like the topic-orbit reveal fanning out.
-    // Anything DEEPER stays sequential (DFS, one at a time), starting only
-    // once its own parent's reveal has actually landed, so it still reads as
-    // a signal propagating rather than everything popping at once.
-    const readyAt = new Map<string, number>([[rootId, 0]]);
     steps.forEach((step) => {
-      const parentReadyAt = readyAt.get(step.from) ?? 0;
-      const edgeStart = step.from === rootId ? initialDelay : parentReadyAt;
       schedule(() => setBranchPendingEdgeIds((current) => {
         if (!current.has(step.edgeKey)) return current;
         const next = new Set(current);
         next.delete(step.edgeKey);
         return next;
-      }), edgeStart);
-      const nodeReadyAt = edgeStart + edgeTravelDuration + nodeRevealDuration;
+      }), cursor);
+      cursor += edgeTravelDuration;
       schedule(() => setBranchPendingNodeIds((current) => {
         if (!current.has(step.to)) return current;
         const next = new Set(current);
         next.delete(step.to);
         return next;
-      }), edgeStart + edgeTravelDuration);
-      readyAt.set(step.to, nodeReadyAt);
+      }), cursor);
+      cursor += nodeRevealDuration;
     });
-    const cursor = Math.max(0, ...[...readyAt.values()]);
 
     completionPendingIds.forEach((taskId, index) => {
       schedule(() => setBranchPendingCompletionIds((current) => {
@@ -3045,6 +3041,12 @@ function DesktopTaskNetworkCanvas({
       if (siblingRootIds.length) {
         setBranchPendingNodeIds((current) => new Set([...current, ...siblingRootIds]));
         setBranchPendingEdgeIds((current) => new Set([...current, ...siblingEdgeIds]));
+        // These OTHER level-1 siblings never went through "duyệt cây" — they
+        // just settle back after the layout re-centers on the clicked node.
+        // So unlike a real branch reveal they all fade back in together, at
+        // the SAME moment (topic-orbit style), not DFS-staggered. 620ms
+        // matches the topic-orbit settle beat and is long enough to actually
+        // read as "gone, then reappearing" rather than a same-frame flicker.
         const timer = window.setTimeout(() => {
           setBranchPendingEdgeIds((current) => {
             const next = new Set(current);
@@ -3056,7 +3058,7 @@ function DesktopTaskNetworkCanvas({
             siblingRootIds.forEach((rootId) => next.delete(rootId));
             return next;
           });
-        }, 340);
+        }, 620);
         branchStoryTimersRef.current.push(timer);
       }
     }
