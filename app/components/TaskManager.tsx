@@ -3022,46 +3022,35 @@ function DesktopTaskNetworkCanvas({
     try { window.localStorage.setItem(`desktop-task-network:v7:${selectedTopicId}:${focusedRootId || 'radial'}`, JSON.stringify(positions)); } catch { /* local layout persistence is optional */ }
   };
 
+  // Sets up the data (expandedTaskIds, sibling hide) and returns a `reveal`
+  // callback that actually starts the visible animation. Split so the level-1
+  // (dive) path can defer `reveal()` until the camera has actually settled —
+  // running the subtree/sibling reveal WHILE the camera was still moving was
+  // the source of the "quá rối mắt" clutter.
   const reconstructTaskBranch = (task: ApiTask) => {
     onSelectTask(task.id);
     setExpansionPulseId(task.id);
     if (expansionTimerRef.current !== null) window.clearTimeout(expansionTimerRef.current);
     expansionTimerRef.current = window.setTimeout(() => setExpansionPulseId((current) => current === task.id ? null : current), 520);
     const isLevelOne = !task.parent_task_id;
+    let siblingRootIds: string[] = [];
+    let siblingEdgeIds: string[] = [];
     if (isLevelOne) {
       customPositionsRef.current = {};
       setCustomPositions({});
       viewportOffsetRef.current = { x: 0, y: 0 };
       setViewportOffset({ x: 0, y: 0 });
       const topicId = topicNodeId(selectedTopicId);
-      const siblingRootIds = availableRootTasks
+      siblingRootIds = availableRootTasks
         .filter((root) => root.id !== task.id && visibleTaskIds.has(root.id))
         .map((root) => root.id);
-      const siblingEdgeIds = siblingRootIds.map((rootId) => `${topicId}:${rootId}`);
+      siblingEdgeIds = siblingRootIds.map((rootId) => `${topicId}:${rootId}`);
       if (siblingRootIds.length) {
         setBranchPendingNodeIds((current) => new Set([...current, ...siblingRootIds]));
         setBranchPendingEdgeIds((current) => new Set([...current, ...siblingEdgeIds]));
-        // These OTHER level-1 siblings never went through "duyệt cây" — they
-        // just settle back after the layout re-centers on the clicked node.
-        // So unlike a real branch reveal they all fade back in together, at
-        // the SAME moment (topic-orbit style), not DFS-staggered. 620ms
-        // matches the topic-orbit settle beat and is long enough to actually
-        // read as "gone, then reappearing" rather than a same-frame flicker.
-        const timer = window.setTimeout(() => {
-          setBranchPendingEdgeIds((current) => {
-            const next = new Set(current);
-            siblingEdgeIds.forEach((edgeId) => next.delete(edgeId));
-            return next;
-          });
-          setBranchPendingNodeIds((current) => {
-            const next = new Set(current);
-            siblingRootIds.forEach((rootId) => next.delete(rootId));
-            return next;
-          });
-        }, 620);
-        branchStoryTimersRef.current.push(timer);
       }
     }
+    let wasFreshExpand = false;
     setExpandedTaskIds((current) => {
       const wasExpanded = current.has(task.id);
       const next = isLevelOne ? new Set<string>() : new Set(current);
@@ -3075,10 +3064,7 @@ function DesktopTaskNetworkCanvas({
           children.forEach(revealBranch);
         };
         revealBranch(task);
-        // Data is revealed all at once above (needed for layout/positions), but
-        // the visible reveal is gated by the pending sets — it grows the
-        // subtree node-by-node, edge-by-edge, in DFS order.
-        startBranchReveal(task.id);
+        wasFreshExpand = true;
       } else if (!isLevelOne) {
         // Collapse this node's own subtree only, recursively.
         const collapseBranch = (branchTaskId: string) => {
@@ -3091,6 +3077,31 @@ function DesktopTaskNetworkCanvas({
       }
       return next;
     });
+    return () => {
+      // Data is revealed all at once above (needed for layout/positions), but
+      // the visible reveal is gated by the pending sets — it grows the
+      // subtree node-by-node, edge-by-edge, in DFS order.
+      if (wasFreshExpand) startBranchReveal(task.id);
+      if (siblingRootIds.length) {
+        // These OTHER level-1 siblings never went through "duyệt cây" — they
+        // just settle back after the layout re-centers on the clicked node.
+        // So unlike a real branch reveal they all fade back in together, at
+        // the SAME moment (topic-orbit style), not DFS-staggered.
+        const timer = window.setTimeout(() => {
+          setBranchPendingEdgeIds((current) => {
+            const next = new Set(current);
+            siblingEdgeIds.forEach((edgeId) => next.delete(edgeId));
+            return next;
+          });
+          setBranchPendingNodeIds((current) => {
+            const next = new Set(current);
+            siblingRootIds.forEach((rootId) => next.delete(rootId));
+            return next;
+          });
+        }, 260);
+        branchStoryTimersRef.current.push(timer);
+      }
+    };
   };
 
   const enterTaskBranch = (task: ApiTask, childCount: number) => {
@@ -3098,12 +3109,25 @@ function DesktopTaskNetworkCanvas({
       onSelectTask(task.id);
       return;
     }
+    const isLevelOne = !task.parent_task_id;
+    if (!isLevelOne) {
+      // Only level-1 tasks get the semantic-dive scene transition. Anything
+      // deeper just expands in place within the current tree — no camera
+      // movement, no world swap, same structure as before.
+      reconstructTaskBranch(task)();
+      return;
+    }
+    let reveal: (() => void) | null = null;
     requestSemanticDive(
       selectedTopicId,
       'forward',
       task.id,
-      () => reconstructTaskBranch(task),
+      () => { reveal = reconstructTaskBranch(task); },
       () => {
+        // Only start growing the subtree / fading siblings back in once the
+        // camera has actually finished moving — running this concurrently
+        // with the dive itself was the main source of visual clutter.
+        reveal?.();
         if (reducedMotion) {
           startCompletionReplay(task.id);
           return;
