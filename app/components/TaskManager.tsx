@@ -3050,7 +3050,14 @@ function DesktopTaskNetworkCanvas({
         setBranchPendingEdgeIds((current) => new Set([...current, ...siblingEdgeIds]));
       }
     }
-    let wasFreshExpand = false;
+    // Read directly off the CURRENT state value rather than mutating a local
+    // variable inside the updater below: setState's functional updater isn't
+    // guaranteed to run synchronously before this line, so a variable only
+    // ever assigned inside it can still read as stale/false by the time the
+    // returned `reveal` closure checks it later — which would silently skip
+    // startBranchReveal (and its pending/hide gating) entirely, making the
+    // whole subtree render ungated, all at once, with no stagger at all.
+    const wasFreshExpand = !expandedTaskIds.has(task.id);
     setExpandedTaskIds((current) => {
       const wasExpanded = current.has(task.id);
       const next = isLevelOne ? new Set<string>() : new Set(current);
@@ -3064,7 +3071,6 @@ function DesktopTaskNetworkCanvas({
           children.forEach(revealBranch);
         };
         revealBranch(task);
-        wasFreshExpand = true;
       } else if (!isLevelOne) {
         // Collapse this node's own subtree only, recursively.
         const collapseBranch = (branchTaskId: string) => {
@@ -3739,6 +3745,16 @@ function DesktopTaskNetworkCanvas({
             ><span
                 key={`${task.id}:${completionReplayNonce}`}
                 className="desktop-network-node-toggle"
+                onPointerDown={(event) => {
+                  // Without this, the pointerdown bubbles to the button's
+                  // startNodeDrag handler first, which calls
+                  // setPointerCapture — that hijacks the matching click's
+                  // effective target away from this span entirely, so the
+                  // tick never fires (only the button's onClick/enterTaskBranch
+                  // does). Only leaf tasks (no children) use this as a real
+                  // toggle button; parent tasks keep the chevron drag-friendly.
+                  if (!childCount) event.stopPropagation();
+                }}
                 onClick={(event) => {
                   if (childCount) return;
                   event.stopPropagation();
