@@ -66,7 +66,14 @@ export class ElasticTopologyField {
   // Per-edge stroke-draw state. While an entry exists the connector is drawn
   // progressively from the child end toward the parent, using the element's
   // real geometric length so it works regardless of how `d` changes each frame.
-  private edgeReveal = new Map<string, { start: number; duration: number }>();
+  // `progress` (0→1) is a SIMULATION clock advanced only inside tick() — never
+  // wall-clock time — so it can't "jump" while the field is paused (e.g. during
+  // the semantic-dive camera transition, which pauses the field for several
+  // hundred ms). A wall-clock timestamp would keep ticking during that pause,
+  // so the moment ticking resumed the elapsed time would already exceed the
+  // whole reveal duration and the connector would snap to fully-drawn in one
+  // frame — exactly the "appears all at once" symptom this replaces.
+  private edgeReveal = new Map<string, { progress: number; rate: number }>();
 
   constructor(stage: HTMLElement, viewport: HTMLElement) {
     this.stage = stage;
@@ -101,7 +108,7 @@ export class ElasticTopologyField {
       const isNewForward = !reverse && !collection.has(key);
       collection.set(key, element);
       if (isNewForward && !this.reducedMotion) {
-        this.edgeReveal.set(key, { start: performance.now(), duration: 1150 });
+        this.edgeReveal.set(key, { progress: 0, rate: 16.67 / 1150 });
         this.quietFrames = 0;
         this.start();
       }
@@ -117,7 +124,7 @@ export class ElasticTopologyField {
   // the parent over `duration` ms. Safe to call the moment the path mounts.
   revealEdge(key: string, duration = 1150) {
     if (this.reducedMotion) return;
-    this.edgeReveal.set(key, { start: performance.now(), duration });
+    this.edgeReveal.set(key, { progress: 0, rate: 16.67 / duration });
     this.quietFrames = 0;
     this.renderEdge(key);
     this.start();
@@ -391,6 +398,14 @@ export class ElasticTopologyField {
     if (this.destroyed || document.hidden) return;
     const frameScale = clamp((frameAt - this.lastFrameAt) / 16.67, .45, 1.8);
     this.lastFrameAt = frameAt;
+    // Advance each edge's reveal progress here — inside the tick that only
+    // runs while un-paused — instead of measuring wall-clock elapsed time.
+    // renderEdge() (called from render() below) reads the updated progress
+    // and clears the entry itself once it reaches 1, after applying the final
+    // "fully drawn, no more inline dash override" state.
+    this.edgeReveal.forEach((reveal) => {
+      reveal.progress = clamp(reveal.progress + reveal.rate * frameScale, 0, 1);
+    });
     const activeNodes = this.getActiveNodes();
     const directManipulationActive = activeNodes.some((node) => node.pinned !== null);
     const forces = new Map<string, FieldPosition>();
@@ -605,16 +620,14 @@ export class ElasticTopologyField {
 
       const reveal = this.edgeReveal.get(key);
       if (forwardElement && reveal) {
-        const elapsed = performance.now() - reveal.start;
-        const t = clamp(elapsed / reveal.duration, 0, 1);
-        const eased = 1 - Math.pow(1 - t, 3);
+        const eased = 1 - Math.pow(1 - reveal.progress, 3);
         let length = distance;
         try { length = forwardElement.getTotalLength() || distance; } catch { length = distance; }
         forwardElement.style.strokeDasharray = `${length}`;
         // offset = length (fully hidden) → 0 (fully drawn), growing from the
         // path's start point (child, since `d` is now the child→parent curve).
         forwardElement.style.strokeDashoffset = `${length * (1 - eased)}`;
-        if (t >= 1) {
+        if (reveal.progress >= 1) {
           this.edgeReveal.delete(key);
           forwardElement.style.strokeDasharray = '';
           forwardElement.style.strokeDashoffset = '';
