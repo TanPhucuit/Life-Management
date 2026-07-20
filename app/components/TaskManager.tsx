@@ -1,6 +1,6 @@
 'use client';
 
-import { CSSProperties, DragEvent as ReactDragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, DragEvent as ReactDragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
@@ -2755,7 +2755,13 @@ function DesktopTaskNetworkCanvas({
     key: `${edge.from}:${edge.to}`,
   })), [network.edges]);
 
-  useEffect(() => {
+  // Layout effect (not a passive effect): runs synchronously right after the
+  // DOM mutates but BEFORE the browser paints. The very first edges mount via
+  // ref callbacks during the same commit, before this catch-up loop registers
+  // them with the field — with a passive `useEffect` the browser would have a
+  // chance to paint their fully-drawn `d` first (a one-frame flash of the
+  // un-hidden line) before the reveal-hide kicked in on the next tick.
+  useLayoutEffect(() => {
     const stage = stageRef.current;
     const viewport = viewportRef.current;
     if (!stage || !viewport) return;
@@ -3538,8 +3544,12 @@ function DesktopTaskNetworkCanvas({
             });
             const edgeKey = `${edge.from}:${edge.to}`;
             const replayCompletion = completionReplayIds.has(edge.to);
-            const completionBurnActive = childComplete && replayCompletion && completionReplayPhase !== 'idle' && !reducedMotion;
-            const edgeComplete = childComplete && !completionBurnActive;
+            // The burst overlay below is a decorative extra layered ON TOP —
+            // the base green line must NEVER depend on the burst/replay phase
+            // machine to be visible (that state can end up invisible mid-cycle
+            // or get remounted away by an unrelated nonce bump). So the forward
+            // connector goes green the instant the child is complete, full stop.
+            const edgeComplete = childComplete;
             const edgeOpacity = active || hovered ? .92 : .62;
             return (
               <g key={edgeKey}>
@@ -3549,7 +3559,13 @@ function DesktopTaskNetworkCanvas({
                   className={`${active ? 'is-active' : ''} ${hovered ? 'is-hovered' : ''} ${edgeComplete ? 'is-complete' : ''}`}
                   style={{ '--edge-opacity': edgeOpacity } as CSSProperties}
                 />
-                {childComplete && <path ref={getTopologyEdgeRef(edgeKey, true)} key={replayCompletion ? `${edgeKey}:${completionReplayNonce}` : edgeKey} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className={`desktop-network-completion-burn ${replayCompletion && completionReplayPhase === 'playing' ? 'is-replaying' : replayCompletion && completionReplayPhase === 'primed' ? 'is-primed' : 'is-static'}`} style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />}
+                {/* Decorative burst overlay — ONLY mounted while actively bursting.
+                    It never needs to represent the "settled" state (the base
+                    line above already went green), so there is no invisible
+                    "primed" limbo to get stuck in. */}
+                {childComplete && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
+                  <path ref={getTopologyEdgeRef(edgeKey, true)} key={`${edgeKey}:${completionReplayNonce}`} d={reversePath} pathLength={1} data-completion-child={edge.to} data-completion-wave={completionState.waveLevelById.get(edge.to) || 0} className="desktop-network-completion-burn is-replaying" style={{ '--burn-delay': reducedMotion ? '0ms' : `${burnDelay}ms` } as CSSProperties} />
+                )}
                 {childComplete && replayCompletion && completionReplayPhase === 'playing' && !reducedMotion && (
                   <motion.circle
                     key={`${edgeKey}:head:${completionReplayNonce}`}

@@ -593,14 +593,16 @@ export class ElasticTopologyField {
       const bend = clamp(baseBend + relativeVelocity * 2.4, -72, 72);
       const controlX = (from.x + to.x) / 2 - dy / distance * bend;
       const controlY = (from.y + to.y) / 2 + dx / distance * bend;
-      const path = `M ${from.x.toFixed(2)} ${from.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${to.x.toFixed(2)} ${to.y.toFixed(2)}`;
       const reversePath = `M ${to.x.toFixed(2)} ${to.y.toFixed(2)} Q ${controlX.toFixed(2)} ${controlY.toFixed(2)} ${from.x.toFixed(2)} ${from.y.toFixed(2)}`;
       const forwardElement = this.edgeElements.get(edge.key);
-      forwardElement?.setAttribute('d', path);
+      // The forward (always-visible) connector is drawn using the CHILD→PARENT
+      // path geometry (same curve, opposite winding). A fully-drawn line looks
+      // identical either way, but it lets the standard "dasharray = length,
+      // dashoffset: length → 0" reveal technique grow the stroke starting at
+      // the child end and finishing at the parent — matching "con → cha".
+      forwardElement?.setAttribute('d', reversePath);
       this.reverseEdgeElements.get(edge.key)?.setAttribute('d', reversePath);
 
-      // Progressive draw: reveal normal navigation connectors from parent to
-      // child while the physics field updates `d` every frame.
       const reveal = this.edgeReveal.get(key);
       if (forwardElement && reveal) {
         const elapsed = performance.now() - reveal.start;
@@ -609,8 +611,8 @@ export class ElasticTopologyField {
         let length = distance;
         try { length = forwardElement.getTotalLength() || distance; } catch { length = distance; }
         forwardElement.style.strokeDasharray = `${length}`;
-        // Positive offset hides the dash before the path start; easing it down
-        // to 0 draws from the parent/start point toward the child/end point.
+        // offset = length (fully hidden) → 0 (fully drawn), growing from the
+        // path's start point (child, since `d` is now the child→parent curve).
         forwardElement.style.strokeDashoffset = `${length * (1 - eased)}`;
         if (t >= 1) {
           this.edgeReveal.delete(key);
