@@ -514,20 +514,15 @@ export function NeutronStar({
   const jetUniforms = useMemo(() => ({
     uTime: { value: 0 }, uCharge: { value: 0 }, uColor: { value: palette.field },
     uLength: { value: jetLength },
-    // The beam only lives for a short stretch, so the wave has to be tight
-    // enough to show its undulation inside that stretch — a long wavelength
-    // over a short visible beam is just a straight line.
-    uWave: { value: reach * 0.1 },
-    // A gentle undulation, not a whipping cable, and only out at the tail.
-    uAmp: { value: coreRadius * 1.6 },
-    // Thin where it leaves the pole, opening out as it decollimates. The
-    // ribbon has to be wide enough at the tail to carry the haze the core
-    // dissolves into, but the bright root has to stay a thread.
+    // Long wavelength so the visible portion of the beam only shows one
+    // gentle curve rather than dozens of zigzag cycles.
+    uWave: { value: reach * 1.2 },
+    // Very gentle undulation — real pulsar jets are nearly straight.
+    uAmp: { value: coreRadius * 0.6 },
+    // Thin where it leaves the pole, opening out as it decollimates.
     uWidthBase: { value: coreRadius * 0.7 },
     uWidthTip: { value: coreRadius * 3.2 },
-    // Fade out well within the frame at the zoom the scene is normally viewed
-    // at, so only the near, still-collimated root of the beam is visible and
-    // the swept tail can never smear into phantom rays.
+    // Fade distances for the core filament and the diffuse haze.
     uCoreFade: { value: reach * 0.22 },
     uHazeFade: { value: reach * 0.4 },
   }), [palette, jetLength, reach, coreRadius]);
