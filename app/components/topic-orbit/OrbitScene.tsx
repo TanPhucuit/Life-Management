@@ -19,7 +19,7 @@ import { SolarWind } from './SolarWind';
 import { FORM_MS, SILENCE_MS, overviewDistance } from './diskLayout';
 import { makeTidalStream, streamPhiForRadius } from './tidalStream';
 import { THEMES, type OrbitTheme } from './themes';
-import { DiskBody, DiskGeometry, OrbitClock, TreeLayout } from './types';
+import { DiskBody, DiskGeometry, OrbitClock, SceneQuality, TreeLayout } from './types';
 
 // How many full turns the tidal debris stream winds around the hole before it
 // is swallowed. Real TDE streams wrap several times before self-intersection
@@ -89,7 +89,7 @@ export function OrbitScene({
   treeClosing: boolean;
   clockResetNonce: number;
   reducedMotion: boolean;
-  quality: 'high' | 'low';
+  quality: SceneQuality;
   nodeFocus: { position: [number, number, number]; radius: number; nonce: number } | null;
   // Non-null while the previous topic's system is being destroyed.
   dissolveStartMs: number | null;
@@ -100,11 +100,18 @@ export function OrbitScene({
   onNodeMenu: (request: TreeNodeMenuRequest) => void;
 }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  // Ultra is an explicit instruction, not a guess: the user has asked for
+  // fidelity and accepted the cost, so nothing here is allowed to quietly
+  // trade it back for frames.
+  const ultra = quality === 'ultra';
+  const rich = ultra || quality === 'high';
   // Adaptive resolution. The ceiling is what the machine is allowed to reach,
   // never what it is forced to run at — see the PerformanceMonitor below.
-  const maxDpr = quality === 'high' ? 1.75 : 1.25;
-  const [dpr, setDpr] = useState(quality === 'high' ? 1.35 : 1);
-  useEffect(() => { setDpr(quality === 'high' ? 1.35 : 1); }, [quality]);
+  const deviceDpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
+  const maxDpr = ultra ? Math.max(2, Math.min(3, deviceDpr)) : rich ? 1.75 : 1.25;
+  const startDpr = ultra ? maxDpr : rich ? 1.35 : 1;
+  const [dpr, setDpr] = useState(startDpr);
+  useEffect(() => { setDpr(startDpr); }, [startDpr]);
   const distance = useMemo(() => overviewDistance(disk), [disk]);
   const selectedBody = selectedId ? bodies.find((body) => body.id === selectedId) || null : null;
   // Labels for a hundred bodies would be a wall of DOM; past that threshold
@@ -188,14 +195,21 @@ export function OrbitScene({
           dropping frames — and a fast one is not capped for nothing.
           `flipflops` stops it oscillating: after a few reversals it settles and
           leaves the value alone, which is what keeps the adaptation itself from
-          becoming the stutter. */}
-      <PerformanceMonitor
-        bounds={() => [48, 58]}
-        flipflops={3}
-        onIncline={() => setDpr((current) => Math.min(maxDpr, +(current + 0.25).toFixed(2)))}
-        onDecline={() => setDpr((current) => Math.max(0.75, +(current - 0.25).toFixed(2)))}
-        onFallback={() => setDpr(0.75)}
-      />
+          becoming the stutter.
+
+          Deliberately absent under Ultra. Adapting is the right default, but
+          it directly contradicts an explicit "give me maximum quality": the
+          controller would spend the first seconds pulling the resolution back
+          down again. */}
+      {!ultra && (
+        <PerformanceMonitor
+          bounds={() => [48, 58]}
+          flipflops={3}
+          onIncline={() => setDpr((current) => Math.min(maxDpr, +(current + 0.25).toFixed(2)))}
+          onDecline={() => setDpr((current) => Math.max(0.75, +(current - 0.25).toFixed(2)))}
+          onFallback={() => setDpr(0.75)}
+        />
+      )}
       <ClockDriver clockRef={clockRef} targetSpeed={selectedId ? 0.28 : 1} resetNonce={clockResetNonce} />
       <color attach="background" args={['#01030a']} />
       <ambientLight intensity={collapsing ? 0.1 : 0.22} />
@@ -205,7 +219,8 @@ export function OrbitScene({
         // the fragment stage, not the vertex count — and at a high resolution
         // six figures of them is one of the most expensive things in the
         // scene for something the eye reads as "a lot of stars" either way.
-        starCount={quality === 'high' ? 34000 : 14000}
+        // Ultra buys the density back.
+        starCount={ultra ? 150000 : rich ? 34000 : 14000}
         accent={topicAccent}
         lensing={collapsing ? 1 : 0.28}
       />
@@ -281,7 +296,7 @@ export function OrbitScene({
           outerRadius={disk.outerRadius * 0.95}
           accent={topicAccent}
           intensity={collapsing ? 0.85 : 0.06}
-          count={quality === 'high' ? 3200 : 1400}
+          count={ultra ? 9000 : rich ? 3200 : 1400}
         />
       )}
 
@@ -319,7 +334,9 @@ export function OrbitScene({
           // The infalling arm is the centrepiece of the black hole sequence and
           // it has to read as a solid band of burning matter, so it gets a much
           // denser sampling than a scatter of sparks would need.
-          perBody={dissolveKind === 'tidal' ? (quality === 'high' ? 420 : 200) : 130}
+          perBody={dissolveKind === 'tidal'
+            ? (ultra ? 1100 : rich ? 420 : 200)
+            : (ultra ? 340 : 130)}
         />
       )}
       {/* Binary star forms its planets purely through OrbitBody's own molten
@@ -385,22 +402,22 @@ export function OrbitScene({
         } : null}
       />
 
-      {/* No multisampling on the composer. It would be applied to its own HDR
-          target — a full-resolution float buffer that then feeds a mip chain —
-          so 4x samples there costs several times what MSAA costs on an
-          ordinary back buffer, and it was the single most expensive item in
-          the frame at any real resolution. The scene has almost no hard
-          geometric edges to alias in the first place: it is bloom, point
-          sprites and soft shader falloffs, and the adaptive resolution above
-          is a far better use of the same budget. */}
+      {/* Multisampling only under Ultra. It is applied to the composer's own
+          HDR target — a full-resolution float buffer that then feeds a mip
+          chain — so samples there cost several times what MSAA costs on an
+          ordinary back buffer, which made it the single most expensive item
+          in the frame. For a scene whose edges are bloom, point sprites and
+          soft shader falloffs rather than hard geometry, resolution is a far
+          better use of the same budget at every level except the one where
+          the user has said to spend everything. */}
       {!reducedMotion && (
-        <EffectComposer enableNormalPass={false} multisampling={0}>
+        <EffectComposer enableNormalPass={false} multisampling={ultra ? 8 : 0}>
           {/* Phase 1 is "the disk burns brighter and the space around it closes
               in" — a modest bloom lift plus a deeper vignette. Pushing bloom
               harder than this blows the whole frame to white and destroys the
               very thing the sequence is meant to show. */}
           <Bloom
-            intensity={(quality === 'high' ? 1.15 : 0.7) * (collapsing ? 1.35 : 1)}
+            intensity={(ultra ? 1.35 : rich ? 1.15 : 0.7) * (collapsing ? 1.35 : 1)}
             luminanceThreshold={collapsing ? 0.24 : 0.28}
             luminanceSmoothing={0.32}
             mipmapBlur

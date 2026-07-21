@@ -7,6 +7,10 @@ export const COSMIC = {
   aurora: '#3fe0a8', // completed
   auroraDeep: '#0f9c74',
   ember: '#e2603f', // overdue / attention
+  // Due today. Deliberately far from every other key in the scene — the
+  // greens and blues here are all cool, so a warm amber is the one thing that
+  // cannot be mistaken for a status at a glance across a whole system.
+  today: '#ff9d2e',
   ice: '#8fb4ff', // neutral node
   signal: '#3f8dff', // tree connector, "energy" blue
   spark: '#dff0ff', // travelling pulse head

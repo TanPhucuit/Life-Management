@@ -10,6 +10,9 @@ export type OrbitPlanetInput = {
   childCount: number;
   accent: string; // category colour, from the shared topic palette
   completion: number; // 0..1, leaf completion of the whole branch
+  // Deadline falls on today and the work is not finished. Overrides the status
+  // colour everywhere in the scene: it is the one thing worth spotting first.
+  dueToday: boolean;
 };
 
 // A task orbiting inside the accretion disk. There are no per-task rings any
@@ -22,6 +25,10 @@ export type DiskBody = OrbitPlanetInput & {
   size: number;
   revealAt: number; // ms on the simulation clock
 };
+
+// How hard the scene is allowed to push. 'ultra' is chosen deliberately by the
+// user in Settings and is never reduced automatically.
+export type SceneQuality = 'ultra' | 'high' | 'low';
 
 export type DiskGeometry = {
   innerRadius: number;
@@ -43,6 +50,8 @@ export type TreeTaskInput = {
   title: string;
   done: boolean;
   isLeaf: boolean;
+  // Same rule as OrbitPlanetInput.dueToday, applied at every depth of the tree.
+  dueToday: boolean;
 };
 
 export type TreeLayoutNode = TreeTaskInput & {

@@ -1733,6 +1733,13 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
 }
 .topic-orbit-planet-label[data-status='completed'] { color: #7ef0c4; border-color: rgba(63, 224, 168, .32); }
 .topic-orbit-planet-label[data-status='in_progress'] { color: #b9d2ff; border-color: rgba(63, 141, 255, .32); }
+/* Due today. Last, so it overrides whatever status the task also happens to
+   be in — the deadline is the more urgent fact about it. */
+.topic-orbit-planet-label[data-due-today='true'] {
+  color: #ff9d2e;
+  border-color: rgba(255, 157, 46, .5);
+  background: rgba(58, 28, 4, .55);
+}
 .topic-orbit-topic-label {
   font-size: 15px;
   font-weight: 700;
@@ -1801,6 +1808,8 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   pointer-events: none;
 }
 .topic-orbit-node-label[data-done='true'] { color: #7ef0c4; }
+/* Due today, at any depth of the tree. Wins over the done colour by order. */
+.topic-orbit-node-label[data-due-today='true'] { color: #ff9d2e; font-weight: 700; }
 .topic-orbit-hud-chip.is-focus {
   border-color: rgba(125, 211, 252, .45);
   color: #e0f2fe;

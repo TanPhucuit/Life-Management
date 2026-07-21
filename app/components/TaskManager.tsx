@@ -237,6 +237,20 @@ const isTaskOverdue = (task: ApiTask) => {
   if (!task.deadline || isTaskDone(task)) return false;
   return new Date(task.deadline) < new Date();
 };
+// Due on today's date, and still outstanding. Compared calendar day to
+// calendar day in LOCAL time — a deadline is a day on the user's wall
+// calendar, so an instant comparison would mark a task due at 09:00 this
+// morning as "not today" for the rest of the day, and a UTC comparison would
+// get the day itself wrong either side of midnight.
+const isTaskDueToday = (task: ApiTask) => {
+  if (!task.deadline || isTaskDone(task)) return false;
+  const deadline = new Date(task.deadline);
+  if (Number.isNaN(deadline.getTime())) return false;
+  const now = new Date();
+  return deadline.getFullYear() === now.getFullYear()
+    && deadline.getMonth() === now.getMonth()
+    && deadline.getDate() === now.getDate();
+};
 
 const getTaskTone = (task: ApiTask): keyof typeof taskThemes => {
   if (isTaskDone(task)) return 'completed';
@@ -421,6 +435,7 @@ export default function TaskManager({
         childCount: (childrenByParent.get(task.id) || []).length,
         accent: getTopicColorByName(task.task_color, index).text,
         completion: leaves ? (task.completed_leaf_count || 0) / leaves : done ? 1 : 0,
+        dueToday: isTaskDueToday(task),
       };
     });
   }, [childrenByParent, rootTasks, selectedTopicId]);
@@ -1314,6 +1329,7 @@ export default function TaskManager({
         title: task.title,
         done: isTaskDone(task),
         isLeaf: children.length === 0,
+        dueToday: isTaskDueToday(task),
       });
       children.forEach((child) => visit(child, task.id));
     };

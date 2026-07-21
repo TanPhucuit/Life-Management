@@ -273,9 +273,19 @@ export function OrbitBody({
   const [forming, setForming] = useState(true);
 
   const tones = useMemo(() => planetTones(body.accent), [body.accent]);
+  // Due today outranks the status colour: across a whole system the one thing
+  // that has to be findable at a glance is what is due now.
   const rimColor = useMemo(
-    () => new THREE.Color(body.status === 'completed' ? COSMIC.aurora : body.status === 'in_progress' ? COSMIC.ice : '#7d8aa8'),
-    [body.status],
+    () => new THREE.Color(
+      body.dueToday
+        ? COSMIC.today
+        : body.status === 'completed'
+          ? COSMIC.aurora
+          : body.status === 'in_progress'
+            ? COSMIC.ice
+            : '#7d8aa8',
+    ),
+    [body.dueToday, body.status],
   );
 
   const uniforms = useMemo(() => ({
@@ -449,7 +459,14 @@ export function OrbitBody({
     const handover = tidal ? Math.min(1, Math.max(0, (fall - 0.94) / 0.06)) : 0;
     const opacityTarget = (dimmed ? 0.45 : 1) * (1 - handover);
     live.uOpacity.value += (opacityTarget - live.uOpacity.value) * Math.min(1, delta * 4);
-    const pulse = body.status === 'in_progress' ? 0.2 + 0.2 * Math.sin(now / 850) : 0;
+    // Due today breathes: a slow, deliberate pulse that catches the eye while
+    // the system turns, without the strobing an alert colour alone would need
+    // in order to be noticed.
+    const pulse = body.dueToday
+      ? 0.85 + 0.55 * Math.sin(now / 620)
+      : body.status === 'in_progress'
+        ? 0.2 + 0.2 * Math.sin(now / 850)
+        : 0;
     const rimTarget = (selected ? 2.4 : 0.55 + pulse + (body.status === 'completed' ? 0.7 : 0)) * (dimmed ? 0.35 : 1);
     live.uRimStrength.value += (rimTarget - live.uRimStrength.value) * Math.min(1, delta * 4);
 
@@ -458,7 +475,13 @@ export function OrbitBody({
       const haloMaterial = halo.material as THREE.MeshBasicMaterial;
       // A disrupted body's group sits at the origin (the shader places the
       // ribbon itself), so the halo has to be off or it would sit on the hole.
-      const haloTarget = tidal || melt > 0 ? 0 : selected ? 0.22 : dimmed ? 0 : body.status === 'completed' ? 0.1 : 0.04;
+      const haloTarget = tidal || melt > 0
+        ? 0
+        : selected ? 0.22
+          : dimmed ? 0
+            : body.dueToday ? 0.26
+              : body.status === 'completed' ? 0.1
+                : 0.04;
       haloMaterial.opacity += (haloTarget - haloMaterial.opacity) * Math.min(1, delta * 4);
       halo.scale.setScalar(Math.max(0.0001, body.size * eased * (selected ? 1.7 : 1.4)));
     }
@@ -498,7 +521,11 @@ export function OrbitBody({
             center
             style={{ pointerEvents: 'none', opacity: selected ? 1 : dimmed ? 0.18 : 0.85 }}
           >
-            <div className="topic-orbit-planet-label" data-status={body.status}>{body.title}</div>
+            <div
+              className="topic-orbit-planet-label"
+              data-status={body.status}
+              data-due-today={body.dueToday ? 'true' : 'false'}
+            >{body.title}</div>
           </Html>
         )}
       </group>

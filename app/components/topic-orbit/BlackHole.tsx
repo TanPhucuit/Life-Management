@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { DiskGeometry, OrbitClockRef } from './types';
+import { DiskGeometry, OrbitClockRef, SceneQuality } from './types';
 import { labelDissolveDelayMs } from './themes';
 import { liveUniforms } from './liveUniforms';
 
@@ -199,7 +199,7 @@ export function BlackHole({
   settled: boolean;
   dimmed: boolean;
   clockRef: OrbitClockRef;
-  quality: 'high' | 'low';
+  quality: SceneQuality;
   // 1 while the system is stable, higher while a topic change is tearing the
   // old system apart.
   spin: number;
@@ -285,7 +285,12 @@ export function BlackHole({
 
       {/* The accretion disk itself — the plane every task orbits on. */}
       <mesh ref={diskRef} rotation={[-Math.PI / 2, 0, 0]} renderOrder={1}>
-        <ringGeometry args={[disk.innerRadius, disk.outerRadius, 256, quality === 'high' ? 96 : 32]} />
+        <ringGeometry args={[
+          disk.innerRadius,
+          disk.outerRadius,
+          quality === 'ultra' ? 512 : 256,
+          quality === 'ultra' ? 192 : quality === 'high' ? 96 : 32,
+        ]} />
         <shaderMaterial
           uniforms={diskUniforms}
           vertexShader={DISK_VERTEX}
@@ -311,7 +316,9 @@ export function BlackHole({
         />
       </mesh>
 
-      {quality === 'high' && <AccretionParticles disk={disk} swirlRef={swirlRef} count={2600} />}
+      {quality !== 'low' && (
+        <AccretionParticles disk={disk} swirlRef={swirlRef} count={quality === 'ultra' ? 9000 : 2600} />
+      )}
 
       <pointLight color={palette.mid} intensity={dimmed ? 12 : 42} distance={disk.outerRadius * 4} decay={1.7} />
 

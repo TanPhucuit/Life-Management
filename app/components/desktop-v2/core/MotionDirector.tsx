@@ -231,6 +231,13 @@ export function useMotionDirector(): MotionDirectorValue {
   return value;
 }
 
+// For components that live inside the desktop shell in the app but are also
+// mounted bare — preview harnesses, tests — where a missing provider is not an
+// error, just an absence of preferences.
+export function useMotionDirectorOptional(): MotionDirectorValue | null {
+  return useContext(MotionDirectorContext);
+}
+
 export function useMotionActivity(
   priority: MotionPriority,
   active: boolean,

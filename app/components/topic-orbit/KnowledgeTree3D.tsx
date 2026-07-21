@@ -28,6 +28,7 @@ const REEXPAND_COMPLETION_STEP_MS = 160;
 
 const DONE_COLOR = new THREE.Color(COSMIC.aurora);
 const NODE_COLOR = new THREE.Color(COSMIC.ice);
+const TODAY_COLOR = new THREE.Color(COSMIC.today);
 const SIGNAL_COLOR = new THREE.Color(COSMIC.signal);
 const SPARK_COLOR = new THREE.Color(COSMIC.spark);
 
@@ -314,8 +315,16 @@ export function KnowledgeTree3D({
       const completed = completeAt !== undefined && time >= completeAt;
       const sinceComplete = completed ? (time - (completeAt as number)) / 420 : 0;
       const flash = completed ? Math.exp(-sinceComplete * sinceComplete * 3) : 0;
-      scratchColor.copy(completed ? DONE_COLOR : NODE_COLOR);
-      if (!completed) scratchColor.multiplyScalar(0.62);
+      // Due today wins over the neutral node colour, and is left at full
+      // strength rather than dimmed — the whole point is that it stands out
+      // from the branch it is buried in. Completing it still takes over, since
+      // a finished task is no longer due.
+      if (!completed && node.dueToday) {
+        scratchColor.copy(TODAY_COLOR);
+      } else {
+        scratchColor.copy(completed ? DONE_COLOR : NODE_COLOR);
+        if (!completed) scratchColor.multiplyScalar(0.62);
+      }
       if (flash > 0.01) scratchColor.lerp(SPARK_COLOR, flash * 0.8);
       nodes.setColorAt(index, scratchColor);
     });
@@ -382,7 +391,11 @@ export function KnowledgeTree3D({
             transition: 'opacity .28s ease',
           }}
         >
-          <div className="topic-orbit-node-label" data-done={node.done ? 'true' : 'false'}>
+          <div
+            className="topic-orbit-node-label"
+            data-done={node.done ? 'true' : 'false'}
+            data-due-today={!node.done && node.dueToday ? 'true' : 'false'}
+          >
             {node.title}
             {collapsedIds.has(node.id) && <span className="topic-orbit-node-folded">+{(childrenOf.get(node.id) || []).length}</span>}
           </div>
