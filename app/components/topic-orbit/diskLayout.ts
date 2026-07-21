@@ -55,6 +55,10 @@ export function layoutDisk(
   // Where the task band starts. A black hole lets tasks ride the hot disk; a
   // star needs them kept well clear of its surface.
   bandStart = BODY_BAND_START,
+  // How large the bodies read against that band. Per theme, because the
+  // central objects differ so much in scale: a task that looks right riding an
+  // accretion disk is lost next to a pair of suns.
+  bodyScale = 1,
 ): { bodies: DiskBody[]; disk: DiskGeometry } {
   const count = inputs.length;
   const span = Math.min(BODY_BAND_MAX_SPAN, Math.max(BODY_BAND_MIN_SPAN, count * 0.62));
@@ -76,7 +80,15 @@ export function layoutDisk(
     const radius = bandStart + spread * span + (hash01(input.id, 1) - 0.5) * (span / Math.max(4, count)) * 1.6;
     // Child count is the dominant term: a hub of ten subtasks visibly outweighs
     // an important but childless task.
-    const size = 0.2 + Math.min(1, Math.max(0, input.importance)) * 0.16 + Math.min(0.34, input.childCount * 0.05);
+    // Applied to the whole expression rather than to the base, so the spread
+    // between a small task and a heavy one grows with it — scaling only the
+    // constant term would have flattened the size differences that carry the
+    // meaning.
+    const size = bodyScale * (
+      0.2
+      + Math.min(1, Math.max(0, input.importance)) * 0.16
+      + Math.min(0.34, input.childCount * 0.05)
+    );
     return {
       ...input,
       radius,

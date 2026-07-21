@@ -321,11 +321,13 @@ export function OrbitScene({
         <NeutronStar
           title={topicName}
           accent={topicAccent}
-          // Spec: a small, dense object against orbits of 15-40. Held well
-          // under a tenth of the innermost orbit so the density still reads,
-          // but large enough that the crust, the arcs and the field lines are
-          // all legible rather than a bright dot.
-          coreRadius={2.1}
+          // Still small against orbits that start at 15 — a quarter of the
+          // innermost one — so the object reads as dense, but large enough
+          // that the churning crust, the electric arcs and the dipole field
+          // lines are all legible instead of collapsing into a bright dot.
+          // Everything magnetic is sized in multiples of this, so the jets and
+          // ribbons grow with it.
+          coreRadius={3.6}
           settled={holeSettled}
           dimmed={Boolean(selectedId)}
           clockRef={clockRef}

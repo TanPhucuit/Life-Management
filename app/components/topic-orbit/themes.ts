@@ -19,6 +19,11 @@ export type ThemeConfig = {
   // Inner edge of the band the tasks orbit in, in world units. A star or a
   // magnetar has to be given room — tasks must not skim its surface.
   bandStart: number;
+  // How large the task bodies read against that band. The black hole's tasks
+  // ride the accretion disk itself and are already sized against it; the two
+  // stellar themes push their band much further out to clear the central
+  // object, which leaves the same body looking small in all that space.
+  bodyScale: number;
   // Fraction of destroyMs at which the destructive wave is released. Camera
   // shake and planet break-up both key off this.
   waveAt: number;
@@ -50,6 +55,7 @@ export const THEMES: Record<OrbitTheme, ThemeConfig> = {
     disk: true,
     rings: false,
     bandStart: 3.9,
+    bodyScale: 1,
     waveAt: 0,
     waveTravel: 0,
     dolly: 'back',
@@ -69,6 +75,7 @@ export const THEMES: Record<OrbitTheme, ThemeConfig> = {
     // The pair needs room: the stars are deliberately large against the tasks,
     // and their orbit has to clear the innermost task band by a wide margin.
     bandStart: 12,
+    bodyScale: 1.3,
     // 58% of the beat is inspiral and contact before the detonation.
     waveAt: 0.58,
     waveTravel: 0.16,
@@ -92,6 +99,7 @@ export const THEMES: Record<OrbitTheme, ThemeConfig> = {
     // Spec: star radius ~1 unit, planet orbits 15-40. That ratio is what makes
     // the neutron star read as something impossibly dense.
     bandStart: 15,
+    bodyScale: 1.3,
     // 2500ms (the reconnection) / 6600ms — the moment the pulse is released.
     waveAt: 0.379,
     // "Expansion speed: extremely fast" — it crosses the whole system in a
