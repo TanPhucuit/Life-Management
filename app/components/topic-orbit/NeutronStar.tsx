@@ -35,6 +35,15 @@ const P1_INSTABILITY_MS = 800;
 const P2_ACCUMULATION_MS = 2000; // 800 + 1200
 const P3_RECONNECTION_MS = 2500;
 
+// How long the blast front takes to cross the system, as a fraction of the
+// beat. MUST equal themes.neutron_star.waveTravel, and the exponent below MUST
+// be the inverse of the one OrbitScene uses to work out when the front reaches
+// each planet — otherwise the shock is seen to pass a planet that does not
+// react, or a planet comes apart before anything reaches it.
+export const PULSE_TRAVEL_FRACTION = 0.22;
+// Sedov-Taylor: R proportional to t^(2/5).
+export const PULSE_RADIUS_EXP = 0.4;
+
 const CORE_VERTEX = `
   varying vec3 vLocal;
   varying vec3 vNormalW;
@@ -74,24 +83,33 @@ const CORE_FRAGMENT = `
   uniform float uTime;
   uniform float uCharge;
   uniform float uHotspot;
+  uniform float uHeat;
   varying vec3 vLocal;
   varying vec3 vNormalW;
   varying vec3 vWorld;
   ${NOISE3}
   void main() {
     // Flow direction wanders continuously — never a single scrolling axis.
+    // The storm both speeds up and gains a whole extra octave of structure as
+    // the field overloads, so it thickens rather than merely moving faster.
     vec3 drift = vec3(
       sin(uTime * 0.7),
       cos(uTime * 0.53),
       sin(uTime * 0.31 + 1.7)
-    ) * (2.4 + uCharge * 7.0);
-    float speed = 1.0 + uCharge * 2.0;
-    float plasma = fbm(vLocal * 7.5 + drift * speed);
-    float fine = fbm(vLocal * 17.0 - drift * speed * 1.6);
+    ) * (2.4 + uCharge * 14.0);
+    float speed = 1.0 + uCharge * 4.5;
+    float plasma = fbm(vLocal * (7.5 + uCharge * 6.0) + drift * speed);
+    float fine = fbm(vLocal * (17.0 + uCharge * 14.0) - drift * speed * 1.6);
+    // Only present while the star is driven: fast, small-scale churn on top of
+    // the base flow, which is what makes the surface read as violent instead
+    // of simply brighter.
+    float storm = uCharge > 0.01
+      ? fbm(vLocal * 34.0 + drift * speed * 2.6) * uCharge
+      : 0.0;
 
     // PHASE 2 — hotspots: bright cells that expand, merge and separate.
     float spots = fbm(vLocal * 3.1 + vec3(uTime * 0.6, uTime * 0.35, 0.0));
-    float hot = smoothstep(0.62 - uHotspot * 0.25, 0.78, spots) * uHotspot;
+    float hot = smoothstep(0.62 - uHotspot * 0.3, 0.78, spots) * uHotspot;
 
     vec3 normal = normalize(vNormalW);
     vec3 viewDir = normalize(cameraPosition - vWorld);
@@ -99,16 +117,28 @@ const CORE_FRAGMENT = `
 
     // Subsurface: strongest face-on, suppressed at the limb, so the movement
     // sits inside the sphere instead of on its silhouette.
-    float sub = pow(facing, 1.6) * (plasma * 0.55 + fine * 0.25);
+    float sub = pow(facing, 1.6) * (plasma * 0.55 + fine * 0.25 + storm * 0.5);
 
     // Base is saturated white; the limb cools to blue.
     vec3 white = vec3(1.0, 1.0, 1.0);
     vec3 blue = vec3(0.55, 0.74, 1.0);
     vec3 color = mix(blue, white, pow(facing, 0.6));
-    color += blue * sub * (0.5 + uCharge * 1.2);
+    color += blue * sub * (0.5 + uCharge * 1.6);
     color += white * hot * 1.6;
 
-    float brightness = 1.15 + uCharge * 0.6 + hot * 1.2;
+    // Driven past white into red heat. This runs the blackbody sequence
+    // BACKWARDS — white to amber to deep red — which is what a surface does
+    // when it is radiating far more than it can shed: the peak moves down out
+    // of the visible and the colour crawls toward the red end. The turbulence
+    // is folded in so the hottest churn stays yellow-white while the troughs
+    // go deepest red, rather than the whole sphere tinting uniformly.
+    if (uHeat > 0.0) {
+      float local = clamp(plasma * 0.6 + storm * 0.8 + hot, 0.0, 1.0);
+      vec3 ember = mix(vec3(1.0, 0.16, 0.05), vec3(1.0, 0.78, 0.32), local);
+      color = mix(color, ember, clamp(uHeat * (1.25 - local * 0.45), 0.0, 1.0));
+    }
+
+    float brightness = 1.15 + uCharge * 0.6 + hot * 1.2 + uHeat * 1.4;
     gl_FragColor = vec4(color * brightness, 1.0);
     #include <colorspace_fragment>
   }
@@ -132,7 +162,25 @@ const RIBBON_VERTEX = `
     float wave = sin(uTime * (1.1 + aSeed * 0.7) + uv.x * 9.0 + aSeed * 6.28);
     float twist = sin(uTime * 3.1 + uv.x * 21.0 + aSeed * 2.4) * uChaos;
     float amp = (0.03 + uCharge * 0.16 + uChaos * 0.22);
-    vec3 p = position * (1.0 + wave * amp + twist * 0.18);
+
+    // Radial inflation: magnetic pressure rises faster than the field can
+    // confine it, so the whole loop system balloons outward as it overloads
+    // rather than just wobbling in place.
+    float inflate = 1.0 + uCharge * 0.45 + uChaos * 0.85;
+
+    // Per-line displacement on axes the loop itself does not follow. Each
+    // ribbon has its own frequencies and phases from aSeed, so under chaos
+    // they stop sharing a plane and cross through one another instead of
+    // staying a tidy nested set — which is what field lines do once the
+    // topology starts breaking down.
+    float tangle = uChaos * (0.35 + aSeed * 0.5);
+    vec3 skew = vec3(
+      sin(uTime * (1.7 + aSeed * 1.3) + uv.x * 13.0 + aSeed * 5.1),
+      cos(uTime * (1.3 + aSeed * 0.9) + uv.x * 17.0 + aSeed * 2.7),
+      sin(uTime * (2.1 + aSeed * 1.1) + uv.x * 11.0 + aSeed * 4.3)
+    ) * tangle * length(position) * 0.4;
+
+    vec3 p = position * (inflate + wave * amp + twist * 0.18) + skew;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
   }
 `;
@@ -335,22 +383,75 @@ const PULSE_VERTEX = `
   }
 `;
 
+// The blast front. Built from what a real shock actually is, rather than from
+// a glowing ring:
+//
+//   * a DISCONTINUITY, not a gradient — the jump at the front is abrupt and
+//     very thin, and everything interesting is immediately behind it;
+//   * a RAREFACTION behind it, where the swept-up material has expanded and
+//     cooled, so brightness falls away rather than filling in;
+//   * a CORRUGATED front, because the medium it drives into is not uniform,
+//     so the shock runs ahead where the density is low and lags where it is
+//     high. A perfectly circular front is the single biggest tell that
+//     something is a UI ring;
+//   * POST-SHOCK COOLING — material is hottest the instant it is crossed and
+//     cools as it falls behind, so the colour runs white to blue to violet
+//     going inward, not one flat tint.
 const PULSE_FRAGMENT = `
   uniform float uOpacity;
   uniform float uInner;
+  uniform float uTime;
   uniform vec3 uColor;
   varying vec2 vLocalXY;
+
+  float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+  float noise(vec2 p) {
+    vec2 i = floor(p); vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0; float a = 0.5;
+    for (int i = 0; i < 4; i += 1) { v += a * noise(p); p *= 2.03; a *= 0.5; }
+    return v;
+  }
+
   void main() {
+    float radius = length(vLocalXY);
+    float angle = atan(vLocalXY.y, vLocalXY.x);
+
+    // Corrugation: the front's own radius varies with direction. Sampled on a
+    // ring so it wraps seamlessly at the seam instead of tearing.
+    vec2 ring = vec2(cos(angle), sin(angle)) * 2.4;
+    float roughness = fbm(ring * 3.0) * 0.6 + fbm(ring * 9.0) * 0.4;
+    float frontRadius = 1.0 - (roughness - 0.5) * 0.075;
+
     // 0 at the trailing inner edge, 1 at the advancing rim.
-    float t = clamp((length(vLocalXY) - uInner) / max(0.0001, 1.0 - uInner), 0.0, 1.0);
-    // A thin, very bright front with an exponential wake behind it.
+    float t = clamp((radius - uInner) / max(0.0001, frontRadius - uInner), 0.0, 1.0);
     float safeT = max(t, 0.0001);
-    float front = pow(safeT, 9.0);
-    float wake = pow(safeT, 1.6) * 0.3;
-    float energy = front + wake;
+
+    // The discontinuity itself: extremely thin and extremely bright.
+    float front = pow(safeT, 34.0);
+    // Immediately behind it, the compressed shell.
+    float shell = pow(safeT, 7.0) * 0.55;
+    // Filaments dragged radially through the shell by the instabilities that
+    // corrugate the front in the first place.
+    float filaments = fbm(vec2(angle * 7.0, t * 5.0 - uTime * 0.6));
+    // The rarefaction: thinning steadily all the way back to the centre.
+    float wake = pow(safeT, 2.2) * (0.16 + filaments * 0.26);
+
+    float energy = front + shell + wake;
+    // Nothing outside the corrugated front — that edge has to stay hard.
+    energy *= step(radius, frontRadius);
     float alpha = energy * uOpacity;
-    if (alpha < 0.006) discard;
-    gl_FragColor = vec4(mix(uColor, vec3(1.0), front) * (1.0 + energy * 3.4), clamp(alpha, 0.0, 1.0));
+    if (alpha < 0.005) discard;
+
+    // Post-shock cooling, running inward from the front.
+    vec3 hot = vec3(1.0);
+    vec3 cooled = mix(uColor, vec3(0.42, 0.3, 0.85), 0.45);
+    vec3 color = mix(cooled, hot, pow(safeT, 5.0));
+    gl_FragColor = vec4(color * (1.0 + energy * 3.4), clamp(alpha, 0.0, 1.0));
     #include <colorspace_fragment>
   }
 `;
@@ -367,11 +468,14 @@ export type PulsarPhase = {
   // Phase 4: the magnetar burst shell.
   pulseRadius: number;
   pulseOpacity: number;
+  // 0 at rest, 1 when the crust has been driven right through white and into
+  // red heat. Returns to 0 as the star cools.
+  heat: number;
 };
 
 export function computePulsarPhase(progress: number | null, destroyMs: number): PulsarPhase {
   if (progress === null) {
-    return { instability: 0, accumulation: 0, reconnection: 0, charge: 0, pulseRadius: 0, pulseOpacity: 0 };
+    return { instability: 0, accumulation: 0, reconnection: 0, charge: 0, pulseRadius: 0, pulseOpacity: 0, heat: 0 };
   }
   const t = progress * destroyMs;
   const instability = Math.min(1, t / P1_INSTABILITY_MS);
@@ -382,10 +486,10 @@ export function computePulsarPhase(progress: number | null, destroyMs: number): 
   const reconnection = reconnectT > 0 && reconnectT < 1.4
     ? Math.exp(-Math.pow((reconnectT - 0.75) / 0.32, 2))
     : 0;
-  // The pulse leaves at the reconnection and crosses the system extremely
-  // fast — themes.neutron_star.waveTravel is matched to this.
-  const pulseSpan = destroyMs * 0.1;
-  const pulse = t > P3_RECONNECTION_MS ? Math.min(1, (t - P3_RECONNECTION_MS) / pulseSpan) : 0;
+  // The pulse leaves at the reconnection. themes.neutron_star.waveTravel is
+  // matched to this span, and PULSE_RADIUS_EXP to its shape.
+  const pulseSpan = destroyMs * PULSE_TRAVEL_FRACTION;
+  const pulseTime = t > P3_RECONNECTION_MS ? Math.min(1, (t - P3_RECONNECTION_MS) / pulseSpan) : 0;
   // The field discharges once it has let go.
   const decay = t > P3_RECONNECTION_MS
     ? Math.max(0, 1 - (t - P3_RECONNECTION_MS) / (destroyMs * 0.35))
@@ -395,8 +499,18 @@ export function computePulsarPhase(progress: number | null, destroyMs: number): 
     accumulation,
     reconnection,
     charge: (instability * 0.32 + accumulation * 0.68 + reconnection * 0.5) * decay,
-    pulseRadius: pulse,
-    pulseOpacity: pulse > 0 && pulse < 1 ? Math.pow(1 - pulse, 0.6) : 0,
+    // Sedov-Taylor. A blast front driven into a medium does not travel at a
+    // constant speed: it sweeps up mass and decelerates, and the self-similar
+    // solution gives R proportional to t^(2/5). So it leaves fast, then visibly
+    // slows as it widens — which is both what a real shock looks like and the
+    // reason the outer planets are reached so much later than the inner ones.
+    pulseRadius: pulseTime > 0 ? Math.pow(pulseTime, PULSE_RADIUS_EXP) : 0,
+    pulseOpacity: pulseTime > 0 && pulseTime < 1 ? Math.pow(1 - pulseTime, 0.6) : 0,
+    // The crust is driven white-hot and then further, into the red: a
+    // blackbody running the colour sequence backwards as the magnetic energy
+    // dumps into it. Peaks at the reconnection and cools back over the rest of
+    // the beat, so the star ends where it began.
+    heat: Math.min(1, instability * 0.15 + accumulation * 0.55 + reconnection * 0.9) * decay,
   };
 }
 
@@ -505,11 +619,12 @@ export function NeutronStar({
   })), []);
 
   const coreUniforms = useMemo(() => ({
-    uTime: { value: 0 }, uCharge: { value: 0 }, uHotspot: { value: 0 },
+    uTime: { value: 0 }, uCharge: { value: 0 }, uHotspot: { value: 0 }, uHeat: { value: 0 },
   }), []);
   const pulseUniforms = useMemo(() => ({
     // uInner must match the ring geometry's inner/outer ratio.
-    uOpacity: { value: 0 }, uInner: { value: 0.4 }, uColor: { value: palette.field },
+    uOpacity: { value: 0 }, uInner: { value: 0.4 }, uTime: { value: 0 },
+    uColor: { value: palette.field },
   }), [palette]);
   const jetUniforms = useMemo(() => ({
     uTime: { value: 0 }, uCharge: { value: 0 }, uColor: { value: palette.field },
@@ -550,6 +665,11 @@ export function NeutronStar({
     liveCore.uTime.value = seconds;
     liveCore.uCharge.value += (phase.charge - liveCore.uCharge.value) * Math.min(1, delta * 6);
     liveCore.uHotspot.value += (phase.accumulation - liveCore.uHotspot.value) * Math.min(1, delta * 4);
+    // Heating is driven hard but cooling is deliberately slower, the way a
+    // radiating surface actually sheds it — the glow lingers after the burst
+    // and eases back to the resting colour rather than switching off.
+    const heating = phase.heat > liveCore.uHeat.value;
+    liveCore.uHeat.value += (phase.heat - liveCore.uHeat.value) * Math.min(1, delta * (heating ? 3.5 : 0.9));
 
     scaleRef.current += ((settled ? 1 : 0.001) - scaleRef.current) * Math.min(1, delta * 2.2);
     group.scale.setScalar(Math.max(0.0001, scaleRef.current));
@@ -599,8 +719,13 @@ export function NeutronStar({
     // PHASE 4 — the burst shell.
     const pulse = pulseRef.current;
     if (pulse) {
-      pulse.scale.setScalar(Math.max(0.0001, phase.pulseRadius * reach * 1.35));
+      // Exactly `reach`, with no margin. The ring's outer edge IS the front,
+      // and OrbitScene works out when each planet is hit from the inverse of
+      // this same curve — any extra factor here and the shock is seen to sweep
+      // past a planet a moment before it reacts.
+      pulse.scale.setScalar(Math.max(0.0001, phase.pulseRadius * reach));
       livePulse.uOpacity.value = phase.pulseOpacity * 0.9;
+      livePulse.uTime.value = seconds;
     }
 
     // Lighting saturates briefly at the reconnection and the burst.

@@ -183,9 +183,16 @@ export function OrbitScene({
   // shockwave genuinely is a spherical front.
   const waveLaunch = (dissolveStartMs || 0) + destroyMs * config.waveAt;
   const waveTravel = config.waveTravel;
+  // When the front reaches a given body. For a constant-speed shock that is
+  // linear in distance; for a decelerating one (waveDecel > 1) the time to
+  // cover a distance grows faster than the distance itself, so the inner
+  // planets are hit almost immediately and the outer ones wait far longer.
+  // This is the exact inverse of the curve the shell's own radius follows.
+  const waveDecel = config.waveDecel || 1;
   const arrivalOf = useMemo(
-    () => (body: DiskBody) => waveLaunch + (body.radius / Math.max(1, systemReach)) * destroyMs * waveTravel,
-    [destroyMs, systemReach, waveLaunch, waveTravel],
+    () => (body: DiskBody) => waveLaunch
+      + Math.pow(Math.min(1, body.radius / Math.max(1, systemReach)), waveDecel) * destroyMs * waveTravel,
+    [destroyMs, systemReach, waveLaunch, waveTravel, waveDecel],
   );
   const dissolveKind: 'tidal' | 'burst' = config.destruction === 'spiral_infall' ? 'tidal' : 'burst';
 

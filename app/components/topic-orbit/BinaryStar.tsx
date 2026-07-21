@@ -496,7 +496,10 @@ export function BinaryStar({
 
     const shock = shockRef.current;
     if (shock) {
-      shock.scale.setScalar(Math.max(0.0001, phase.shockRadius * reach * 1.25));
+      // Exactly `reach`: the shell's surface IS the front, and the planet
+      // break-ups are timed from the same curve, so any margin here shows up
+      // as the wave passing through a planet before it reacts.
+      shock.scale.setScalar(Math.max(0.0001, phase.shockRadius * reach));
       liveShock.uOpacity.value = phase.shockOpacity;
     }
 

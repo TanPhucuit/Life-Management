@@ -31,6 +31,11 @@ export type ThemeConfig = {
   // MUST match the on-screen speed of the wave shell, or planets shatter
   // before/after the wave visibly reaches them. 0 for tidal themes (no wave).
   waveTravel: number;
+  // How the front's arrival time scales with distance. 1 is a constant-speed
+  // front; higher values are a DECELERATING one, where time goes as
+  // radius^waveDecel. Must be the reciprocal of the exponent the shell's own
+  // radius uses, or the two drift apart.
+  waveDecel?: number;
   // Binary only: resting distance between the two stars, in units of
   // bandStart. They hold this gap while the universe is stable and only close
   // it during a topic change.
@@ -99,12 +104,17 @@ export const THEMES: Record<OrbitTheme, ThemeConfig> = {
     // Spec: star radius ~1 unit, planet orbits 15-40. That ratio is what makes
     // the neutron star read as something impossibly dense.
     bandStart: 15,
-    bodyScale: 1.3,
+    bodyScale: 1.95,
     // 2500ms (the reconnection) / 6600ms — the moment the pulse is released.
     waveAt: 0.379,
-    // "Expansion speed: extremely fast" — it crosses the whole system in a
-    // tenth of the beat, matched to the shell's own expansion.
-    waveTravel: 0.1,
+    // Must equal NeutronStar's PULSE_TRAVEL_FRACTION, and waveDecel must be
+    // the inverse of its PULSE_RADIUS_EXP, or the visible front and the planet
+    // break-ups come apart.
+    waveTravel: 0.22,
+    // Sedov-Taylor deceleration: the front covers r in t proportional to
+    // r^(5/2), so the inner planets are reached almost at once and the outer
+    // ones much, much later.
+    waveDecel: 2.5,
     burstSplits: true,
     dolly: 'in',
     craneDegrees: 10,
