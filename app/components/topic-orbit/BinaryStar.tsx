@@ -230,8 +230,8 @@ export type BinaryPhase = {
   reborn: number;
 };
 
-const MERGE_AT = 0.58;
-const MELT_FROM = 0.34;
+const MERGE_AT = 0.55;
+const MELT_FROM = 0.32;
 // Peak orbital rate, in radians per second, reached exactly at contact. A real
 // inspiral ends as an unresolvable blur; this is as fast as the frame rate can
 // still show the pair turning rather than strobing.

@@ -33,7 +33,12 @@ const CORE_GEOMETRY = new THREE.SphereGeometry(1, 64, 48);
 // 800ms and 1200ms, and those durations are what make the build-up read.
 const P1_INSTABILITY_MS = 800;
 const P2_ACCUMULATION_MS = 2000; // 800 + 1200
-const P3_RECONNECTION_MS = 2500;
+// The reconnection is given a long run-up rather than the snap it started as.
+// This is the stretch where the star is visibly winding itself tighter — the
+// rotation climbing, the field ballooning, the crust going red — and it is
+// worth watching, so it lasts well over a second rather than a few hundred
+// milliseconds. themes.neutron_star.waveAt is this divided by destroyMs.
+const P3_RECONNECTION_MS = 3600;
 
 // How long the blast front takes to cross the system, as a fraction of the
 // beat. MUST equal themes.neutron_star.waveTravel, and the exponent below MUST

@@ -352,7 +352,10 @@ export function OrbitBody({
         melt = Math.min(1, Math.max(0, (dissolve - 0.1) / 0.24));
       } else {
         // A spherical shockwave engulfs it from every side at once.
-        melt = Math.min(1, dissolve / 0.12);
+        // A shockwave shatters a planet quickly, but not instantly: the crust
+        // has to be seen cracking and glowing through before it lets go, or
+        // the planet simply blinks out of existence as the front passes.
+        melt = Math.min(1, dissolve / 0.2);
       }
     } else if (tidal) {
       // Kepler fallback on the shared stream. Disruption is governed by the
@@ -367,7 +370,13 @@ export function OrbitBody({
       // debris begins shearing long before it is anywhere near the hole, and
       // the shear has to be well established while the arm is still wide
       // enough to see it happen.
-      melt = Math.min(1, Math.max(0, (fall - 0.02) / 0.2));
+      // Spread over nearly half the fall rather than the first fifth of it.
+      // The shear is the whole point of a tidal disruption — the body being
+      // drawn out, cracking along its faults, going molten and only then
+      // letting go — and compressing that into the opening moments meant the
+      // planets had already become debris before they had visibly travelled
+      // anywhere.
+      melt = Math.min(1, Math.max(0, (fall - 0.02) / 0.45));
     }
     live.uMelt.value = melt;
     // In body radii, so the model matrix's own scale carries it to world. Far

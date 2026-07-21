@@ -74,15 +74,17 @@ export const THEMES: Record<OrbitTheme, ThemeConfig> = {
     // Long, because the inspiral is the story: the pair has to be seen turning
     // slowly, then winding up, then touching and shearing into two molten
     // streams — and only after all of that does anything detonate.
-    destroyMs: 6400,
+    destroyMs: 9000,
     disk: false,
     rings: true,
     // The pair needs room: the stars are deliberately large against the tasks,
     // and their orbit has to clear the innermost task band by a wide margin.
     bandStart: 12,
     bodyScale: 1.3,
-    // 58% of the beat is inspiral and contact before the detonation.
-    waveAt: 0.58,
+    // 55% of the beat — nearly five seconds — is inspiral and contact before
+    // anything detonates. The pair turning around each other IS the sequence;
+    // the blast is its punctuation.
+    waveAt: 0.55,
     waveTravel: 0.16,
     starSeparation: 1.2,
     dolly: 'back',
@@ -93,20 +95,20 @@ export const THEMES: Record<OrbitTheme, ThemeConfig> = {
     id: 'neutron_star',
     label: 'Neutron star',
     destruction: 'magnetar_burst',
-    // Long enough to hold the spec's fixed phase durations: 800ms magnetic
-    // instability + 1200ms energy accumulation + 500ms reconnection, then the
-    // burst — and then a further two seconds or so for each planet to be cut
-    // open, come apart and disperse, which is the part worth watching.
-    // See computePulsarPhase.
-    destroyMs: 6600,
+    // Holds the pulsar's phase durations (see computePulsarPhase): 800ms
+    // magnetic instability, 1200ms energy accumulation, then a long
+    // reconnection during which the star winds up to its most violent — and
+    // after the burst, close to three seconds for each planet to be cut open,
+    // come apart and disperse.
+    destroyMs: 8600,
     disk: false,
     rings: true,
     // Spec: star radius ~1 unit, planet orbits 15-40. That ratio is what makes
     // the neutron star read as something impossibly dense.
     bandStart: 15,
     bodyScale: 1.95,
-    // 2500ms (the reconnection) / 6600ms — the moment the pulse is released.
-    waveAt: 0.379,
+    // P3_RECONNECTION_MS / destroyMs — the moment the pulse is released.
+    waveAt: 0.4186,
     // Must equal NeutronStar's PULSE_TRAVEL_FRACTION, and waveDecel must be
     // the inverse of its PULSE_RADIUS_EXP, or the visible front and the planet
     // break-ups come apart.
