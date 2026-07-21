@@ -205,16 +205,20 @@ const JET_VERTEX = `
 
   vec3 centreWorld(float d, vec3 axisOrigin, vec3 axisDir) {
     vec3 base = axisOrigin + axisDir * d;
-    // Tighter wave for faster visible spinning
-    float ph = d / (uWave * 0.6);
-    
-    // The sway is purely in the plane facing the camera, avoiding the 3D overlap issue.
-    float sway = sin(ph - uTime * 2.5) * 0.8 + sin(ph * 0.4 - uTime * 1.1) * 0.2;
-    
-    // Quadratic growth to open out into a trumpet/funnel shape.
-    float grow = smoothstep(0.0, uWave * 3.0, d);
-    float amp = uAmp * 1.8 * grow * grow * (1.0 + uCharge * 0.7);
-    
+    // Phase = distance/wavelength − time: the wave runs OUTWARD along the
+    // beam, like a wave on a string. One dominant mode with a long, weak
+    // second one — piling up modes of comparable strength puts sharp corners
+    // in the curve, and a beam that visibly bends in hard angles stops looking
+    // like plasma.
+    float ph = d / uWave;
+    float sway = sin(ph - uTime * 0.55) * 0.86 + sin(ph * 0.37 - uTime * 0.19) * 0.14;
+    // The beam is still tightly confined by the field where it leaves the
+    // pole, and only loosens as it travels: the swing is held at essentially
+    // zero for the first stretch and then opens out quadratically. Squaring
+    // the ramp is what keeps the root of the jet a straight line rather than
+    // starting to curve immediately.
+    float grow = smoothstep(0.0, uWave * 1.8, d);
+    float amp = uAmp * grow * grow * (1.0 + uCharge * 0.7);
     return base + swayAxis(base, axisDir) * sway * amp;
   }
 
@@ -278,24 +282,19 @@ const JET_FRAGMENT = `
     float across = abs(vUv.x - 0.5) * 2.0;
     float radial = max(0.0, 1.0 - across);
 
-    // Faux-3D helical twisting to make the flat ribbon look like a spinning tornado/funnel.
-    float twistX = vUv.x + along * 1.5;
-    
-    // Knots of plasma streaming outward, following the spiral twist
-    float knots = noise(vec2(twistX * 4.0, along * 30.0 - uTime * (8.0 + uCharge * 12.0)));
-    float fine = noise(vec2(twistX * 12.0, along * 70.0 - uTime * (14.0 + uCharge * 18.0)));
+    // Knots of plasma streaming outward, so the beam always reads as moving
+    // material rather than a static shape.
+    float knots = noise(vec2(vUv.x * 3.0, along * 26.0 - uTime * (6.0 + uCharge * 9.0)));
+    float fine = noise(vec2(vUv.x * 9.0, along * 64.0 - uTime * (10.0 + uCharge * 13.0)));
 
-    // Create a distinct helical band that wraps around the core.
-    float twistPhase = (vUv.x - 0.5) * 6.283 + along * 40.0 - uTime * 15.0;
-    float band = sin(twistPhase) * 0.5 + 0.5;
-    // Fade the band near the edges so it feels like it wraps around a cylinder
-    float frontBand = band * radial;
-
-    // The two scales a real jet is photographed at: a hair-thin, near-white filament
-    // threading the middle of a swirling, tornadic halo.
-    float core = pow(max(radial, 0.0001), 16.0) * 2.8;
-    // The sheath is dominated by the helical bands, giving it that corkscrew funnel look.
-    float sheath = pow(max(radial, 0.0001), 1.2) * (0.15 + frontBand * 0.45);
+    // The two scales a real jet is photographed at, and they are FAR apart: a
+    // hair-thin, near-white filament threading the middle of a broad, wispy
+    // halo. Bringing them closer together — a fat core, or a narrow ribbon
+    // with no halo — is what turns the beam into a glowing rod. The core is
+    // thin but driven hard, so it still reads as the brightest thing on
+    // screen despite covering very few pixels.
+    float core = pow(max(radial, 0.0001), 16.0) * 2.4;
+    float sheath = pow(max(radial, 0.0001), 1.7) * 0.26;
 
     // Dissolving into haze toward the tail. This is keyed to ABSOLUTE
     // distance, not to the fraction of the geometry's length, so the beam
