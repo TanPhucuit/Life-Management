@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, PerformanceMonitor } from '@react-three/drei';
 import { Bloom, EffectComposer, Noise, Vignette } from '@react-three/postprocessing';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import * as THREE from 'three';
@@ -100,6 +100,11 @@ export function OrbitScene({
   onNodeMenu: (request: TreeNodeMenuRequest) => void;
 }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  // Adaptive resolution. The ceiling is what the machine is allowed to reach,
+  // never what it is forced to run at — see the PerformanceMonitor below.
+  const maxDpr = quality === 'high' ? 1.75 : 1.25;
+  const [dpr, setDpr] = useState(quality === 'high' ? 1.35 : 1);
+  useEffect(() => { setDpr(quality === 'high' ? 1.35 : 1); }, [quality]);
   const distance = useMemo(() => overviewDistance(disk), [disk]);
   const selectedBody = selectedId ? bodies.find((body) => body.id === selectedId) || null : null;
   // Labels for a hundred bodies would be a wall of DOM; past that threshold
@@ -164,19 +169,43 @@ export function OrbitScene({
   return (
     <Canvas
       className="topic-orbit-canvas"
-      dpr={[1, quality === 'high' ? 1.85 : 1.25]}
-      gl={{ antialias: true, powerPreference: 'high-performance' }}
+      // Resolution is handed to the adaptive controller below; this is only
+      // the starting point and the ceiling it may climb back to.
+      dpr={dpr}
+      // antialias is deliberately OFF. Everything is rendered into the
+      // EffectComposer's own target, so the canvas's MSAA back buffer is
+      // allocated, resolved and then never looked at — pure bandwidth on the
+      // hottest surface in the frame.
+      gl={{ antialias: false, powerPreference: 'high-performance' }}
       // ACES filmic: the disk is deliberately over-bright, and this is what
       // rolls those highlights off into film-like colour instead of clipping.
       onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.05; }}
       camera={{ position: [distance * 0.34, distance * 0.42, distance * 0.86], fov: 48, near: 0.1, far: 4000 }}
     >
+      {/* Resolution follows the frame rate rather than being fixed to a guess
+          about the machine. It steps down when frames run long and climbs back
+          when there is headroom, so a slow GPU loses sharpness instead of
+          dropping frames — and a fast one is not capped for nothing.
+          `flipflops` stops it oscillating: after a few reversals it settles and
+          leaves the value alone, which is what keeps the adaptation itself from
+          becoming the stutter. */}
+      <PerformanceMonitor
+        bounds={() => [48, 58]}
+        flipflops={3}
+        onIncline={() => setDpr((current) => Math.min(maxDpr, +(current + 0.25).toFixed(2)))}
+        onDecline={() => setDpr((current) => Math.max(0.75, +(current - 0.25).toFixed(2)))}
+        onFallback={() => setDpr(0.75)}
+      />
       <ClockDriver clockRef={clockRef} targetSpeed={selectedId ? 0.28 : 1} resetNonce={clockResetNonce} />
       <color attach="background" args={['#01030a']} />
       <ambientLight intensity={collapsing ? 0.1 : 0.22} />
       <GalaxyBackground
         radius={distance * 6}
-        starCount={quality === 'high' ? 90000 : 18000}
+        // Point sprites are alpha-blended, so their real cost is overdraw in
+        // the fragment stage, not the vertex count — and at a high resolution
+        // six figures of them is one of the most expensive things in the
+        // scene for something the eye reads as "a lot of stars" either way.
+        starCount={quality === 'high' ? 34000 : 14000}
         accent={topicAccent}
         lensing={collapsing ? 1 : 0.28}
       />
@@ -356,8 +385,16 @@ export function OrbitScene({
         } : null}
       />
 
+      {/* No multisampling on the composer. It would be applied to its own HDR
+          target — a full-resolution float buffer that then feeds a mip chain —
+          so 4x samples there costs several times what MSAA costs on an
+          ordinary back buffer, and it was the single most expensive item in
+          the frame at any real resolution. The scene has almost no hard
+          geometric edges to alias in the first place: it is bloom, point
+          sprites and soft shader falloffs, and the adaptive resolution above
+          is a far better use of the same budget. */}
       {!reducedMotion && (
-        <EffectComposer enableNormalPass={false} multisampling={quality === 'high' ? 4 : 0}>
+        <EffectComposer enableNormalPass={false} multisampling={0}>
           {/* Phase 1 is "the disk burns brighter and the space around it closes
               in" — a modest bloom lift plus a deeper vignette. Pushing bloom
               harder than this blows the whole frame to white and destroys the

@@ -40,6 +40,19 @@ export function OrbitRings({
     mesh.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 400);
   }, [bodies.length]);
 
+  // Ring colour only tracks completion, which changes when the data changes —
+  // not sixty times a second. Writing it every frame meant re-uploading the
+  // whole instance colour buffer to the GPU on every single frame for a value
+  // that was almost always identical to the one already there.
+  useEffect(() => {
+    const mesh = meshRef.current;
+    if (!mesh) return;
+    bodies.forEach((body, index) => {
+      mesh.setColorAt(index, body.status === 'completed' ? color : faded);
+    });
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  }, [bodies, color, faded]);
+
   useFrame((_, delta) => {
     const mesh = meshRef.current;
     if (!mesh) return;
@@ -60,10 +73,8 @@ export function OrbitRings({
       matrix.scale(scratch.set(scale, scale, scale));
       matrix.setPosition(0, height, 0);
       mesh.setMatrixAt(index, matrix);
-      mesh.setColorAt(index, body.status === 'completed' ? color : faded);
     });
     mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 
     const material = mesh.material as THREE.MeshBasicMaterial;
     const target = dimmed ? 0.08 : dissolveStartMs !== null ? 0.5 : 0.26;
