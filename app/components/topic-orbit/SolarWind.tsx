@@ -45,7 +45,13 @@ const WIND_VERTEX = `
     gl_Position = projectionMatrix * mvPosition;
     // Wind is fine and thready: fat points read as dirt on the lens, not as
     // charged particles streaming off a star.
-    gl_PointSize = (0.7 + aSeed * 1.0) * uPixelRatio * (1.0 - aTrail * 0.5) * (16.0 / max(1.0, -mvPosition.z));
+    // Clamped for the same reason as the accretion particles: unbounded
+    // 1/distance growth turns a dense sprite cloud into a fill-rate wall as
+    // soon as any of it comes near the camera.
+    gl_PointSize = min(
+      (0.7 + aSeed * 1.0) * uPixelRatio * (1.0 - aTrail * 0.5) * (16.0 / max(1.0, -mvPosition.z)),
+      7.0 * uPixelRatio
+    );
     // Bright as it leaves the surface, spent well before it reaches the edge —
     // at rest it is barely a shimmer, and only a storm fills the system.
     vAlpha = smoothstep(0.0, 0.06, t) * (1.0 - smoothstep(0.42, 0.8, t)) * (0.05 + uIntensity * 0.9) * (1.0 - aTrail * 0.55);

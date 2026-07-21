@@ -118,7 +118,10 @@ const PARTICLE_VERTEX = `
     gl_Position = projectionMatrix * mvPosition;
     // Bright as it falls in, gone the instant it crosses the horizon.
     vFade = smoothstep(0.0, 0.12, life) * (1.0 - smoothstep(0.86, 1.0, life));
-    gl_PointSize = aSize * uPixelRatio * (18.0 / max(1.0, -mvPosition.z));
+    // Clamped: these converge on the horizon, so without a ceiling every
+    // sprite balloons in the same small region of screen and the additive
+    // overdraw there dominates the frame. A speck does not need more pixels.
+    gl_PointSize = min(aSize * uPixelRatio * (18.0 / max(1.0, -mvPosition.z)), 7.0 * uPixelRatio);
   }
 `;
 

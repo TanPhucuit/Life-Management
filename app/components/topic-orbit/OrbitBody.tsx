@@ -240,6 +240,8 @@ export function OrbitBody({
   stream,
   streamGapPhi,
   burstSplits,
+  clearFromMs,
+  clearToMs,
   onSelect,
 }: {
   body: DiskBody;
@@ -263,6 +265,11 @@ export function OrbitBody({
   // Equatorial burst: the front arrives edge-on and cuts the body in half
   // along its orbit before anything breaks up.
   burstSplits: boolean;
+  // Absolute simulation-clock window over which whatever is left of the old
+  // body is taken out, so the system swap has nothing left to cut off. 0/0
+  // when no topic change is running.
+  clearFromMs: number;
+  clearToMs: number;
   onSelect: (id: string) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -459,6 +466,15 @@ export function OrbitBody({
     const handover = tidal ? Math.min(1, Math.max(0, (fall - 0.94) / 0.06)) : 0;
     const opacityTarget = (dimmed ? 0.45 : 1) * (1 - handover);
     live.uOpacity.value += (opacityTarget - live.uOpacity.value) * Math.min(1, delta * 4);
+    // The clearing window, applied on top and NOT eased: it has to actually
+    // reach zero before the system is replaced, and an exponential approach
+    // never quite does. Anything the destruction has not already removed —
+    // a body the wave reached late, one still winding down the arm — goes out
+    // here rather than being cut off by the swap.
+    if (clearToMs > clearFromMs) {
+      const cleared = Math.min(1, Math.max(0, (now - clearFromMs) / (clearToMs - clearFromMs)));
+      live.uOpacity.value *= 1 - cleared;
+    }
     // Due today breathes: a slow, deliberate pulse that catches the eye while
     // the system turns, without the strobing an alert colour alone would need
     // in order to be noticed.

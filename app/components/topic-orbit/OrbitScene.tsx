@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { BinaryStar } from './BinaryStar';
 import { BlackHole } from './BlackHole';
 import { CameraRig } from './CameraRig';
-import { DebrisSwarm } from './DebrisSwarm';
+import { DEBRIS_TRAIL_POINTS, DebrisSwarm } from './DebrisSwarm';
 import { GalaxyBackground } from './GalaxyBackground';
 import { KnowledgeTree3D, TreeNodeMenuRequest } from './KnowledgeTree3D';
 import { NeutronStar } from './NeutronStar';
@@ -26,6 +26,50 @@ import { DiskBody, DiskGeometry, OrbitClock, SceneQuality, TreeLayout } from './
 // circularises them. Set generously so that even material starting well inside
 // the system still gets three or four turns of its own before the horizon.
 const STREAM_TURNS = 6;
+
+// Fragments per body, against a TOTAL budget. The swarm's cost is fragment
+// overdraw, which depends on how many sprites are on screen — not on how many
+// tasks the topic happens to have — so the budget is split rather than
+// multiplied. Each fragment draws TRAIL_POINTS sprites.
+function debrisPerBody(bodyCount: number, totalPoints: number, ceiling: number) {
+  if (bodyCount <= 0) return ceiling;
+  return Math.max(40, Math.min(ceiling, Math.floor(totalPoints / (bodyCount * DEBRIS_TRAIL_POINTS))));
+}
+
+// Watches the SIMULATION clock and reports when the destruction beat is over.
+//
+// This has to be the simulation clock and not a wall-clock timer. The clock is
+// deliberately clamped to 50ms per frame so a backgrounded tab cannot teleport
+// every body along the disk on resume — which means that whenever the scene
+// runs below 20fps, or while the clock is still easing back to full speed after
+// a planet was deselected, simulated time falls behind real time. A setTimeout
+// then fires while the sequence is still visibly mid-flight and the whole
+// system is replaced under it: the stars are cut off before they detonate, the
+// stream is cut off while it is still winding in. The worse the frame rate, the
+// earlier it cuts.
+function TransitionWatcher({
+  clockRef,
+  endAtMs,
+  onComplete,
+}: {
+  clockRef: React.MutableRefObject<OrbitClock>;
+  endAtMs: number | null;
+  onComplete: () => void;
+}) {
+  const firedFor = useRef<number | null>(null);
+  useFrame(() => {
+    if (endAtMs === null) {
+      firedFor.current = null;
+      return;
+    }
+    if (firedFor.current === endAtMs) return;
+    if (clockRef.current.ms >= endAtMs) {
+      firedFor.current = endAtMs;
+      onComplete();
+    }
+  });
+  return null;
+}
 
 // Advances the one shared simulation clock. Mounted first so every other
 // useFrame subscriber in the scene reads a value from this same frame.
@@ -77,6 +121,7 @@ export function OrbitScene({
   onTreeClosed,
   onFocusNode,
   onNodeMenu,
+  onDissolveComplete,
 }: {
   clockRef: React.MutableRefObject<OrbitClock>;
   topicName: string;
@@ -98,6 +143,9 @@ export function OrbitScene({
   onTreeClosed: () => void;
   onFocusNode: (localPosition: [number, number, number], radius: number) => void;
   onNodeMenu: (request: TreeNodeMenuRequest) => void;
+  // Fired from the simulation clock once the destruction beat and the silence
+  // after it are genuinely over, which is when the caller may swap the system.
+  onDissolveComplete: () => void;
 }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   // Ultra is an explicit instruction, not a guess: the user has asked for
@@ -108,7 +156,11 @@ export function OrbitScene({
   // Adaptive resolution. The ceiling is what the machine is allowed to reach,
   // never what it is forced to run at — see the PerformanceMonitor below.
   const deviceDpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
-  const maxDpr = ultra ? Math.max(2, Math.min(3, deviceDpr)) : rich ? 1.75 : 1.25;
+  // Capped at 2 even under Ultra. Past that the cost grows with the square of
+  // the ratio while the return is nil — dpr 2 is already four samples per
+  // displayed pixel, which is finer than any panel resolves — and those
+  // pixels are far better spent holding the frame rate up.
+  const maxDpr = ultra ? Math.max(1.75, Math.min(2, deviceDpr)) : rich ? 1.75 : 1.25;
   const startDpr = ultra ? maxDpr : rich ? 1.35 : 1;
   const [dpr, setDpr] = useState(startDpr);
   useEffect(() => { setDpr(startDpr); }, [startDpr]);
@@ -136,6 +188,18 @@ export function OrbitScene({
     [destroyMs, systemReach, waveLaunch, waveTravel],
   );
   const dissolveKind: 'tidal' | 'burst' = config.destruction === 'spiral_infall' ? 'tidal' : 'burst';
+
+  // Everything belonging to the OLD system is taken out over the last stretch
+  // of the beat and is fully gone by the time it ends. The silence that
+  // follows is therefore genuinely empty, and the swap at the end of it has
+  // nothing on screen to interrupt.
+  // Late enough that every theme has finished its own destruction first: the
+  // binary's planets are done breaking up at 0.86 of the beat, the magnetar's
+  // at 0.82, and the black hole's stream is at the horizon by 1.0 with most of
+  // it already radiated away.
+  const clearFromMs = dissolveStartMs === null ? 0 : dissolveStartMs + destroyMs * 0.9;
+  const clearToMs = dissolveStartMs === null ? 0 : dissolveStartMs + destroyMs;
+  const dissolveEndsAtMs = dissolveStartMs === null ? null : dissolveStartMs + destroyMs + SILENCE_MS;
 
   // Black hole: the tidal disruption stream. One logarithmic spiral that every
   // disrupted body joins, winding TURNS times before it reaches the horizon —
@@ -211,6 +275,7 @@ export function OrbitScene({
         />
       )}
       <ClockDriver clockRef={clockRef} targetSpeed={selectedId ? 0.28 : 1} resetNonce={clockResetNonce} />
+      <TransitionWatcher clockRef={clockRef} endAtMs={dissolveEndsAtMs} onComplete={onDissolveComplete} />
       <color attach="background" args={['#01030a']} />
       <ambientLight intensity={collapsing ? 0.1 : 0.22} />
       <GalaxyBackground
@@ -285,6 +350,8 @@ export function OrbitScene({
           stream={stream}
           streamGapPhi={streamGaps.get(body.id) || 0.5}
           burstSplits={Boolean(config.burstSplits)}
+          clearFromMs={clearFromMs}
+          clearToMs={clearToMs}
           onSelect={onSelect}
         />
       ))}
@@ -331,12 +398,21 @@ export function OrbitScene({
             : destroyMs}
           arrivalOf={arrivalOf}
           stream={stream}
-          // The infalling arm is the centrepiece of the black hole sequence and
-          // it has to read as a solid band of burning matter, so it gets a much
-          // denser sampling than a scatter of sparks would need.
-          perBody={dissolveKind === 'tidal'
-            ? (ultra ? 1100 : rich ? 420 : 200)
-            : (ultra ? 340 : 130)}
+          clearFromMs={clearFromMs}
+          clearToMs={clearToMs}
+          // The infalling arm is the centrepiece of the black hole sequence, so
+          // it is sampled densely — but against a TOTAL budget rather than a
+          // per-planet count. Multiplying a fixed per-planet figure by the
+          // number of tasks meant a topic with forty of them asked for several
+          // times the fragments of one with eight, and the transition got
+          // slower exactly where the system was already busiest.
+          perBody={debrisPerBody(
+            bodies.length,
+            dissolveKind === 'tidal'
+              ? (ultra ? 90000 : rich ? 34000 : 14000)
+              : (ultra ? 34000 : 14000),
+            dissolveKind === 'tidal' ? 1100 : 340,
+          )}
         />
       )}
       {/* Binary star forms its planets purely through OrbitBody's own molten
@@ -402,16 +478,22 @@ export function OrbitScene({
         } : null}
       />
 
-      {/* Multisampling only under Ultra. It is applied to the composer's own
-          HDR target — a full-resolution float buffer that then feeds a mip
-          chain — so samples there cost several times what MSAA costs on an
-          ordinary back buffer, which made it the single most expensive item
-          in the frame. For a scene whose edges are bloom, point sprites and
-          soft shader falloffs rather than hard geometry, resolution is a far
-          better use of the same budget at every level except the one where
-          the user has said to spend everything. */}
+      {/* No multisampling, at any quality — including Ultra.
+
+          This is not a corner being cut. MSAA here applies to the composer's
+          own HDR target: a full-resolution float buffer that then feeds the
+          bloom mip chain, so each sample costs several times what it would on
+          an ordinary back buffer. At 8x and a high pixel ratio it was, on its
+          own, larger than everything else in the frame combined.
+
+          And it buys almost nothing in this scene. MSAA only antialiases
+          GEOMETRIC edges; what is actually on screen is bloom, point sprites
+          and soft shader falloffs, none of which it touches. Supersampling
+          through the pixel ratio antialiases all of it, including the parts
+          MSAA cannot reach — so the same budget spent on resolution is
+          strictly better looking as well as far cheaper. */}
       {!reducedMotion && (
-        <EffectComposer enableNormalPass={false} multisampling={ultra ? 8 : 0}>
+        <EffectComposer enableNormalPass={false} multisampling={0}>
           {/* Phase 1 is "the disk burns brighter and the space around it closes
               in" — a modest bloom lift plus a deeper vignette. Pushing bloom
               harder than this blows the whole frame to white and destroys the

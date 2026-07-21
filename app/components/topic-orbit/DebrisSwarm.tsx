@@ -14,6 +14,8 @@ import { liveUniforms } from './liveUniforms';
 // gets to the hole. (Chains of points, not LineSegments: GL lines do not draw
 // at all in this scene.) All of it is one draw call and zero CPU work.
 const TRAIL_POINTS = 7;
+// Exported so the scene can budget total sprites rather than per-body ones.
+export const DEBRIS_TRAIL_POINTS = TRAIL_POINTS;
 
 const DEBRIS_VERTEX = `
   uniform float uNow;
@@ -32,6 +34,10 @@ const DEBRIS_VERTEX = `
   uniform float uInflowExp;
   uniform float uVHorizon;
   uniform float uVDrain;
+  // Absolute simulation-clock window over which anything still alive is taken
+  // out. Equal values disable it.
+  uniform float uClearFrom;
+  uniform float uClearTo;
   attribute float aStart;
   attribute float aRadius;
   attribute float aAngle;
@@ -107,7 +113,17 @@ const DEBRIS_VERTEX = `
       : spiralAt(l, aRadius, aAngle, aY, aShear);
     vec4 mvPosition = modelViewMatrix * vec4(world, 1.0);
     gl_Position = projectionMatrix * mvPosition;
-    gl_PointSize = aSize * uPixelRatio * (1.0 - aTrail * 0.55) * (26.0 / max(1.0, -mvPosition.z));
+    // Clamped. A point sprite grows as 1/distance, and this swarm's whole job
+    // is to converge on one small region of the screen — so without a ceiling,
+    // tens of thousands of sprites each become large and all overlap in the
+    // same few thousand pixels. Nothing looks different for it (a fragment is
+    // meant to read as a speck) but the fragment shader is asked for orders of
+    // magnitude more work, which is precisely when the transition drops
+    // frames.
+    gl_PointSize = min(
+      aSize * uPixelRatio * (1.0 - aTrail * 0.55) * (26.0 / max(1.0, -mvPosition.z)),
+      9.0 * uPixelRatio
+    );
 
     if (uBurst > 0.5) {
       // Blown outward: incandescent at the front, cooling to cold rock.
@@ -137,7 +153,16 @@ const DEBRIS_VERTEX = `
     float swallowed = uBurst > 0.5
       ? 1.0
       : smoothstep(uInner * 0.98, uInner * 1.18, length(world.xz));
-    vAlpha = appear * vanish * swallowed * (0.35 + pow(life, 1.6) * 1.6) * (1.0 - aTrail * 0.7);
+    // The clearing window. Whatever is still in flight when the beat ends is
+    // taken out over this stretch, so that by the time the system is actually
+    // replaced there is nothing left on screen for the replacement to cut off.
+    // Fragment lifetimes are randomised and deliberately overrun the beat a
+    // little — without this, the longest-lived ones are still visibly falling
+    // at the swap.
+    float cleared = uClearTo > uClearFrom
+      ? 1.0 - smoothstep(uClearFrom, uClearTo, uNow)
+      : 1.0;
+    vAlpha = appear * vanish * swallowed * cleared * (0.35 + pow(life, 1.6) * 1.6) * (1.0 - aTrail * 0.7);
   }
 `;
 
@@ -163,6 +188,8 @@ export function DebrisSwarm({
   durationMs,
   arrivalOf,
   stream,
+  clearFromMs = 0,
+  clearToMs = 0,
   perBody = 130,
 }: {
   bodies: DiskBody[];
@@ -179,6 +206,10 @@ export function DebrisSwarm({
   // The shared tidal stream for 'in'/'out'. Must be the very same object the
   // bodies ride, or debris and ribbon separate.
   stream: TidalStream | null;
+  // Absolute simulation-clock window over which surviving fragments are taken
+  // out, so the system swap that follows has nothing left to cut off.
+  clearFromMs?: number;
+  clearToMs?: number;
   perBody?: number;
 }) {
   const geometry = useMemo(() => {
@@ -321,8 +352,10 @@ export function DebrisSwarm({
       uInflowExp: { value: INFLOW_EXP },
       uVHorizon: { value: track.vHorizon },
       uVDrain: { value: track.vDrain },
+      uClearFrom: { value: clearFromMs },
+      uClearTo: { value: clearToMs },
     };
-  }, [bodies, durationMs, innerRadius, mode, stream]);
+  }, [bodies, clearFromMs, clearToMs, durationMs, innerRadius, mode, stream]);
 
   const pointsRef = useRef<THREE.Points>(null);
   useEffect(() => () => geometry.dispose(), [geometry]);
