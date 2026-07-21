@@ -185,7 +185,9 @@ const JET_VERTEX = `
   uniform float uWidthTip;
   varying vec2 vUv;
   varying float vAlong;
-  varying vec3  // Direction the beam is allowed to wander in at a given distance: always
+  varying vec3 vWorld;
+
+  // Direction the beam is allowed to wander in at a given distance: always
   // perpendicular to both the magnetic axis and the line of sight.
   //
   // This is the fix for the beam reading as a corkscrew. Displacing it inside
