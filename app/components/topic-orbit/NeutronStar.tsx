@@ -295,13 +295,13 @@ const JET_FRAGMENT = `
     float twistPhase = (vUv.x - 0.5) * 6.283 + along * 40.0 - uTime * 15.0;
     float band = sin(twistPhase) * 0.5 + 0.5;
     // Fade the band near the edges so it feels like it wraps around a cylinder
-    float frontBand = band * pow(radial, 0.8);
+    float frontBand = band * radial; // Safe fallback instead of pow(radial, 0.8) which can cause NaN on some GPUs
 
     // The two scales a real jet is photographed at: a hair-thin, near-white filament
     // threading the middle of a swirling, tornadic halo.
-    float core = pow(radial, 18.0) * 2.8;
+    float core = pow(max(radial, 0.0001), 18.0) * 2.8;
     // The sheath is dominated by the helical bands, giving it that corkscrew funnel look.
-    float sheath = pow(radial, 1.2) * (0.15 + frontBand * 0.45);
+    float sheath = pow(max(radial, 0.0001), 1.2) * (0.15 + frontBand * 0.45);
 
     // Dissolving into haze toward the tail. This is keyed to ABSOLUTE
     // distance, not to the fraction of the geometry's length, so the beam
