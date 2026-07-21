@@ -3,21 +3,136 @@ import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { DiskBody, OrbitClockRef } from './types';
-import { FORM_MS, bodyPositionAt, collapsedOrbitAt } from './diskLayout';
+import { FORM_MS, bodyPositionAt } from './diskLayout';
+import { type TidalStream, streamStateAt } from './tidalStream';
+import { liveUniforms } from './liveUniforms';
 import { COSMIC, planetTones } from './cosmicPalette';
 
 // One geometry for every body in the disk — a hundred tasks must not mean a
 // hundred buffer uploads.
-const BODY_GEOMETRY = new THREE.SphereGeometry(1, 48, 32);
+//
+// It is built as TWO SEPARATE HEMISPHERES plus a flat cap closing each one,
+// carrying an aHalf attribute of ±1. An equatorial burst cuts a planet along
+// its orbital plane, and driving the halves apart needs the mesh to already
+// be two pieces: displacing the top and bottom of an ordinary sphere instead
+// leaves the band of triangles that straddles the equator stretched between
+// them, so the planet turns into a barrel with domed ends rather than opening
+// into two clean halves. The caps give the cut a real surface to glow from
+// instead of showing hollow shell from the inside.
+function buildBodyGeometry() {
+  const halves: { geometry: THREE.BufferGeometry; half: number }[] = [];
 
+  const top = new THREE.SphereGeometry(1, 48, 16, 0, Math.PI * 2, 0, Math.PI / 2);
+  const bottom = new THREE.SphereGeometry(1, 48, 16, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+  // Cut faces, laid in the equatorial plane and turned to face outward from
+  // their own half.
+  const topCap = new THREE.CircleGeometry(1, 48);
+  topCap.rotateX(Math.PI / 2);
+  const bottomCap = new THREE.CircleGeometry(1, 48);
+  bottomCap.rotateX(-Math.PI / 2);
+
+  halves.push({ geometry: top, half: 1 });
+  halves.push({ geometry: topCap, half: 1 });
+  halves.push({ geometry: bottom, half: -1 });
+  halves.push({ geometry: bottomCap, half: -1 });
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const sides: number[] = [];
+  // 1 on the flat cut faces, so they can be collapsed away while the planet
+  // is still whole.
+  const caps: number[] = [];
+  halves.forEach(({ geometry, half }, index) => {
+    const source = geometry.index ? geometry.toNonIndexed() : geometry;
+    const pos = source.getAttribute('position');
+    const nor = source.getAttribute('normal');
+    const isCap = index === 1 || index === 3 ? 1 : 0;
+    for (let vertex = 0; vertex < pos.count; vertex += 1) {
+      positions.push(pos.getX(vertex), pos.getY(vertex), pos.getZ(vertex));
+      normals.push(nor.getX(vertex), nor.getY(vertex), nor.getZ(vertex));
+      sides.push(half);
+      caps.push(isCap);
+    }
+    if (source !== geometry) source.dispose();
+    geometry.dispose();
+  });
+
+  const merged = new THREE.BufferGeometry();
+  merged.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  merged.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  merged.setAttribute('aHalf', new THREE.Float32BufferAttribute(sides, 1));
+  merged.setAttribute('aCap', new THREE.Float32BufferAttribute(caps, 1));
+  merged.computeBoundingSphere();
+  return merged;
+}
+
+const BODY_GEOMETRY = buildBodyGeometry();
+// The halo is a plain sphere: it never splits.
+const HALO_GEOMETRY = new THREE.SphereGeometry(1, 32, 24);
+
+// A disrupted body is not a stretched sphere sitting on a curve — it IS a
+// piece of the curve. Its "along" axis is mapped straight onto the shared
+// logarithmic spiral of tidalStream.ts, so the radius falls off exponentially
+// from one end of the ribbon to the other exactly as the stream's does.
+//
+// This is the whole difference between a stream and a row of beads. Bending
+// each body around a CIRCLE of its own radius instead (the obvious cheap
+// approximation) gives every planet a concentric arc at its own radius, and
+// concentric arcs at different radii can never join — the result is a set of
+// disconnected C shapes. Sharing the spiral means body i's trailing end and
+// body i+1's leading end land on the same curve at the same radius, and the
+// queue welds into one unbroken filament winding inward.
+//
+// When uArcRadius is 0 the body is intact and the model matrix does the work
+// as usual; when it is set, the model matrix is identity and this computes the
+// absolute world position.
 const PLANET_VERTEX = `
+  uniform vec3 uScale;
+  uniform float uArcRadius;
+  uniform float uArcPhi;
+  uniform float uArcK;
+  uniform float uSplit;
+  attribute float aHalf;
+  attribute float aCap;
   varying vec3 vLocal;
   varying vec3 vNormalW;
   varying vec3 vWorld;
+  varying float vCap;
   void main() {
+    // Kept on the undeformed unit sphere so the surface pattern stays painted
+    // on the body instead of smearing as it is pulled out.
     vLocal = position;
-    vNormalW = normalize(mat3(modelMatrix) * normal);
-    vec4 world = modelMatrix * vec4(position, 1.0);
+    vCap = aCap;
+    // While the planet is whole the cut faces are collapsed to a point, so
+    // they cost nothing and cannot show through the crust.
+    vec3 base = aCap > 0.5 && uSplit <= 0.0 ? vec3(0.0) : position;
+    // World-space offsets: x across the stream (radial), y vertical,
+    // z along it (arc length).
+    vec3 p = base * uScale;
+    // An equatorial burst arrives edge-on and cuts the planet along the plane
+    // it orbits in. Each half is a separate piece of the mesh, so they come
+    // apart cleanly instead of dragging a stretched band between them.
+    if (uSplit > 0.0) {
+      p.y += aHalf * uSplit * uScale.y;
+    }
+    vec3 n = normal;
+    vec3 placed;
+    if (uArcRadius > 0.0) {
+      float dphi = p.z / uArcRadius;
+      float phi = uArcPhi + dphi;
+      // r(φ) = R·e^{−kΔφ}: the ribbon heads INWARD along its own length.
+      float r = uArcRadius * exp(-uArcK * dphi) + p.x;
+      float c = cos(phi);
+      float s = sin(phi);
+      placed = vec3(c * r, p.y, s * r);
+      // Local x is radial, z is tangential, so carry the normal into the
+      // cylindrical frame the body now lives in.
+      n = normalize(vec3(n.x * c - n.z * s, n.y, n.x * s + n.z * c));
+    } else {
+      placed = p;
+    }
+    vNormalW = normalize(mat3(modelMatrix) * n);
+    vec4 world = modelMatrix * vec4(placed, 1.0);
     vWorld = world.xyz;
     gl_Position = projectionMatrix * viewMatrix * world;
   }
@@ -35,9 +150,11 @@ const PLANET_FRAGMENT = `
   uniform float uTime;
   uniform float uMelt;
   uniform float uForge;
+  uniform float uSplit;
   varying vec3 vLocal;
   varying vec3 vNormalW;
   varying vec3 vWorld;
+  varying float vCap;
 
   float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453123); }
   float noise(vec3 p) {
@@ -84,6 +201,15 @@ const PLANET_FRAGMENT = `
       lit = mix(lit, vec3(2.8, 1.0, 0.28), clamp(uForge * (0.35 + glow * 1.4), 0.0, 1.0));
     }
 
+    // The exposed cut face. Molten right through, hottest at the centre where
+    // the core was — this is what makes the two pieces read as one planet
+    // sliced open rather than two objects that happen to be near each other.
+    if (vCap > 0.5) {
+      float toCentre = 1.0 - clamp(length(vLocal.xz), 0.0, 1.0);
+      vec3 magma = mix(vec3(2.2, 0.7, 0.15), vec3(3.4, 3.8, 4.6), pow(toCentre, 1.6));
+      lit = magma * (0.5 + toCentre * 1.3);
+    }
+
     // Tidal disruption. The body does not explode: it is pulled apart. First
     // the crust cracks along fault lines and glows from inside, and only once
     // it is well stretched does the crust actually let go.
@@ -111,6 +237,9 @@ export function OrbitBody({
   dissolveKind,
   destroyMs,
   waveAt,
+  stream,
+  streamGapPhi,
+  burstSplits,
   onSelect,
 }: {
   body: DiskBody;
@@ -126,6 +255,14 @@ export function OrbitBody({
   // Fraction of destroyMs at which the destructive wave arrives. Before it, the
   // body only resonates; after it, it comes apart.
   waveAt: number;
+  // Black hole only: the shared debris stream every disrupted body joins, and
+  // the azimuth gap to the next body down the queue — the stretch is sized to
+  // close that gap, which is what turns the queue into one continuous ribbon.
+  stream: TidalStream | null;
+  streamGapPhi: number;
+  // Equatorial burst: the front arrives edge-on and cuts the body in half
+  // along its orbit before anything breaks up.
+  burstSplits: boolean;
   onSelect: (id: string) => void;
 }) {
   const groupRef = useRef<THREE.Group>(null);
@@ -150,6 +287,11 @@ export function OrbitBody({
     uTime: { value: 0 },
     uMelt: { value: 0 },
     uForge: { value: 1 },
+    uScale: { value: new THREE.Vector3(1, 1, 1) },
+    uArcRadius: { value: 0 },
+    uArcPhi: { value: 0 },
+    uArcK: { value: 0 },
+    uSplit: { value: 0 },
   }), [rimColor, tones.high, tones.low]);
 
   useFrame((_, delta) => {
@@ -157,6 +299,9 @@ export function OrbitBody({
     const mesh = meshRef.current;
     if (!group || !mesh) return;
     const now = clockRef.current.ms;
+    // The material owns a clone of the uniform map — write to that, not to the
+    // object this component built. See liveUniforms.ts.
+    const live = liveUniforms(mesh, uniforms);
 
     // Condensing out of the disk: the ribbon of material sweeps out to the
     // body's orbit first, and the body swells behind its leading edge.
@@ -168,70 +313,152 @@ export function OrbitBody({
     const born = Math.min(1, Math.max(0, (formProgress - 0.55) / 0.45));
     const eased = born <= 0 ? 0 : 1 - Math.pow(1 - born, 3);
 
+    const tidal = dissolveKind === 'tidal' && dissolveStartMs !== null && stream !== null;
+
     // Melting away: the crust burns off, then the body is gone and only the
     // stream falling into the hole is left.
     let melt = 0;
-    if (dissolveStartMs !== null) {
+    // 0 while the body still holds its original orbit, 1 at the horizon.
+    let fall = 0;
+    // How far the two halves of a cut planet have been driven apart.
+    let split = 0;
+    if (dissolveStartMs !== null && dissolveKind === 'burst') {
       const dissolve = Math.min(1, Math.max(0, (now - dissolveStartMs) / destroyMs));
-      // Slow enough that the stretch and the fault lines are readable before
-      // the body comes apart.
-      // A shockwave shatters a planet far faster than tides pull it apart.
-      melt = Math.min(1, dissolve / (dissolveKind === 'burst' ? 0.16 : 0.55));
+      if (burstSplits) {
+        // An equatorial front cuts the planet in two along its orbit first.
+        // Only once the halves have visibly come apart do they start to crack
+        // and break up — the cut has to read on its own before the debris
+        // takes over, or the whole thing is just one shattering event. Given
+        // room: roughly two thirds of a second to open, then a second and a
+        // half to fall apart and disperse.
+        split = Math.min(1, dissolve / 0.1);
+        melt = Math.min(1, Math.max(0, (dissolve - 0.1) / 0.24));
+      } else {
+        // A spherical shockwave engulfs it from every side at once.
+        melt = Math.min(1, dissolve / 0.12);
+      }
+    } else if (tidal) {
+      // Kepler fallback on the shared stream. Disruption is governed by the
+      // Roche limit, i.e. by DISTANCE — the body is intact until it is well
+      // inside, and it comes apart as it keeps falling. Because u falls
+      // linearly for every body from its own starting u, the inner planets
+      // reach the hole first and the outer ones trail, all on one track.
+      const progress = Math.min(1, Math.max(0, (now - (dissolveStartMs as number)) / destroyMs));
+      const state = streamStateAt(stream as TidalStream, body.radius, progress);
+      fall = state.fall;
+      // The Roche crossing happens almost immediately once the arm forms: real
+      // debris begins shearing long before it is anywhere near the hole, and
+      // the shear has to be well established while the arm is still wide
+      // enough to see it happen.
+      melt = Math.min(1, Math.max(0, (fall - 0.02) / 0.2));
     }
-    uniforms.uMelt.value = melt;
+    live.uMelt.value = melt;
+    // In body radii, so the model matrix's own scale carries it to world. Far
+    // enough that the two halves stand clearly apart with the cut faces both
+    // visible between them.
+    live.uSplit.value = split * 1.35;
     // Cools over the second half of its formation.
-    uniforms.uForge.value = Math.max(0, 1 - Math.max(0, (formProgress - 0.45)) / 0.5);
+    live.uForge.value = Math.max(0, 1 - Math.max(0, (formProgress - 0.45)) / 0.5);
 
     // Selection reads on the body itself: it swells slightly and its
     // atmosphere lights up, instead of the UI cutting to a panel.
     const baseScale = Math.max(0.0001, body.size * eased * (selected ? 1.05 : 1));
-    if (melt > 0 && dissolveKind === 'tidal') {
-      // Spaghettification: the near side falls faster than the far side, so the
-      // sphere is drawn out into an ellipsoid pointing straight at the hole.
-      group.lookAt(0, group.position.y, 0);
-      mesh.scale.set(baseScale * (1 - melt * 0.42), baseScale * (1 - melt * 0.42), baseScale * (1 + melt * 2.6));
-    } else if (melt > 0) {
-      // Pressure build-up: it swells slightly, then goes.
-      mesh.scale.setScalar(baseScale * (1 + melt * 0.16));
+    const scale = live.uScale.value as THREE.Vector3;
+
+    if (tidal) {
+      const track = stream as TidalStream;
+      const progress = Math.min(1, Math.max(0, (now - (dissolveStartMs as number)) / destroyMs));
+      const state = streamStateAt(track, body.radius, progress);
+
+      // The shader places the ribbon in absolute world coordinates along the
+      // shared spiral, so the object transform carries nothing but the body's
+      // own height above the plane — anything else would be applied twice.
+      group.position.set(0, body.height * (1 - fall * 0.8), 0);
+      group.quaternion.identity();
+      mesh.scale.setScalar(1);
+
+      // Before the Roche crossing the body is still on its own orbit, so it is
+      // eased onto the stream rather than snapped to it: no teleport, and the
+      // early part of the event still reads as "my orbit is destabilising".
+      const join = Math.min(1, Math.max(0, fall / 0.22));
+      bodyPositionAt(body, dissolveStartMs as number, position);
+      const ownAngle = Math.atan2(position.z, position.x);
+      // Unwrap so the blend takes the short way round rather than sweeping
+      // most of a turn backwards.
+      let toStream = (state.angle - ownAngle) % (Math.PI * 2);
+      if (toStream > Math.PI) toStream -= Math.PI * 2;
+      if (toStream < -Math.PI) toStream += Math.PI * 2;
+
+      // --- shape: tidal pancaking, in WORLD units --------------------------
+      // Stretched ALONG the stream, squeezed across it and hardest of all
+      // vertically. The half-length has to cover a whole azimuth gap for the
+      // ribbon to meet its neighbour end to end; because the arm turns rigidly
+      // that gap is constant, so once the joins close they stay closed.
+      const gapArc = streamGapPhi * state.radius;
+      // Perspective: material deep in the well also reads visibly smaller.
+      const thin = 1 - 0.45 * Math.pow(fall, 1.5);
+      scale.set(
+        baseScale * (1 - melt * 0.72) * thin,
+        baseScale * (1 - melt * 0.9) * thin,
+        Math.max(baseScale, gapArc * 0.62 * melt),
+      );
+      live.uArcRadius.value = state.radius;
+      live.uArcPhi.value = ownAngle + toStream * join;
+      live.uArcK.value = track.k;
     } else {
       mesh.scale.setScalar(baseScale);
+      // Pressure build-up before a shockwave breaks it: it swells slightly.
+      const swell = melt > 0 ? 1 + melt * 0.16 : 1;
+      scale.set(swell, swell, swell);
+      live.uArcRadius.value = 0;
+      // Burst: the body keeps ORBITING right up until the wave reaches it —
+      // freezing it at the click would be a visible teleport. Once hit, it
+      // holds the spot the wave caught it at while it comes apart.
+      group.position.copy(bodyPositionAt(body, dissolveStartMs !== null ? Math.min(now, dissolveStartMs) : now, position));
     }
     if (eased < 0.01) return;
 
-    mesh.rotation.y += delta * (0.08 + body.angularSpeed * 1.6) * (selected ? 2.4 : 1) * clockRef.current.speed;
-    // A body being pulled in keeps travelling — down a decaying spiral, not a
-    // circle, and not frozen in place. A body caught by a shockwave instead
-    // holds the orbit it was on when the wave hit it.
-    if (dissolveStartMs !== null && dissolveKind === 'tidal') {
-      collapsedOrbitAt(body, dissolveStartMs, now, destroyMs, position);
-      group.position.copy(position);
-    } else {
-      group.position.copy(bodyPositionAt(body, dissolveStartMs !== null ? dissolveStartMs : now, position));
+    if (!tidal) {
+      mesh.rotation.y += delta * (0.08 + body.angularSpeed * 1.6) * (selected ? 2.4 : 1) * clockRef.current.speed;
     }
 
-    // Resonance: while the star is overloading, every body shakes on its own
-    // axis and frequency. Nothing has broken yet — it is being driven.
+    // Resonance (spec phase "Planet Resonance" / "Orbital Instability"): while
+    // the star overloads, each body is DRIVEN — its orbit stops being a clean
+    // circle and it shudders on its own axis and frequency. Nothing has broken
+    // yet. The amplitude is a fraction of the body's own orbital radius, not of
+    // its size: a 0.3-unit tremor is invisible across a 30-unit system.
     if (dissolveStartMs !== null && dissolveKind === 'burst') {
       const lead = destroyMs * waveAt;
       const ramp = Math.min(1, Math.max(0, (now - (dissolveStartMs - lead)) / Math.max(1, lead)));
       if (ramp > 0 && melt <= 0) {
-        const shake = ramp * ramp * body.size * 0.42;
+        const driven = ramp * ramp;
+        // Orbit destabilises: the radius breathes and the plane starts to tilt.
+        const wobble = driven * body.radius * 0.05 * Math.sin(now * 0.006 + body.startAngle * 3);
+        group.position.multiplyScalar(1 + wobble / Math.max(0.001, body.radius));
+        // High-frequency shudder on top of it.
+        const shake = driven * (body.size * 1.4 + body.radius * 0.012);
         group.position.x += Math.sin(now * 0.031 + body.startAngle * 9) * shake;
         group.position.y += Math.sin(now * 0.043 + body.startAngle * 5) * shake;
         group.position.z += Math.cos(now * 0.037 + body.startAngle * 7) * shake;
       }
     }
 
-    uniforms.uTime.value = now / 1000;
-    uniforms.uOpacity.value += ((dimmed ? 0.45 : 1) - uniforms.uOpacity.value) * Math.min(1, delta * 4);
+    live.uTime.value = now / 1000;
+    // The ribbon stays lit for its whole run around the arm and only goes out
+    // right at the horizon, where the hole takes it.
+    const handover = tidal ? Math.min(1, Math.max(0, (fall - 0.94) / 0.06)) : 0;
+    const opacityTarget = (dimmed ? 0.45 : 1) * (1 - handover);
+    live.uOpacity.value += (opacityTarget - live.uOpacity.value) * Math.min(1, delta * 4);
     const pulse = body.status === 'in_progress' ? 0.2 + 0.2 * Math.sin(now / 850) : 0;
     const rimTarget = (selected ? 2.4 : 0.55 + pulse + (body.status === 'completed' ? 0.7 : 0)) * (dimmed ? 0.35 : 1);
-    uniforms.uRimStrength.value += (rimTarget - uniforms.uRimStrength.value) * Math.min(1, delta * 4);
+    live.uRimStrength.value += (rimTarget - live.uRimStrength.value) * Math.min(1, delta * 4);
 
     const halo = haloRef.current;
     if (halo) {
       const haloMaterial = halo.material as THREE.MeshBasicMaterial;
-      const haloTarget = melt > 0 ? 0 : selected ? 0.22 : dimmed ? 0 : body.status === 'completed' ? 0.1 : 0.04;
+      // A disrupted body's group sits at the origin (the shader places the
+      // ribbon itself), so the halo has to be off or it would sit on the hole.
+      const haloTarget = tidal || melt > 0 ? 0 : selected ? 0.22 : dimmed ? 0 : body.status === 'completed' ? 0.1 : 0.04;
       haloMaterial.opacity += (haloTarget - haloMaterial.opacity) * Math.min(1, delta * 4);
       halo.scale.setScalar(Math.max(0.0001, body.size * eased * (selected ? 1.7 : 1.4)));
     }
@@ -254,7 +481,7 @@ export function OrbitBody({
             transparent
           />
         </mesh>
-        <mesh ref={haloRef} geometry={BODY_GEOMETRY}>
+        <mesh ref={haloRef} geometry={HALO_GEOMETRY}>
           <meshBasicMaterial
             color={rimColor}
             transparent

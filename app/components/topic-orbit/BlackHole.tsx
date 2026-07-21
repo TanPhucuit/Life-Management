@@ -3,7 +3,8 @@ import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { DiskGeometry, OrbitClockRef } from './types';
-import { PHOTON_RING_RADIUS } from './diskLayout';
+import { labelDissolveDelayMs } from './themes';
+import { liveUniforms } from './liveUniforms';
 
 // Cheap value noise — three octaves is plenty for the turbulence bands and
 // keeps the disk affordable on integrated GPUs.
@@ -161,11 +162,13 @@ function AccretionParticles({ disk, swirlRef, count }: { disk: DiskGeometry; swi
     uColor: { value: new THREE.Color('#ffd9a0') },
   }), [disk.horizonRadius, disk.outerRadius]);
 
+  const pointsRef = useRef<THREE.Points>(null);
   useEffect(() => () => geometry.dispose(), [geometry]);
-  useFrame(() => { uniforms.uSwirl.value = swirlRef.current; });
+  // The material owns a clone of the uniform map — see liveUniforms.ts.
+  useFrame(() => { liveUniforms(pointsRef.current, uniforms).uSwirl.value = swirlRef.current; });
 
   return (
-    <points geometry={geometry} frustumCulled={false}>
+    <points ref={pointsRef} geometry={geometry} frustumCulled={false}>
       <shaderMaterial
         uniforms={uniforms}
         vertexShader={PARTICLE_VERTEX}
@@ -187,6 +190,8 @@ export function BlackHole({
   clockRef,
   quality,
   spin,
+  transitioning,
+  destroyMs,
 }: {
   title: string;
   accent: string;
@@ -198,12 +203,20 @@ export function BlackHole({
   // 1 while the system is stable, higher while a topic change is tearing the
   // old system apart.
   spin: number;
+  // True for the length of the topic-change event: the old name dissolves into
+  // the horizon, and only the commit remounts the label with the new title.
+  transitioning: boolean;
+  // Length of the destruction beat — the name dissolve is delayed to its very
+  // end (phase 8): the hole keeps its old identity while it feeds.
+  destroyMs: number;
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const scaleRef = useRef(0);
   // The disk's rotation is integrated rather than read straight off the clock,
   // so the hole can be spun up and eased back down without the whole pattern
   // jumping to a different phase.
+  const diskRef = useRef<THREE.Mesh>(null);
+  const lensRef = useRef<THREE.Mesh>(null);
   const swirlRef = useRef(0);
   const spinRef = useRef(1);
 
@@ -237,11 +250,16 @@ export function BlackHole({
   useFrame((_, delta) => {
     spinRef.current += (spin - spinRef.current) * Math.min(1, delta * (spin > spinRef.current ? 4.5 : 1.4));
     swirlRef.current += Math.min(delta, 0.05) * spinRef.current * clockRef.current.speed;
-    diskUniforms.uSwirl.value = swirlRef.current;
-    lensUniforms.uSwirl.value = swirlRef.current;
-    // A hole eating a whole system burns brighter while it does it.
-    const targetIntensity = (dimmed ? 0.55 : 1) * (1 + (spinRef.current - 1) * 0.22);
-    diskUniforms.uIntensity.value += (targetIntensity - diskUniforms.uIntensity.value) * Math.min(1, delta * 2.4);
+    // Materials own clones of the uniform maps — see liveUniforms.ts.
+    const liveDisk = liveUniforms(diskRef.current, diskUniforms);
+    const liveLens = liveUniforms(lensRef.current, lensUniforms);
+    liveDisk.uSwirl.value = swirlRef.current;
+    liveLens.uSwirl.value = swirlRef.current;
+    // A hole eating a whole system burns brighter while it does it — but only
+    // enough to read as "awake". Past this the disk blows out to flat white and
+    // the event horizon, the streams and the silence all stop being legible.
+    const targetIntensity = (dimmed ? 0.55 : 1) * (1 + (spinRef.current - 1) * 0.1);
+    liveDisk.uIntensity.value += (targetIntensity - liveDisk.uIntensity.value) * Math.min(1, delta * 2.4);
 
     const group = groupRef.current;
     if (!group) return;
@@ -258,14 +276,15 @@ export function BlackHole({
         <meshBasicMaterial color="#000000" toneMapped={false} />
       </mesh>
 
-      {/* Photon ring hugging the horizon. */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} renderOrder={3}>
-        <torusGeometry args={[PHOTON_RING_RADIUS, 0.022, 12, 180]} />
-        <meshBasicMaterial color="#fff1cf" toneMapped={false} transparent opacity={dimmed ? 0.5 : 1} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
+      {/* No photon-ring torus. A perfectly even, constant-width bright circle
+          is exactly what a real photon ring is NOT: the light around a hole is
+          Doppler-beamed, so it is far brighter on the approaching side and it
+          has no hard edge at all. Drawn as a flat torus it reads as a UI ring
+          laid over the scene. The lensed halo below carries the same physics
+          honestly, with the beaming and the falloff included. */}
 
       {/* The accretion disk itself — the plane every task orbits on. */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} renderOrder={1}>
+      <mesh ref={diskRef} rotation={[-Math.PI / 2, 0, 0]} renderOrder={1}>
         <ringGeometry args={[disk.innerRadius, disk.outerRadius, 256, quality === 'high' ? 96 : 32]} />
         <shaderMaterial
           uniforms={diskUniforms}
@@ -279,7 +298,7 @@ export function BlackHole({
       </mesh>
 
       {/* Lensed halo standing on edge. */}
-      <mesh renderOrder={4}>
+      <mesh ref={lensRef} renderOrder={4}>
         <ringGeometry args={[disk.innerRadius, disk.outerRadius * 0.42, 180, 24]} />
         <shaderMaterial
           uniforms={lensUniforms}
@@ -303,7 +322,11 @@ export function BlackHole({
           center
           style={{ pointerEvents: 'none', opacity: dimmed ? 0.3 : 1 }}
         >
-          <div key={title} className="topic-orbit-topic-label is-renaming">{title}</div>
+          <div
+            key={title}
+            className={`topic-orbit-topic-label ${transitioning ? 'is-dissolving' : 'is-renaming'}`}
+            style={transitioning ? { animationDelay: `${labelDissolveDelayMs(destroyMs)}ms` } : undefined}
+          >{title}</div>
         </Html>
       )}
     </group>

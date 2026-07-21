@@ -3,6 +3,7 @@
 import {
   CSSProperties,
   ReactNode,
+  createContext,
   useCallback,
   useEffect,
   useMemo,
@@ -22,8 +23,6 @@ import {
   Home,
   Languages,
   ListTodo,
-  PanelLeftClose,
-  PanelLeftOpen,
   Repeat2,
   Settings,
   Sparkles,
@@ -95,6 +94,15 @@ export interface DesktopShellProps {
   commands?: readonly DesktopCommand[];
   sceneLayer?: ReactNode;
 }
+
+// The tasks route has no workspace header of its own — its command bar IS the
+// top bar. This context hands that page the sidebar toggle the header used to
+// carry, so the control survives the header's removal. Null on routes that
+// still render the full header.
+export const SidebarChromeContext = createContext<{
+  collapsed: boolean;
+  toggle: () => void;
+} | null>(null);
 
 export default function DesktopShell(props: DesktopShellProps) {
   return (
@@ -191,53 +199,45 @@ export function DesktopShellFrame({
         onOpenCommand={() => setCommandOpen(true)}
       />
 
-      <header className="desktop-v2-header fixed left-[248px] right-0 top-0 z-30 flex h-[88px] items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_82%,transparent)] px-8 backdrop-blur-2xl">
-        <div className="flex min-w-0 items-center gap-3">
-          {canCollapseSidebar && (
-            <button
-              type="button"
-              className="desktop-v2-sidebar-toggle grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground-muted)] shadow-[var(--shadow-sm)] transition hover:border-[var(--border-strong)] hover:text-[var(--primary)]"
-              onClick={() => setTaskSidebarCollapsed((current) => !current)}
-              aria-label={sidebarCollapsed ? 'Show navigation sidebar' : 'Hide navigation sidebar'}
-              aria-pressed={sidebarCollapsed}
-              title={sidebarCollapsed ? 'Show navigation sidebar' : 'Hide navigation sidebar'}
-            >
-              {sidebarCollapsed ? <PanelLeftOpen className="h-[18px] w-[18px]" /> : <PanelLeftClose className="h-[18px] w-[18px]" />}
-            </button>
-          )}
-          <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground-subtle)]">
-            {page.eyebrow}
-          </p>
-          <div className="mt-1 flex min-w-0 items-baseline gap-3">
-            <h1 className="shrink-0 text-xl font-semibold tracking-[-0.035em]">
-              {page.title}
-            </h1>
-            <p className="desktop-v2-page-description truncate text-sm text-[var(--foreground-muted)]">
-              {page.description}
-            </p>
+      {/* The tasks route drops this header entirely: its own command bar sits
+          at the very top and carries the sidebar toggle via context. */}
+      {!canCollapseSidebar && (
+        <header className="desktop-v2-header fixed left-[248px] right-0 top-0 z-30 flex h-[88px] items-center justify-between border-b border-[var(--border)] bg-[color-mix(in_srgb,var(--background)_82%,transparent)] px-8 backdrop-blur-2xl">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--foreground-subtle)]">
+                {page.eyebrow}
+              </p>
+              <div className="mt-1 flex min-w-0 items-baseline gap-3">
+                <h1 className="shrink-0 text-xl font-semibold tracking-[-0.035em]">
+                  {page.title}
+                </h1>
+                <p className="desktop-v2-page-description truncate text-sm text-[var(--foreground-muted)]">
+                  {page.description}
+                </p>
+              </div>
+            </div>
           </div>
-          </div>
-        </div>
 
-        <button
-          type="button"
-          onClick={() => setCommandOpen(true)}
-          className="desktop-v2-command-trigger ml-6 flex min-h-11 shrink-0 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-medium text-[var(--foreground-muted)] shadow-[var(--shadow-sm)] transition-colors duration-150 hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)] hover:text-[var(--foreground)]"
-        >
-          <Command className="h-4 w-4 text-[var(--primary)]" />
-          <span className="desktop-v2-command-label">Search or run a command</span>
-          <kbd className="desktop-v2-command-shortcut rounded-md border border-[var(--border)] bg-[var(--surface-soft)] px-2 py-1 text-[10px] text-[var(--foreground-subtle)]">
-            {commandKey}
-          </kbd>
-        </button>
-      </header>
+          <button
+            type="button"
+            onClick={() => setCommandOpen(true)}
+            className="desktop-v2-command-trigger ml-6 flex min-h-11 shrink-0 items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-3.5 text-xs font-medium text-[var(--foreground-muted)] shadow-[var(--shadow-sm)] transition-colors duration-150 hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)] hover:text-[var(--foreground)]"
+          >
+            <Command className="h-4 w-4 text-[var(--primary)]" />
+            <span className="desktop-v2-command-label">Search or run a command</span>
+            <kbd className="desktop-v2-command-shortcut rounded-md border border-[var(--border)] bg-[var(--surface-soft)] px-2 py-1 text-[10px] text-[var(--foreground-subtle)]">
+              {commandKey}
+            </kbd>
+          </button>
+        </header>
+      )}
 
       <AnimatePresence initial={false} mode="popLayout">
         <motion.main
           id="main-content"
           key={pathname}
-          className="desktop-v2-main relative z-10 h-dvh overflow-y-auto pl-[272px] pr-6 pt-[108px] [scrollbar-gutter:stable]"
+          className={`desktop-v2-main relative z-10 h-dvh overflow-y-auto pl-[272px] pr-6 ${canCollapseSidebar ? 'pt-4' : 'pt-[108px]'} [scrollbar-gutter:stable]`}
           initial={reducedMotion ? { opacity: 0 } : { opacity: 0, x: 8 }}
           animate={{ opacity: commandOpen ? 0.72 : 1, x: 0 }}
           exit={reducedMotion ? { opacity: 0 } : { opacity: 0, x: -8 }}
@@ -248,7 +248,14 @@ export function DesktopShellFrame({
           }
         >
           <div className={`mx-auto min-h-[calc(100dvh-6.75rem)] pb-8 ${canCollapseSidebar ? 'w-full max-w-none' : 'max-w-[1760px]'}`}>
-            {children}
+            <SidebarChromeContext.Provider
+              value={canCollapseSidebar ? {
+                collapsed: sidebarCollapsed,
+                toggle: () => setTaskSidebarCollapsed((current) => !current),
+              } : null}
+            >
+              {children}
+            </SidebarChromeContext.Provider>
           </div>
         </motion.main>
       </AnimatePresence>

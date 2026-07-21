@@ -1,6 +1,6 @@
 'use client';
 
-import { CSSProperties, DragEvent as ReactDragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, DragEvent as ReactDragEvent, FormEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CalendarDays,
@@ -17,6 +17,8 @@ import {
   Minimize2,
   Move,
   Orbit,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Search,
@@ -34,6 +36,7 @@ import TaskTableView from './TaskTableView';
 import { ElasticTopologyField } from './task-network/ElasticTopologyField';
 import type { OrbitPlanetInput, TreeTaskInput } from './topic-orbit/types';
 import { SemanticDiveDirection, SemanticDiveDirector, SemanticDivePhase } from './task-network/SemanticDiveDirector';
+import { SidebarChromeContext } from './desktop-v2/DesktopShell';
 
 type TaskDraft = {
   title: string;
@@ -272,6 +275,9 @@ export default function TaskManager({
 }) {
   const { user } = useAppStore();
   // The network renderer is now the canonical Task Tree for every mount.
+  // Sidebar toggle handed down by the shell: on /tasks the workspace header is
+  // gone, so this command bar carries the control instead.
+  const sidebarChrome = useContext(SidebarChromeContext);
   // `variant` remains in the public API for compatibility with existing
   // callers, but it can no longer route /tasks back to the legacy tree.
   const isDesktopCinematic = true;
@@ -859,22 +865,6 @@ export default function TaskManager({
     return () => canvas.removeEventListener('wheel', handleCanvasWheel, { capture: true });
   }, [isDesktopCinematic, workspaceView]);
 
-  const stats = useMemo(() => {
-    const leafTasks = tasks.filter((task) => (task.child_count || 0) === 0);
-    const completedLeafTasks = leafTasks.filter((task) => task.status === 'completed' || task.effective_status === 'completed');
-    const incompleteLeafTasks = leafTasks.filter((task) => task.status !== 'completed' && task.effective_status !== 'completed');
-    const inProgressTasks = tasks.filter((task) => task.status === 'in_progress' || task.effective_status === 'in_progress');
-    const overdueLeafTasks = leafTasks.filter((task) => task.deadline && task.status !== 'completed' && new Date(task.deadline) < new Date());
-
-    return {
-      completedLeafTasks: completedLeafTasks.length,
-      incompleteLeafTasks: incompleteLeafTasks.length,
-      inProgressTasks: inProgressTasks.length,
-      overdueLeafTasks: overdueLeafTasks.length,
-      totalTasks: tasks.length,
-    };
-  }, [tasks]);
-
   const openTopicEditor = (topic: ApiTopic) => {
     setEditingTopic(topic);
     setTopicNameDraft(topic.name);
@@ -1343,6 +1333,18 @@ export default function TaskManager({
           <header className={`desktop-task-commandbar border-b border-slate-200 px-3 py-4 sm:px-5 ${isDesktopCinematic ? 'bg-white/85 backdrop-blur-xl' : 'bg-transparent'}`}>
             <div className="desktop-task-commandbar-row flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                {sidebarChrome && (
+                  <button
+                    type="button"
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
+                    onClick={sidebarChrome.toggle}
+                    aria-label={sidebarChrome.collapsed ? 'Show navigation sidebar' : 'Hide navigation sidebar'}
+                    aria-pressed={sidebarChrome.collapsed}
+                    title={sidebarChrome.collapsed ? 'Show navigation sidebar' : 'Hide navigation sidebar'}
+                  >
+                    {sidebarChrome.collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                  </button>
+                )}
                 <div className="desktop-task-intro">
                   <h1 className="text-xl font-semibold tracking-[-.025em]">{isDesktopCinematic ? 'Tasks' : 'Task workspace'}</h1>
                   <p className="text-sm text-slate-500">
@@ -1454,13 +1456,6 @@ export default function TaskManager({
                 {errorMessage}
               </div>
             )}
-
-            <div className="desktop-task-stats mt-4 grid grid-cols-2 gap-2 md:grid-cols-4">
-              <StatCard label="Completed" value={stats.completedLeafTasks} icon={<CheckCircle2 className="h-4 w-4 text-emerald-600" />} />
-              <StatCard label="Open" value={stats.incompleteLeafTasks} icon={<Circle className="h-4 w-4 text-slate-500" />} />
-              <StatCard label="In progress" value={stats.inProgressTasks} icon={<GitBranch className="h-4 w-4 text-blue-600" />} />
-              <StatCard label="Overdue leaves" value={stats.overdueLeafTasks} icon={<AlertCircle className="h-4 w-4 text-orange-600" />} />
-            </div>
           </header>
 
           <WorkspaceViewTransition enabled={isDesktopCinematic && !reducedMotion} view={workspaceView}>
@@ -4767,18 +4762,6 @@ function TaskDetailsContent({
           <p className="mt-1 text-xs">Right-click a task to edit or archive it.</p>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, icon }: { label: string; value: number | string; icon: ReactNode }) {
-  return (
-    <div className="rounded-md border border-slate-200 bg-white p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs text-slate-500">{label}</span>
-        {icon}
-      </div>
-      <div className="text-xl font-semibold">{value}</div>
     </div>
   );
 }

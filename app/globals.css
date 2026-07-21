@@ -1866,6 +1866,16 @@ html[data-theme='dark'] .experience-v2 .desktop-task-workspace {
   100% { opacity: 1; letter-spacing: -.01em; filter: blur(0); }
 }
 .topic-orbit-topic-label.is-renaming { animation: topic-orbit-rename 1s cubic-bezier(.16,1,.3,1) both; }
+/* Phase 8, first half: the old name does not fade — it comes apart. The
+   letters drift, brighten into glowing dust and are drawn down toward the
+   event horizon below the label. */
+@keyframes topic-orbit-dissolve {
+  0% { opacity: 1; letter-spacing: -.01em; filter: blur(0); transform: translateY(0); }
+  45% { opacity: .85; letter-spacing: .22em; filter: blur(1.5px) brightness(1.6); }
+  100% { opacity: 0; letter-spacing: .6em; filter: blur(7px) brightness(2.4); transform: translateY(14px); }
+}
+.topic-orbit-topic-label.is-dissolving { animation: topic-orbit-dissolve .85s cubic-bezier(.55,0,.85,.4) both; }
 @media (prefers-reduced-motion: reduce) {
-  .topic-orbit-topic-label.is-renaming { animation: none; }
+  .topic-orbit-topic-label.is-renaming,
+  .topic-orbit-topic-label.is-dissolving { animation: none; }
 }

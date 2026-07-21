@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { liveUniforms } from './liveUniforms';
 
 // Stars are one Points draw call with a GPU-side twinkle, so the count can go
 // into six figures without touching the frame budget.
@@ -103,6 +104,7 @@ export function GalaxyBackground({
   lensing: number;
 }) {
   const starsRef = useRef<THREE.Points>(null);
+  const nebulaRef = useRef<THREE.Mesh>(null);
 
   const geometry = useMemo(() => {
     const positions = new Float32Array(starCount * 3);
@@ -145,16 +147,19 @@ export function GalaxyBackground({
 
   useFrame((state, delta) => {
     const elapsed = state.clock.elapsedTime;
-    starUniforms.uTime.value = elapsed;
+    // Materials own clones of the uniform maps — see liveUniforms.ts.
+    const liveStars = liveUniforms(starsRef.current, starUniforms);
+    const liveNebula = liveUniforms(nebulaRef.current, nebulaUniforms);
+    liveStars.uTime.value = elapsed;
     // Eased rather than switched: the sky must warp, not snap.
-    starUniforms.uLensing.value += (lensing - starUniforms.uLensing.value) * Math.min(1, delta * 2.6);
-    nebulaUniforms.uTime.value = elapsed;
+    liveStars.uLensing.value += (lensing - liveStars.uLensing.value) * Math.min(1, delta * 2.6);
+    liveNebula.uTime.value = elapsed;
     if (starsRef.current) starsRef.current.rotation.y += delta * 0.004;
   });
 
   return (
     <group>
-      <mesh scale={-1}>
+      <mesh ref={nebulaRef} scale={-1}>
         <sphereGeometry args={[radius * 1.35, 48, 32]} />
         <shaderMaterial
           uniforms={nebulaUniforms}

@@ -29,17 +29,18 @@ const BODY_BAND_START = 3.9;
 const BODY_BAND_MIN_SPAN = 4.6;
 const BODY_BAND_MAX_SPAN = 17;
 
-// How long a body takes to condense out of the disk material.
-export const FORM_MS = 1600;
+// How long a body takes to condense out of the disk material. Kept snappy: a
+// new topic (or a theme switch) should feel like arrival, not like waiting.
+export const FORM_MS = 900;
 // How long the old system takes to melt and fall in when the topic changes.
 export const DISSOLVE_MS = 4200;
 // The beat of silence after the last debris is swallowed, before the hole
 // takes on its new identity. The viewer needs a moment to register that a whole
 // system just went in.
 export const SILENCE_MS = 520;
-const REVEAL_START_MS = 1500;
-const REVEAL_STAGGER_MS = 260;
-const MAX_REVEAL_SPAN_MS = 5200;
+const REVEAL_START_MS = 650;
+const REVEAL_STAGGER_MS = 120;
+const MAX_REVEAL_SPAN_MS = 2400;
 
 // Every task rides one accretion disk — no per-task orbit rings. Radius spread
 // is even across the band so a 6-task topic and a 100-task topic both read as
@@ -59,12 +60,23 @@ export function layoutDisk(
   const span = Math.min(BODY_BAND_MAX_SPAN, Math.max(BODY_BAND_MIN_SPAN, count * 0.62));
   const stagger = count > 1 ? Math.min(REVEAL_STAGGER_MS, MAX_REVEAL_SPAN_MS / (count - 1)) : REVEAL_STAGGER_MS;
 
+  // Mass gravitates inward: the more subtasks a body carries, the heavier it
+  // is, so it sits both CLOSER to the central object and reads BIGGER. Rank by
+  // child count (ties broken deterministically by id) rather than raw list
+  // order, so reordering the task list never reshuffles the disk.
+  const ranked = [...inputs].sort(
+    (a, b) => b.childCount - a.childCount || a.id.localeCompare(b.id),
+  );
+  const rankOf = new Map(ranked.map((input, index) => [input.id, index]));
+
   const bodies = inputs.map((input, index) => {
-    const spread = count > 1 ? index / (count - 1) : 0.35;
+    const spread = count > 1 ? (rankOf.get(input.id) as number) / (count - 1) : 0.35;
     // A little radial jitter keeps neighbouring tasks from lining up in a
     // perfect spiral arm, which is what made the old layout look mechanical.
     const radius = bandStart + spread * span + (hash01(input.id, 1) - 0.5) * (span / Math.max(4, count)) * 1.6;
-    const size = 0.2 + Math.min(1, Math.max(0, input.importance)) * 0.24 + Math.min(0.12, input.childCount * 0.014);
+    // Child count is the dominant term: a hub of ten subtasks visibly outweighs
+    // an important but childless task.
+    const size = 0.2 + Math.min(1, Math.max(0, input.importance)) * 0.16 + Math.min(0.34, input.childCount * 0.05);
     return {
       ...input,
       radius,
@@ -112,11 +124,55 @@ export function collapsedOrbitAt(
 ) {
   const elapsed = Math.max(0, nowMs - dissolveStartMs);
   const p = Math.min(1, elapsed / (destroyMs * 0.62));
-  const radius = body.radius * (1 - 0.82 * Math.pow(p, 1.7));
+  // The orbit decays all the way INSIDE the horizon: every body, however far
+  // out it started, is genuinely swallowed before the event ends — nothing is
+  // left to pop out of existence at the commit.
+  const target = HORIZON_RADIUS * 0.9;
+  const radius = target + (body.radius - target) * (1 - Math.pow(p, 1.7));
   // Where it had got to on its stable orbit when the topic changed.
   const entryAngle = body.startAngle
     + (Math.max(0, dissolveStartMs - body.revealAt) / 1000) * body.angularSpeed;
   const angle = entryAngle + (elapsed / 1000) * body.angularSpeed * (1 + 4 * p * p);
+  out.set(Math.cos(angle) * radius, body.height * (1 - p * 0.6), Math.sin(angle) * radius);
+  return { radius, angle, progress: p };
+}
+
+// Radial angle offset between consecutive bodies once they've joined the
+// shared infall lane — this is what makes them read as queued nose-to-tail
+// along ONE spiral arm rather than each melting down its own private path.
+const QUEUE_LAG_RAD = 0.46;
+
+// PHASE 3→4, black hole only. A tidally-disrupted body does not travel its own
+// private spiral: as it comes apart it merges onto ONE shared lane (anchored
+// to the innermost, first-disrupted body) with a fixed angular offset per
+// queue slot, so the whole system reads as a single queued stream of molten
+// matter rather than a scatter of independently infalling planets. Radius decay
+// stays per-body (a far-out planet still takes visibly longer to reach the
+// horizon), only the ANGLE converges onto the shared lane, and only gradually
+// — early instability still looks like the body's own orbit destabilising.
+export function queueOrbitAt(
+  body: DiskBody,
+  dissolveStartMs: number,
+  nowMs: number,
+  destroyMs: number,
+  queueIndex: number,
+  queueEntryAngle: number,
+  queueAngularSpeed: number,
+  out: THREE.Vector3,
+) {
+  const elapsed = Math.max(0, nowMs - dissolveStartMs);
+  const p = Math.min(1, elapsed / (destroyMs * 0.62));
+  const target = HORIZON_RADIUS * 0.9;
+  const radius = target + (body.radius - target) * (1 - Math.pow(p, 1.7));
+  const winding = (elapsed / 1000) * (1 + 4 * p * p);
+  const ownEntryAngle = body.startAngle
+    + (Math.max(0, dissolveStartMs - body.revealAt) / 1000) * body.angularSpeed;
+  const ownAngle = ownEntryAngle + winding * body.angularSpeed;
+  const queueAngle = queueEntryAngle + winding * queueAngularSpeed - queueIndex * QUEUE_LAG_RAD;
+  // Converges onto the shared lane between 12% and 47% into the fall — well
+  // before the crust actually lets go, so debris always leaves FROM the queue.
+  const blend = Math.min(1, Math.max(0, (p - 0.12) / 0.35));
+  const angle = ownAngle + (queueAngle - ownAngle) * blend;
   out.set(Math.cos(angle) * radius, body.height * (1 - p * 0.6), Math.sin(angle) * radius);
   return { radius, angle, progress: p };
 }

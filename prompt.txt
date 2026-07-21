@@ -1,0 +1,590 @@
+tăng tốc độ hình thành hành tinh sau mỗi lần chuyển chế độ, chuyển topic 
+hiệu ứng chưa đúng lắm : 
+
+1.binary star : hiệu ứng hình thành binary star có một dải vật chất xoay vòng ở dưới rất thừa thải, bỏ chi tiết này đi, chưa đủ to so với các hành tinh xung quanh tôi muốn chúng to hơn nữa kích thước 2 ngôi sao phải bằng nhau, khi chuyển topic 2 ngồi sao quay nhanh dần bị hút vào nhau với tốc độ cực lớn (hiện tại tốc độ quay tối đa khi va chạm còn quá chậm, tốc độ tối đa phải gấp 10 lần như thế) , trong quá trình bị hút vào nhau chúng dẹt ra bởi trọng lực biến thành 2 luồng vật chất chói sáng hòa quyện vào nhau, phát nổ xóa sổ các hành tinh, làm cho các hiệu ứng này real nhất có thể, chu kỳ mới bắt đầu 2 ngôi sao lại từ từ hình thành , các hành tinh hình thành 
+2.blackhole : khi chuyển topic, các hành tinh bị nứt và kéo dãn sớm hơn, có hiệu ứng xa gần các hành tinh càng lại gần thì càng nhỏ, các hành tinh không bị hút theo kiểu tịnh tiến lại gần, mà nối đuôi nhau bị nứt kéo dãn thành một dòng vật chất nóng chảy rồi xoắn ốc vào hố đen chứ không phải mỗi hành tinh một nơi như vậy
+3.neutron star : tăng tốc độ quay ban đầu của sao neutron,2 tia của sao neutron mảnh hơn dài hơn và sáng hơn thiết kế lại theo yêu cầu dưới
+# NEUTRON STAR (PULSAR) VISUALIZATION SPECIFICATION
+
+This visualization theme represents a rapidly rotating Pulsar (a highly magnetized neutron star).
+
+This is NOT a normal star.
+
+Do NOT render it like the Sun.
+
+Avoid fireball aesthetics.
+
+Avoid orange flames.
+
+Avoid cartoon plasma.
+
+The entire scene should feel like an extremely dense object that continuously emits electromagnetic energy.
+
+Visual references:
+
+- Interstellar
+- NASA neutron star visualization
+- ESA magnetar visualization
+- Foundation
+- Love Death & Robots
+
+------------------------------------------------------------
+
+# OBJECT SCALE
+
+The neutron star should appear physically small.
+
+Approximately:
+
+Star Radius
+
+≈ 1 unit
+
+Planet Orbit
+
+≈ 15~40 units
+
+This immediately creates the feeling that the object is incredibly dense.
+
+------------------------------------------------------------
+
+# STAR APPEARANCE
+
+The star should consist of multiple rendering layers.
+
+Layer 1
+Core Sphere
+
+Pure white.
+
+Extremely bright.
+
+Almost saturated.
+
+Soft blue edge.
+
+No visible terrain.
+
+Very smooth sphere.
+
+------------------------------------------------------------
+
+Layer 2
+Surface Plasma
+
+Animated procedural shader.
+
+High frequency noise.
+
+Fast flowing energy.
+
+No flames.
+
+The plasma should appear trapped beneath the surface.
+
+Movement direction continuously changes.
+
+Speed should be much higher than solar plasma.
+
+------------------------------------------------------------
+
+Layer 3
+Outer Glow
+
+Large HDR bloom.
+
+Blue-white.
+
+Intensity changes slightly over time.
+
+Should pulse with rotation.
+
+------------------------------------------------------------
+
+Layer 4
+Electric Corona
+
+Thin electrical arcs randomly appear.
+
+Lifetime
+
+100~300 ms
+
+Random positions.
+
+Travel across the surface.
+
+Disappear.
+
+Never synchronize.
+
+------------------------------------------------------------
+
+Layer 5
+Magnetic Ribbon System
+
+This is the most important visual element.
+
+Generate dozens of magnetic field ribbons.
+
+They originate from one magnetic pole.
+
+Curve naturally.
+
+Return to the opposite pole.
+
+Use spline geometry.
+
+Tube geometry.
+
+Animated shader.
+
+Very subtle transparency.
+
+Blue / cyan.
+
+Continuously oscillate.
+
+The ribbons should never become static.
+
+Think Aurora.
+
+Not lasers.
+
+------------------------------------------------------------
+
+Layer 6
+Polar Jets
+
+Both poles continuously emit narrow plasma jets.
+
+The jets should be:
+
+Long
+
+Thin
+
+Highly emissive
+
+Volumetric
+
+Animated with flowing noise.
+
+The jets extend far beyond the visible scene.
+
+------------------------------------------------------------
+
+Layer 7
+Pulsar Beam
+
+A second layer independent from the plasma jets.
+
+Two wide cones of light.
+
+Semi transparent.
+
+Soft edges.
+
+Rotate together with the neutron star.
+
+The beam should behave like a lighthouse.
+
+Not a laser.
+
+------------------------------------------------------------
+
+# IDLE ANIMATION
+
+Rotation
+
+Fast.
+
+Continuous.
+
+No stopping.
+
+Surface plasma
+
+Always moving.
+
+Magnetic ribbons
+
+Always oscillating.
+
+Outer glow
+
+Breathing.
+
+Very subtle.
+
+Electric arcs
+
+Random.
+
+Polar jets
+
+Constant.
+
+Nothing should ever become static.
+
+------------------------------------------------------------
+
+# TOPIC TRANSITION
+
+The scene never changes.
+
+Camera never teleports.
+
+No fade.
+
+No scene reload.
+
+Everything happens inside one continuous simulation.
+
+------------------------------------------------------------
+
+PHASE 1
+
+MAGNETIC INSTABILITY
+
+Duration
+
+800ms
+
+Surface plasma speed
+
+100%
+
+↓
+
+300%
+
+Electric arcs
+
+Increase.
+
+Magnetic ribbons
+
+Oscillation amplitude increases.
+
+Glow intensity
+
++30%
+
+Polar jets
+
+Become brighter.
+
+Planets remain stable.
+
+------------------------------------------------------------
+
+PHASE 2
+
+ENERGY ACCUMULATION
+
+Duration
+
+1200ms
+
+Surface begins developing extremely bright hotspots.
+
+Hotspots expand.
+
+Merge.
+
+Separate.
+
+Magnetic ribbons become chaotic.
+
+Field lines twist.
+
+Some reconnect.
+
+Electric arcs become more frequent.
+
+Star brightness gradually increases.
+
+Camera performs a very slow dolly in.
+
+Approximately 5%.
+
+------------------------------------------------------------
+
+PHASE 3
+
+MAGNETIC RECONNECTION
+
+This is the critical moment.
+
+Multiple magnetic ribbons suddenly reconnect.
+
+The field topology changes.
+
+Large plasma loops collapse.
+
+Huge amounts of energy are released.
+
+Do NOT create an explosion.
+
+Instead.
+
+Create a feeling that magnetic tension has snapped.
+
+Visual cues:
+
+Light flashes.
+
+Ribbon distortion.
+
+Rapid electric discharge.
+
+Temporary overexposure.
+
+Camera micro shake.
+
+------------------------------------------------------------
+
+PHASE 4
+
+MAGNETAR BURST
+
+The neutron star emits one gigantic electromagnetic pulse.
+
+This is NOT a fire explosion.
+
+This is NOT a shockwave made of smoke.
+
+Instead.
+
+Generate an expanding spherical shell of light.
+
+Characteristics:
+
+Transparent.
+
+Blue-white.
+
+Refraction shader.
+
+Heat distortion.
+
+Volumetric edge.
+
+No fire.
+
+No debris.
+
+Expansion speed
+
+Extremely fast.
+
+The pulse travels through the entire planetary system.
+
+------------------------------------------------------------
+
+PLANET REACTION
+
+Each planet reacts only AFTER the pulse reaches it.
+
+Never synchronize explosions.
+
+For every planet:
+
+State 1
+
+Surface vibration.
+
+State 2
+
+Tiny rocks begin floating.
+
+State 3
+
+Internal cracks appear.
+
+Blue-white light leaks through.
+
+State 4
+
+Pressure increases.
+
+Planet slightly inflates.
+
+State 5
+
+Violent explosion.
+
+Thousands of fragments.
+
+------------------------------------------------------------
+
+FRAGMENT SIMULATION
+
+Large fragments
+
+Remain solid.
+
+Medium fragments
+
+Spin.
+
+Small fragments
+
+Become glowing dust.
+
+Very small fragments
+
+Become ionized plasma.
+
+Eventually disappear.
+
+------------------------------------------------------------
+
+PARTICLE SYSTEM
+
+Use GPU particles.
+
+Different particle classes:
+
+Rock
+
+Dust
+
+Ionized Dust
+
+Plasma
+
+Spark
+
+Glow
+
+All particles inherit explosion velocity.
+
+Then gradually slow down.
+
+------------------------------------------------------------
+
+LIGHTING
+
+During the burst.
+
+Exposure increases.
+
+Bloom doubles.
+
+Lens flare briefly appears.
+
+Stars in the background become overexposed.
+
+After the pulse passes.
+
+Exposure gradually returns.
+
+------------------------------------------------------------
+
+CAMERA
+
+Camera never cuts.
+
+Never teleports.
+
+Camera remains focused on the neutron star.
+
+Camera choreography:
+
+Energy accumulation
+
+↓
+
+Slow dolly in
+
+↓
+
+Magnetic reconnection
+
+↓
+
+Micro shake
+
+↓
+
+Burst
+
+↓
+
+Temporary exposure increase
+
+↓
+
+Shockwave crosses camera
+
+↓
+
+Camera settles
+
+Everything should feel like a scientific observation rather than an action movie.
+
+------------------------------------------------------------
+
+NEW SYSTEM CREATION
+
+After every old planet is destroyed.
+
+Magnetic activity calms.
+
+Surface brightness decreases.
+
+Electric arcs become rare.
+
+Magnetic ribbons stabilize.
+
+Small glowing dust clouds appear.
+
+Dust slowly condenses.
+
+Molten spheres form.
+
+Cooling crust develops.
+
+Planets complete one by one.
+
+The user should feel that a completely new planetary system has naturally emerged from the remains of the previous one.
+
+------------------------------------------------------------
+
+VISUAL LANGUAGE
+
+Keywords:
+
+Density
+
+Electromagnetism
+
+Extreme Energy
+
+Magnetic Pressure
+
+Radiation
+
+Ionized Plasma
+
+Aurora
+
+HDR Bloom
+
+Volumetric Lighting
+
+Scientific Realism
+
+Avoid:
+
+Fireballs
+
+Cartoon explosions
+
+Arcade particles
+
+Magic effects
+
+Everything should look like an astrophysical phenomenon.

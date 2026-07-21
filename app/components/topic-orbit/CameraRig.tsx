@@ -77,6 +77,19 @@ export function CameraRig({
   // that must NEVER be able to retrigger the arrival flight.
   const distanceRef = useRef(overviewDistance);
   distanceRef.current = overviewDistance;
+  // Set when the system's scale changes enough that the current standoff no
+  // longer frames it — a theme switch turns a 4-unit black hole into a
+  // 12-unit binary. The answer is a slow dolly, never a cut.
+  const reframeRef = useRef<number | null>(null);
+  const reframedFrom = useRef(overviewDistance);
+  const reframeOffset = useMemo(() => new THREE.Vector3(), []);
+
+  useEffect(() => {
+    if (Math.abs(overviewDistance - reframedFrom.current) > reframedFrom.current * 0.12) {
+      reframeRef.current = overviewDistance;
+    }
+    reframedFrom.current = overviewDistance;
+  }, [overviewDistance]);
 
   // Arrival: the camera falls in from deep space toward the hole.
   useEffect(() => {
@@ -192,7 +205,22 @@ export function CameraRig({
     }
 
     if (phase.current === 'free') {
-      // Hands off — OrbitControls' own damping supplies the inertia.
+      // Hands off — OrbitControls' own damping supplies the inertia — except
+      // when the system has just been rescaled under the camera, which is
+      // answered with a slow dolly along the line the user is already on. The
+      // viewing angle is never touched.
+      if (reframeRef.current !== null) {
+        const wanted = reframeRef.current;
+        reframeOffset.copy(camera.position).sub(controls.target);
+        const current = reframeOffset.length();
+        if (current > 0.001) {
+          const next = current + (wanted - current) * Math.min(1, step * 1.5);
+          camera.position.copy(controls.target).addScaledVector(reframeOffset, next / current);
+          if (Math.abs(next - wanted) < wanted * 0.01) reframeRef.current = null;
+        } else {
+          reframeRef.current = null;
+        }
+      }
       controls.update();
       return;
     }
