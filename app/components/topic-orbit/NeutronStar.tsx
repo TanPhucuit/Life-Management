@@ -95,7 +95,7 @@ const CORE_FRAGMENT = `
 
     vec3 normal = normalize(vNormalW);
     vec3 viewDir = normalize(cameraPosition - vWorld);
-    float facing = max(dot(normal, viewDir), 0.0);
+    float facing = max(dot(normal, viewDir), 0.0001);
 
     // Subsurface: strongest face-on, suppressed at the limb, so the movement
     // sits inside the sphere instead of on its silhouette.
@@ -155,7 +155,7 @@ const RIBBON_FRAGMENT = `
     // Charge travelling pole to pole along the line.
     float flow = noise(vec2(vUv.x * 11.0 - uTime * (1.2 + uCharge * 3.4) - vSeed * 3.0, vSeed * 7.0));
     // Soft across the tube: a glowing sheet, not a wire.
-    float across = 1.0 - abs(vUv.y * 2.0 - 1.0);
+    float across = max(1.0 - abs(vUv.y * 2.0 - 1.0), 0.0001);
     float energy = pow(across, 1.6) * (0.16 + flow * 0.7) * (0.32 + uCharge * 1.5 + uChaos * 1.2);
     if (energy < 0.01) discard;
     gl_FragColor = vec4(mix(uColor, vec3(1.0), uChaos * 0.5) * (0.9 + energy * 2.2), clamp(energy, 0.0, 0.62));
@@ -232,24 +232,18 @@ const JET_VERTEX = `
 
     float d = along * uLength * axisScale;
     vec3 here = centreWorld(d, axisOrigin, axisDir);
-    // Central differences, unclamped: letting d go slightly negative is safe
-    // (the amplitude ramp is zero there) and avoids the lopsided difference
-    // at the base that put a visible kink right where the beam leaves the
-    // star.
     float h = uLength * axisScale * 0.0025;
-    vec3 tangent = normalize(
-      centreWorld(d + h, axisOrigin, axisDir) - centreWorld(d - h, axisOrigin, axisDir)
-    );
+    
+    vec3 diff = centreWorld(d + h, axisOrigin, axisDir) - centreWorld(d - h, axisOrigin, axisDir);
+    float diffLen = length(diff);
+    vec3 tangent = diffLen > 0.0001 ? diff / diffLen : axisDir;
 
     vec3 toCamera = normalize(cameraPosition - here);
-    // Perpendicular to both the beam and the view: the ribbon turns edge-on to
-    // nothing and always presents its full width.
     vec3 across = cross(tangent, toCamera);
     float len = length(across);
     across = len > 0.0001 ? across / len : vec3(1.0, 0.0, 0.0);
 
-    // Widening with distance, the way a beam loses collimation.
-    float width = mix(uWidthBase, uWidthTip, pow(along, 0.7)) * axisScale;
+    float width = mix(uWidthBase, uWidthTip, pow(max(along, 0.0001), 0.7)) * axisScale;
     vec3 world = here + across * (uv.x - 0.5) * width;
     vWorld = world;
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
@@ -299,9 +293,9 @@ const JET_FRAGMENT = `
 
     // The two scales a real jet is photographed at: a hair-thin, near-white filament
     // threading the middle of a swirling, tornadic halo.
-    float core = pow(radial, 16.0) * 2.8;
+    float core = pow(max(radial, 0.0001), 16.0) * 2.8;
     // The sheath is dominated by the helical bands, giving it that corkscrew funnel look.
-    float sheath = pow(radial, 1.2) * (0.15 + frontBand * 0.45);
+    float sheath = pow(max(radial, 0.0001), 1.2) * (0.15 + frontBand * 0.45);
 
     // Dissolving into haze toward the tail. This is keyed to ABSOLUTE
     // distance, not to the fraction of the geometry's length, so the beam
@@ -351,8 +345,9 @@ const PULSE_FRAGMENT = `
     // 0 at the trailing inner edge, 1 at the advancing rim.
     float t = clamp((length(vLocalXY) - uInner) / max(0.0001, 1.0 - uInner), 0.0, 1.0);
     // A thin, very bright front with an exponential wake behind it.
-    float front = pow(t, 9.0);
-    float wake = pow(t, 1.6) * 0.3;
+    float safeT = max(t, 0.0001);
+    float front = pow(safeT, 9.0);
+    float wake = pow(safeT, 1.6) * 0.3;
     float energy = front + wake;
     float alpha = energy * uOpacity;
     if (alpha < 0.006) discard;
