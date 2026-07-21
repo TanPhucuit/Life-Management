@@ -185,12 +185,15 @@ const JET_VERTEX = `
   uniform float uWidthTip;
   varying vec2 vUv;
   varying float vAlong;
-  varying vec3 vWorld;
-
-  // Direction the beam is allowed to wander in at a given distance: always
+  varying vec3  // Direction the beam is allowed to wander in at a given distance: always
   // perpendicular to both the magnetic axis and the line of sight.
-  // This guarantees we only ever see one solid ribbon and never see the
-  // ribbon overlapping itself (which creates the 2-3 jets illusion).
+  //
+  // This is the fix for the beam reading as a corkscrew. Displacing it inside
+  // a plane FIXED TO THE STAR gives a flat S, but that plane turns with the
+  // star, so the same S is seen face-on, then edge-on, then face-on again —
+  // which the eye reads as the filament rotating around the axis. Keeping the
+  // wave in the plane that faces the camera means it is always the same rope
+  // seen the same way, from any angle and at any rotation.
   vec3 swayAxis(vec3 base, vec3 axisDir) {
     vec3 toCam = normalize(cameraPosition - base);
     vec3 across = cross(axisDir, toCam);
@@ -200,15 +203,13 @@ const JET_VERTEX = `
 
   vec3 centreWorld(float d, vec3 axisOrigin, vec3 axisDir) {
     vec3 base = axisOrigin + axisDir * d;
-    // We use a tighter wave to make it look like a fast spinning funnel
+    // Tighter wave for faster visible spinning
     float ph = d / (uWave * 0.6);
     
-    // The sway is purely in the plane facing the camera.
-    // By combining two sine waves moving at different speeds, it looks alive.
+    // The sway is purely in the plane facing the camera, avoiding the 3D overlap issue.
     float sway = sin(ph - uTime * 2.5) * 0.8 + sin(ph * 0.4 - uTime * 1.1) * 0.2;
     
-    // To make it look like a tornado/funnel, it needs to open up aggressively 
-    // but smoothly. Quadratic growth (grow * grow) gives a nice trumpet shape.
+    // Quadratic growth to open out into a trumpet/funnel shape.
     float grow = smoothstep(0.0, uWave * 3.0, d);
     float amp = uAmp * 1.8 * grow * grow * (1.0 + uCharge * 0.7);
     
@@ -253,7 +254,6 @@ const JET_VERTEX = `
   }
 `;
 
-
 // LAYER 6. Narrow, long, highly emissive, with knots of plasma flowing
 // outward. It stays bright along its whole length because it is meant to run
 // off the edge of the scene.
@@ -283,7 +283,6 @@ const JET_FRAGMENT = `
     float radial = max(0.0, 1.0 - across);
 
     // Faux-3D helical twisting to make the flat ribbon look like a spinning tornado/funnel.
-    // We offset the X coordinate by the distance along the jet to create diagonal wraps.
     float twistX = vUv.x + along * 1.5;
     
     // Knots of plasma streaming outward, following the spiral twist
@@ -291,17 +290,16 @@ const JET_FRAGMENT = `
     float fine = noise(vec2(twistX * 12.0, along * 70.0 - uTime * (14.0 + uCharge * 18.0)));
 
     // Create a distinct helical band that wraps around the core.
-    // The sine wave phase shifts across the width of the ribbon to simulate 3D wrapping.
     float twistPhase = (vUv.x - 0.5) * 6.283 + along * 40.0 - uTime * 15.0;
     float band = sin(twistPhase) * 0.5 + 0.5;
     // Fade the band near the edges so it feels like it wraps around a cylinder
-    float frontBand = band * radial; // Safe fallback instead of pow(radial, 0.8) which can cause NaN on some GPUs
+    float frontBand = band * radial;
 
     // The two scales a real jet is photographed at: a hair-thin, near-white filament
     // threading the middle of a swirling, tornadic halo.
-    float core = pow(max(radial, 0.0001), 18.0) * 2.8;
+    float core = pow(radial, 16.0) * 2.8;
     // The sheath is dominated by the helical bands, giving it that corkscrew funnel look.
-    float sheath = pow(max(radial, 0.0001), 1.2) * (0.15 + frontBand * 0.45);
+    float sheath = pow(radial, 1.2) * (0.15 + frontBand * 0.45);
 
     // Dissolving into haze toward the tail. This is keyed to ABSOLUTE
     // distance, not to the fraction of the geometry's length, so the beam
