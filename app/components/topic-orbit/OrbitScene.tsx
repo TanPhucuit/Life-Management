@@ -153,15 +153,31 @@ export function OrbitScene({
   // trade it back for frames.
   const ultra = quality === 'ultra';
   const rich = ultra || quality === 'high';
+  // A touch device is almost always a weaker GPU driving a very high native
+  // pixel ratio — the worst possible combination for a fill-rate-bound scene
+  // like this — so it gets tighter ceilings and a lower floor regardless of
+  // what the quality tier says. Ultra is never auto-selected on one.
+  const coarse = typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(pointer: coarse)').matches;
   // Adaptive resolution. The ceiling is what the machine is allowed to reach,
   // never what it is forced to run at — see the PerformanceMonitor below.
   const deviceDpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
   // Capped at 2 even under Ultra. Past that the cost grows with the square of
   // the ratio while the return is nil — dpr 2 is already four samples per
   // displayed pixel, which is finer than any panel resolves — and those
-  // pixels are far better spent holding the frame rate up.
-  const maxDpr = ultra ? Math.max(1.75, Math.min(2, deviceDpr)) : rich ? 1.75 : 1.25;
-  const startDpr = ultra ? maxDpr : rich ? 1.35 : 1;
+  // pixels are far better spent holding the frame rate up. On a phone the cap
+  // drops to 1: native resolution on a mobile GPU is the single biggest cause
+  // of a scene like this dropping frames, and supersampling it buys nothing
+  // the panel can show.
+  const maxDpr = coarse
+    ? Math.min(1, deviceDpr)
+    : ultra ? Math.max(1.75, Math.min(2, deviceDpr)) : rich ? 1.75 : 1.25;
+  // The adaptive controller may drop below the ceiling this far when frames run
+  // long. A phone is allowed to go lower — a soft image at a smooth frame rate
+  // beats a sharp one that stutters.
+  const minDpr = coarse ? 0.6 : 0.75;
+  const startDpr = coarse ? Math.min(0.85, maxDpr) : ultra ? maxDpr : rich ? 1.35 : 1;
   const [dpr, setDpr] = useState(startDpr);
   useEffect(() => { setDpr(startDpr); }, [startDpr]);
   const distance = useMemo(() => overviewDistance(disk), [disk]);
@@ -254,7 +270,11 @@ export function OrbitScene({
       // EffectComposer's own target, so the canvas's MSAA back buffer is
       // allocated, resolved and then never looked at — pure bandwidth on the
       // hottest surface in the frame.
-      gl={{ antialias: false, powerPreference: 'high-performance' }}
+      // antialias off (the composer owns AA; a canvas MSAA buffer here is
+      // allocated and never read). stencil off: nothing uses it, and dropping
+      // it saves back-buffer bandwidth on every frame — most noticeable on
+      // mobile tile GPUs. depth stays on; the event horizon relies on it.
+      gl={{ antialias: false, stencil: false, powerPreference: 'high-performance' }}
       // ACES filmic: the disk is deliberately over-bright, and this is what
       // rolls those highlights off into film-like colour instead of clipping.
       onCreated={({ gl }) => { gl.toneMapping = THREE.ACESFilmicToneMapping; gl.toneMappingExposure = 1.05; }}
@@ -276,9 +296,9 @@ export function OrbitScene({
         <PerformanceMonitor
           bounds={() => [48, 58]}
           flipflops={3}
-          onIncline={() => setDpr((current) => Math.min(maxDpr, +(current + 0.25).toFixed(2)))}
-          onDecline={() => setDpr((current) => Math.max(0.75, +(current - 0.25).toFixed(2)))}
-          onFallback={() => setDpr(0.75)}
+          onIncline={() => setDpr((current) => Math.min(maxDpr, +(current + 0.2).toFixed(2)))}
+          onDecline={() => setDpr((current) => Math.max(minDpr, +(current - 0.2).toFixed(2)))}
+          onFallback={() => setDpr(minDpr)}
         />
       )}
       <ClockDriver clockRef={clockRef} targetSpeed={selectedId ? 0.28 : 1} resetNonce={clockResetNonce} />
@@ -385,6 +405,12 @@ export function OrbitScene({
           dissolveStartMs={dissolveStartMs}
           destroyMs={destroyMs}
           collapses={dissolveKind === 'tidal'}
+          arrivalOf={arrivalOf}
+          // How long a planet takes to come apart once the front reaches it —
+          // the same window the body's own break-up uses, so ring and planet
+          // fade out together. Split themes tear more slowly than shattering
+          // ones (see OrbitBody).
+          deathMs={destroyMs * (config.burstSplits ? 0.45 : 0.2)}
         />
       )}
 

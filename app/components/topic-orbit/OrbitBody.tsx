@@ -280,11 +280,11 @@ export function OrbitBody({
   const [forming, setForming] = useState(true);
 
   const tones = useMemo(() => planetTones(body.accent), [body.accent]);
-  // Due today outranks the status colour: across a whole system the one thing
+  // Urgent (due today or overdue) outranks the status colour: across a whole system the one thing
   // that has to be findable at a glance is what is due now.
   const rimColor = useMemo(
     () => new THREE.Color(
-      body.dueToday
+      body.urgent
         ? COSMIC.today
         : body.status === 'completed'
           ? COSMIC.aurora
@@ -292,7 +292,7 @@ export function OrbitBody({
             ? COSMIC.ice
             : '#7d8aa8',
     ),
-    [body.dueToday, body.status],
+    [body.urgent, body.status],
   );
 
   const uniforms = useMemo(() => ({
@@ -484,10 +484,10 @@ export function OrbitBody({
       const cleared = Math.min(1, Math.max(0, (now - clearFromMs) / (clearToMs - clearFromMs)));
       live.uOpacity.value *= 1 - cleared;
     }
-    // Due today breathes: a slow, deliberate pulse that catches the eye while
+    // Urgent tasks breathe: a slow, deliberate pulse that catches the eye while
     // the system turns, without the strobing an alert colour alone would need
     // in order to be noticed.
-    const pulse = body.dueToday
+    const pulse = body.urgent
       ? 0.85 + 0.55 * Math.sin(now / 620)
       : body.status === 'in_progress'
         ? 0.2 + 0.2 * Math.sin(now / 850)
@@ -504,7 +504,7 @@ export function OrbitBody({
         ? 0
         : selected ? 0.22
           : dimmed ? 0
-            : body.dueToday ? 0.26
+            : body.urgent ? 0.26
               : body.status === 'completed' ? 0.1
                 : 0.04;
       haloMaterial.opacity += (haloTarget - haloMaterial.opacity) * Math.min(1, delta * 4);
@@ -549,7 +549,7 @@ export function OrbitBody({
             <div
               className="topic-orbit-planet-label"
               data-status={body.status}
-              data-due-today={body.dueToday ? 'true' : 'false'}
+              data-urgent={body.urgent ? 'true' : 'false'}
             >{body.title}</div>
           </Html>
         )}

@@ -18,6 +18,25 @@ const smootherstep = (x: number, edge0: number, edge1: number) => {
 // scenes use to make an arrival feel like it has mass.
 const easeOutExpo = (t: number) => (t >= 1 ? 1 : 1 - Math.pow(2, -10 * t));
 
+// Frame-rate-correct exponential smoothing: alpha = 1 − e^(−rate·dt).
+//
+// This replaces the raw `lerp(pos, dest, delta · k)` the flight used to use.
+// That form is NOT frame-rate independent — the same `delta · k` factor lands
+// at a different point on the ease curve depending on how long the frame was,
+// so a run of uneven frames reads as stutter. `1 − e^(−rate·dt)` is the exact
+// continuous exponential, so a dropped frame just advances further along the
+// SAME smooth curve instead of jumping off it.
+//
+// It is deliberately an ease-OUT, not the ease-in-out of a spring: the camera
+// starts moving at full speed the instant of the click — no run-up, no
+// perceptible delay before it responds — and then decelerates into place. A
+// critically-damped spring looks smoother in the abstract but eases IN from
+// rest, and that gentle start reads as lag between the click and the camera
+// actually going anywhere, which is the opposite of what a UI wants.
+function expSmooth(current: THREE.Vector3, target: THREE.Vector3, rate: number, dt: number) {
+  current.lerp(target, 1 - Math.exp(-rate * dt));
+}
+
 export function CameraRig({
   bodies,
   selectedId,
@@ -267,11 +286,16 @@ export function CameraRig({
       desiredCamera.copy(overviewPose.current.position);
     }
 
-    const followSpeed = Math.min(1, step * 1.9);
-    controls.target.lerp(desiredTarget, followSpeed);
-    camera.position.lerp(desiredCamera, followSpeed);
+    // Rate 6 gives a ~0.4s glide that starts immediately: fast off the click,
+    // easing into place. The target is smoothed a touch faster than the camera
+    // so the framing leads the move rather than trailing it.
+    expSmooth(controls.target, desiredTarget, 7, step);
+    expSmooth(camera.position, desiredCamera, 6, step);
     controls.update();
 
+    // Hand control back once the move has closed the distance. Distance alone
+    // is the right test for an ease-out: it is already crawling by the time it
+    // is this close, so there is nothing left to snap.
     if (camera.position.distanceTo(desiredCamera) < (selected ? Math.max(0.4, focusReach * 0.06) : 0.8)) {
       controls.enabled = true;
       if (selected) {

@@ -435,7 +435,7 @@ export default function TaskManager({
         childCount: (childrenByParent.get(task.id) || []).length,
         accent: getTopicColorByName(task.task_color, index).text,
         completion: leaves ? (task.completed_leaf_count || 0) / leaves : done ? 1 : 0,
-        dueToday: isTaskDueToday(task),
+        urgent: isTaskDueToday(task) || isTaskOverdue(task),
       };
     });
   }, [childrenByParent, rootTasks, selectedTopicId]);
@@ -1329,7 +1329,7 @@ export default function TaskManager({
         title: task.title,
         done: isTaskDone(task),
         isLeaf: children.length === 0,
-        dueToday: isTaskDueToday(task),
+        urgent: isTaskDueToday(task) || isTaskOverdue(task),
       });
       children.forEach((child) => visit(child, task.id));
     };

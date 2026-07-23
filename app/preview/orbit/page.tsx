@@ -34,11 +34,11 @@ function makeMockData(topicId: string, planetCount: number) {
       childCount: 2 + (index % 4),
       accent: ACCENTS[index % ACCENTS.length],
       completion,
-      dueToday: planetDueToday,
+      urgent: planetDueToday,
     });
 
     const nodes: TreeTaskInput[] = [
-      { id, parentId: null, title: `Project ${index + 1}`, done, isLeaf: false, dueToday: planetDueToday },
+      { id, parentId: null, title: `Project ${index + 1}`, done, isLeaf: false, urgent: planetDueToday },
     ];
     const branches = 2 + (index % 4);
     for (let b = 0; b < branches; b += 1) {
@@ -46,7 +46,7 @@ function makeMockData(topicId: string, planetCount: number) {
       const branchDone = b % 3 === 0;
       nodes.push({
         id: branchId, parentId: id, title: `Branch ${b + 1}`, done: branchDone, isLeaf: false,
-        dueToday: !branchDone && (index + b) % 3 === 0,
+        urgent: !branchDone && (index + b) % 3 === 0,
       });
       const leaves = 2 + ((index + b) % 3);
       for (let l = 0; l < leaves; l += 1) {
@@ -54,13 +54,13 @@ function makeMockData(topicId: string, planetCount: number) {
         const leafDone = (l + b) % 2 === 0;
         nodes.push({
           id: leafId, parentId: branchId, title: `Task ${b + 1}.${l + 1}`, done: leafDone, isLeaf: l % 3 !== 0,
-          dueToday: !leafDone && (l + index) % 3 === 1,
+          urgent: !leafDone && (l + index) % 3 === 1,
         });
         if (l % 3 === 0) {
           for (let g = 0; g < 2; g += 1) {
             nodes.push({
               id: `${leafId}-g${g}`, parentId: leafId, title: `Step ${g + 1}`, done: g === 0, isLeaf: true,
-              dueToday: g === 1 && index % 2 === 0,
+              urgent: g === 1 && index % 2 === 0,
             });
           }
         }

@@ -10,9 +10,10 @@ export type OrbitPlanetInput = {
   childCount: number;
   accent: string; // category colour, from the shared topic palette
   completion: number; // 0..1, leaf completion of the whole branch
-  // Deadline falls on today and the work is not finished. Overrides the status
-  // colour everywhere in the scene: it is the one thing worth spotting first.
-  dueToday: boolean;
+  // Needs attention now: the deadline is today or already past, and the work
+  // is unfinished. Overrides the status colour everywhere in the scene — it is
+  // the one thing worth spotting first.
+  urgent: boolean;
 };
 
 // A task orbiting inside the accretion disk. There are no per-task rings any
@@ -50,8 +51,8 @@ export type TreeTaskInput = {
   title: string;
   done: boolean;
   isLeaf: boolean;
-  // Same rule as OrbitPlanetInput.dueToday, applied at every depth of the tree.
-  dueToday: boolean;
+  // Same rule as OrbitPlanetInput.urgent, applied at every depth of the tree.
+  urgent: boolean;
 };
 
 export type TreeLayoutNode = TreeTaskInput & {

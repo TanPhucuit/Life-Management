@@ -241,11 +241,23 @@ export function KnowledgeTree3D({
     // The tree keeps its own wall clock: growth must not slow down just because
     // the disk simulation does while a body is focused.
     const step = Math.min(delta, 0.05) * 1000;
-    localMs.current += closing ? -step * RETRACT_SPEED : step;
-    if (closing && localMs.current <= 0) {
-      localMs.current = 0;
-      onClosed();
-      return;
+    if (closing) {
+      // A fully-grown tree sits at completionEndsAt, but its SHAPE stopped
+      // changing back at growthEndsAt — everything after that is only the
+      // completion colour climbing inward. Rewinding through that stretch
+      // folds nothing, so it is pure dead time between the click and the tree
+      // visibly starting to retract. Skip straight past it (plus a margin for
+      // the last node's pop and branch fill) so the fold begins at once.
+      const shapeSettledAt = layout.growthEndsAt + NODE_POP_MS + BRANCH_FILL_MS;
+      if (localMs.current > shapeSettledAt) localMs.current = shapeSettledAt;
+      localMs.current -= step * RETRACT_SPEED;
+      if (localMs.current <= 0) {
+        localMs.current = 0;
+        onClosed();
+        return;
+      }
+    } else {
+      localMs.current += step;
     }
     const time = localMs.current;
     group.position.copy(bodyPositionAt(body, clockRef.current.ms, anchor));
@@ -315,11 +327,11 @@ export function KnowledgeTree3D({
       const completed = completeAt !== undefined && time >= completeAt;
       const sinceComplete = completed ? (time - (completeAt as number)) / 420 : 0;
       const flash = completed ? Math.exp(-sinceComplete * sinceComplete * 3) : 0;
-      // Due today wins over the neutral node colour, and is left at full
+      // Urgent wins over the neutral node colour, and is left at full
       // strength rather than dimmed — the whole point is that it stands out
       // from the branch it is buried in. Completing it still takes over, since
       // a finished task is no longer due.
-      if (!completed && node.dueToday) {
+      if (!completed && node.urgent) {
         scratchColor.copy(TODAY_COLOR);
       } else {
         scratchColor.copy(completed ? DONE_COLOR : NODE_COLOR);
@@ -394,7 +406,7 @@ export function KnowledgeTree3D({
           <div
             className="topic-orbit-node-label"
             data-done={node.done ? 'true' : 'false'}
-            data-due-today={!node.done && node.dueToday ? 'true' : 'false'}
+            data-urgent={!node.done && node.urgent ? 'true' : 'false'}
           >
             {node.title}
             {collapsedIds.has(node.id) && <span className="topic-orbit-node-folded">+{(childrenOf.get(node.id) || []).length}</span>}
