@@ -35,6 +35,12 @@ type DirectManipulation = {
   current: FieldPosition;
 };
 
+// How long a connector takes to draw itself from child toward parent, in ms.
+// The subtree-reveal in TaskManager staggers each step by this same figure so
+// a node pops exactly as its incoming connector finishes drawing, so both read
+// it from here — change it in one place and the two stay in step.
+export const EDGE_DRAW_MS = 620;
+
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
 
 const deterministicAngle = (id: string) => {
@@ -114,7 +120,7 @@ export class ElasticTopologyField {
       const isNewForward = !reverse && !collection.has(key);
       collection.set(key, element);
       if (isNewForward) {
-        this.edgeReveal.set(key, { progress: 0, rate: 16.67 / 1150 });
+        this.edgeReveal.set(key, { progress: 0, rate: 16.67 / EDGE_DRAW_MS });
         this.quietFrames = 0;
         this.start();
       }
@@ -128,7 +134,7 @@ export class ElasticTopologyField {
 
   // Start (or restart) drawing a forward connector from its child end toward
   // the parent over `duration` ms. Safe to call the moment the path mounts.
-  revealEdge(key: string, duration = 1150) {
+  revealEdge(key: string, duration = EDGE_DRAW_MS) {
     this.edgeReveal.set(key, { progress: 0, rate: 16.67 / duration });
     this.quietFrames = 0;
     this.renderEdge(key);

@@ -33,7 +33,7 @@ import { api, ApiTask, ApiTaskStatus, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
 import TaskTableView from './TaskTableView';
-import { ElasticTopologyField } from './task-network/ElasticTopologyField';
+import { EDGE_DRAW_MS, ElasticTopologyField } from './task-network/ElasticTopologyField';
 import type { OrbitPlanetInput, TreeTaskInput } from './topic-orbit/types';
 import { SemanticDiveDirection, SemanticDiveDirector, SemanticDivePhase } from './task-network/SemanticDiveDirector';
 import { SidebarChromeContext } from './desktop-v2/DesktopShell';
@@ -2836,16 +2836,16 @@ function DesktopTaskNetworkCanvas({
       setBranchPendingCompletionIds((current) => new Set([...current, ...completionPendingIds]));
     }
 
-    // edgeTravelDuration matches the 1.15s pathLength draw so the child node
-    // pops the moment its incoming connector finishes being drawn from parent.
-    // "Duyệt cây" itself always stays sequential/DFS, one connector at a time —
-    // the parallel/simultaneous fade-in only applies to the OTHER level-1
-    // siblings still attached to the topic (handled separately, see the
-    // sibling-reveal effect in reconstructTaskBranch), never to this node's
-    // own descendants.
-    const edgeTravelDuration = 1150;
-    const nodeRevealDuration = 360;
-    let cursor = 160;
+    // edgeTravelDuration matches the connector's own stroke-draw (EDGE_DRAW_MS)
+    // so the child node pops the moment its incoming connector finishes being
+    // drawn from parent. "Duyệt cây" itself always stays sequential/DFS, one
+    // connector at a time — the parallel/simultaneous fade-in only applies to
+    // the OTHER level-1 siblings still attached to the topic (handled
+    // separately, see the sibling-reveal effect in reconstructTaskBranch),
+    // never to this node's own descendants.
+    const edgeTravelDuration = EDGE_DRAW_MS;
+    const nodeRevealDuration = 220;
+    let cursor = 100;
 
     steps.forEach((step) => {
       const previousEdgeTimer = edgeRevealTimersRef.current.get(step.edgeKey);
