@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   Circle,
+  Copy,
   Folder,
   FolderPlus,
   GitBranch,
@@ -1303,17 +1304,91 @@ export default function TaskManager({
     }
   };
 
+  // Every id in a task's subtree, itself included — used to remove the whole
+  // branch from local state in one pass.
+  const collectSubtreeIds = useCallback((rootId: string) => {
+    const ids = new Set<string>();
+    const walk = (id: string) => {
+      if (ids.has(id)) return;
+      ids.add(id);
+      (childrenByParent.get(id) || []).forEach((child) => walk(child.id));
+    };
+    walk(rootId);
+    return ids;
+  }, [childrenByParent]);
+
   const handleArchiveTask = async (taskId: string) => {
     if (!window.confirm('Archive this task and its subtree?')) return;
+    setTaskContextMenu(null);
+    setIsTaskDetailsOpen(false);
+
+    // Remove the branch from local state IMMEDIATELY and reconcile with the
+    // server in the background. The old path awaited api.deleteTask and then
+    // loadData(), which refetched everything and replaced the whole task
+    // array — the network tore itself down and rebuilt, re-running the reveal
+    // and dropping connectors mid-flight. An optimistic local removal instead
+    // just lets the deleted nodes fade out while everything else stays exactly
+    // where it is.
+    const removed = collectSubtreeIds(taskId);
+    const snapshot = tasks;
+    setTasks((current) => current.filter((task) => !removed.has(task.id)));
+    setSelectedTaskId((current) => (current && removed.has(current) ? null : current));
 
     try {
       await api.deleteTask(taskId);
-      setSelectedTaskId((current) => (current === taskId ? null : current));
-      setTaskContextMenu(null);
-      setIsTaskDetailsOpen(false);
-      await loadData();
     } catch (error) {
+      // Put the branch back if the server rejected it.
+      setTasks(snapshot);
       setErrorMessage(error instanceof Error ? error.message : 'Could not archive the task.');
+    }
+  };
+
+  // Deep-copy a task and its whole subtree, inserting the copy as a SIBLING of
+  // the original (same parent, appended after it). The subtree is created
+  // parent-first so every child can reference the id its new parent was just
+  // given. The new rows are added to local state so the copy grows in with the
+  // ordinary enter animation rather than a full reload.
+  const handleDuplicateTask = async (taskId: string) => {
+    if (!user?.id) return;
+    const userId = user.id;
+    const source = taskById.get(taskId);
+    if (!source) return;
+    setTaskContextMenu(null);
+    const topicId = source.topic_id;
+    const newRows: ApiTask[] = [];
+
+    const duplicate = async (task: ApiTask, parentId: string | null, isRoot: boolean): Promise<void> => {
+      const created = await api.createTask({
+        userId,
+        topicId,
+        parentTaskId: parentId,
+        title: isRoot ? `${task.title} (copy)` : task.title,
+        description: task.description || undefined,
+        startDate: task.start_date || undefined,
+        deadline: task.deadline || undefined,
+        taskColor: task.task_color ?? undefined,
+        taskColorStart: task.task_color_start ?? undefined,
+        taskColorEnd: task.task_color_end ?? undefined,
+      });
+      newRows.push(created);
+      const children = (childrenByParent.get(task.id) || [])
+        .filter((child) => child.topic_id === topicId)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      for (const child of children) {
+        // Sequential on purpose: a child cannot be created until its parent's
+        // real id exists.
+        await duplicate(child, created.id, false);
+      }
+    };
+
+    try {
+      await duplicate(source, source.parent_task_id ?? null, true);
+      setTasks((current) => [...current, ...newRows]);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not duplicate the branch.');
+      // Partial creation may have happened server-side; resync so local state
+      // matches. Only on this error path — the happy path never reloads.
+      await loadData();
     }
   };
 
@@ -1792,6 +1867,15 @@ export default function TaskManager({
           >
             <Pencil className="h-4 w-4" />
             Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => { const taskId = taskContextMenu.taskId; void handleDuplicateTask(taskId); }}
+            className={`flex w-full items-center gap-2 px-3 py-2 text-left ${isDesktopCinematic ? 'text-slate-200 hover:bg-white/10 hover:text-white' : 'text-slate-700 hover:bg-slate-50'}`}
+            role="menuitem"
+          >
+            <Copy className="h-4 w-4" />
+            Duplicate branch
           </button>
           <button
             type="button"
@@ -2809,19 +2893,24 @@ function DesktopTaskNetworkCanvas({
   // screen (ancestors, siblings, cousins, previously-settled nodes) is never
   // touched, so it never disappears while this subtree grows in.
   const startBranchReveal = (rootId: string, onDone?: () => void) => {
-    const steps: Array<{ from: string; to: string; edgeKey: string }> = [];
+    // Each step carries its DEPTH below the clicked root (root's own children
+    // are depth 1). Reveal is staggered by depth, NOT by DFS order: every
+    // connector at the same depth is drawn at the same moment, so all of a
+    // node's branches grow together and one branch never waits for another
+    // branch's whole subtree to finish first.
+    const steps: Array<{ from: string; to: string; edgeKey: string; depth: number }> = [];
     const seen = new Set<string>([rootId]);
-    const visit = (parentId: string) => {
+    const visit = (parentId: string, depth: number) => {
       (childrenByParent.get(parentId) || [])
         .filter((child) => child.topic_id === selectedTopicId && visibleTaskIds.has(child.id))
         .forEach((child) => {
           if (seen.has(child.id)) return;
           seen.add(child.id);
-          steps.push({ from: parentId, to: child.id, edgeKey: `${parentId}:${child.id}` });
-          visit(child.id);
+          steps.push({ from: parentId, to: child.id, edgeKey: `${parentId}:${child.id}`, depth });
+          visit(child.id, depth + 1);
         });
     };
-    visit(rootId);
+    visit(rootId, 1);
     if (!steps.length) {
       onDone?.();
       return;
@@ -2836,18 +2925,17 @@ function DesktopTaskNetworkCanvas({
       setBranchPendingCompletionIds((current) => new Set([...current, ...completionPendingIds]));
     }
 
-    // edgeTravelDuration matches the connector's own stroke-draw (EDGE_DRAW_MS)
-    // so the child node pops the moment its incoming connector finishes being
-    // drawn from parent. "Duyệt cây" itself always stays sequential/DFS, one
-    // connector at a time — the parallel/simultaneous fade-in only applies to
-    // the OTHER level-1 siblings still attached to the topic (handled
-    // separately, see the sibling-reveal effect in reconstructTaskBranch),
-    // never to this node's own descendants.
-    const edgeTravelDuration = EDGE_DRAW_MS;
-    const nodeRevealDuration = 220;
-    let cursor = 100;
+    // One depth level per EDGE_DRAW_MS. A level's connectors all start drawing
+    // together; each node pops as its connector finishes (EDGE_DRAW_MS later),
+    // which is exactly when the next level's connectors begin — so the tree
+    // grows outward ring by ring, every branch in lockstep, at the connector's
+    // own cinematic draw speed.
+    const baseDelay = 90;
+    const edgeStart = (depth: number) => baseDelay + (depth - 1) * EDGE_DRAW_MS;
 
+    let maxDepth = 1;
     steps.forEach((step) => {
+      maxDepth = Math.max(maxDepth, step.depth);
       const previousEdgeTimer = edgeRevealTimersRef.current.get(step.edgeKey);
       if (previousEdgeTimer !== undefined) window.clearTimeout(previousEdgeTimer);
       const edgeTimer = window.setTimeout(() => {
@@ -2858,9 +2946,8 @@ function DesktopTaskNetworkCanvas({
           next.delete(step.edgeKey);
           return next;
         });
-      }, cursor);
+      }, edgeStart(step.depth));
       edgeRevealTimersRef.current.set(step.edgeKey, edgeTimer);
-      cursor += edgeTravelDuration;
 
       const previousNodeTimer = nodeRevealTimersRef.current.get(step.to);
       if (previousNodeTimer !== undefined) window.clearTimeout(previousNodeTimer);
@@ -2872,9 +2959,8 @@ function DesktopTaskNetworkCanvas({
           next.delete(step.to);
           return next;
         });
-      }, cursor);
+      }, edgeStart(step.depth) + EDGE_DRAW_MS);
       nodeRevealTimersRef.current.set(step.to, nodeTimer);
-      cursor += nodeRevealDuration;
     });
 
     const doneTimer = window.setTimeout(() => {
@@ -2884,7 +2970,7 @@ function DesktopTaskNetworkCanvas({
         return next;
       });
       onDone?.();
-    }, cursor + 120);
+    }, baseDelay + maxDepth * EDGE_DRAW_MS + 120);
     branchStoryTimersRef.current.push(doneTimer);
   };
   layoutPositionsRef.current = network.logicalPositions;

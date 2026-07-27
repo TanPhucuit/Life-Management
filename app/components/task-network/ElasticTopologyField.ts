@@ -36,10 +36,10 @@ type DirectManipulation = {
 };
 
 // How long a connector takes to draw itself from child toward parent, in ms.
-// The subtree-reveal in TaskManager staggers each step by this same figure so
-// a node pops exactly as its incoming connector finishes drawing, so both read
-// it from here — change it in one place and the two stay in step.
-export const EDGE_DRAW_MS = 620;
+// The subtree-reveal in TaskManager advances one DEPTH LEVEL per this figure —
+// every connector at the same depth is drawn at once, and a node pops exactly
+// as its incoming connector finishes — so both read it from here.
+export const EDGE_DRAW_MS = 1150;
 
 const clamp = (value: number, minimum: number, maximum: number) => Math.min(maximum, Math.max(minimum, value));
 
