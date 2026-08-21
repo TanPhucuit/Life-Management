@@ -34,6 +34,7 @@ import { api, ApiTask, ApiTaskStatus, ApiTopic } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
 import TaskTableView from './TaskTableView';
+import CalendarWeekView, { type CalendarUpdate } from './CalendarWeekView';
 import { EDGE_DRAW_MS, ElasticTopologyField } from './task-network/ElasticTopologyField';
 import type { OrbitPlanetInput, TreeTaskInput } from './topic-orbit/types';
 import { SemanticDiveDirection, SemanticDiveDirector, SemanticDivePhase } from './task-network/SemanticDiveDirector';
@@ -91,7 +92,7 @@ type NetworkDragState =
       originOffset: NodePosition;
       originCustomPositions: Record<string, NodePosition>;
     };
-export type TaskWorkspaceView = 'tree' | 'table' | 'orbit';
+export type TaskWorkspaceView = 'tree' | 'table' | 'orbit' | 'calendar';
 export type TaskWorkspaceVariant = 'legacy' | 'desktop-cinematic';
 type TreeMotionMode = 'cinematic' | 'balanced' | 'minimal';
 type CompletionReplayPhase = 'idle' | 'primed' | 'playing';
@@ -1413,6 +1414,38 @@ export default function TaskManager({
     return flattened;
   }, [childrenByParent, selectedTopicId, taskById]);
 
+  // Calendar edits are optimistic so a drag or resize lands instantly; the
+  // authoritative reload follows, and reverts on failure.
+  const handleCalendarUpdate = useCallback(async (id: string, patch: CalendarUpdate) => {
+    setTasks((current) => current.map((task) => task.id === id
+      ? {
+          ...task,
+          ...(patch.startDate !== undefined ? { start_date: patch.startDate } : {}),
+          ...(patch.deadline !== undefined ? { deadline: patch.deadline } : {}),
+          ...(patch.taskColor !== undefined ? { task_color: patch.taskColor } : {}),
+        }
+      : task));
+    try {
+      await api.updateTask({ id, ...patch });
+      await loadData();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not update the task.');
+      await loadData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCalendarCreate = useCallback(async (input: { topicId: string; title: string; deadline?: string; startDate?: string; taskColor?: string }) => {
+    if (!user?.id) return;
+    try {
+      await api.createTask({ userId: user.id, parentTaskId: null, ...input });
+      await loadData();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Could not create the task.');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
   return (
     <div
       className={`premium-card overflow-visible text-slate-950 lg:min-h-[calc(100vh-140px)] lg:overflow-hidden ${isDesktopCinematic ? 'experience-v2 desktop-task-workspace rounded-[28px] border-slate-200/80 bg-white/95 shadow-[0_24px_80px_rgba(15,23,42,.12)]' : ''}`}
@@ -1507,6 +1540,26 @@ export default function TaskManager({
                     <Orbit className="relative h-3.5 w-3.5" />
                     <span className="relative">3D tree</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceView('calendar')}
+                    aria-pressed={workspaceView === 'calendar'}
+                    className={`relative isolate inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs font-semibold transition ${
+                      isDesktopCinematic
+                        ? workspaceView === 'calendar' ? 'text-slate-950' : 'text-slate-500 hover:text-slate-900'
+                        : workspaceView === 'calendar' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    {isDesktopCinematic && workspaceView === 'calendar' && (
+                      <motion.span
+                        layoutId={reducedMotion ? undefined : 'desktop-task-workspace-view'}
+                        className="absolute inset-0 -z-10 rounded bg-white shadow-sm"
+                        transition={reducedMotion ? { duration: 0 } : { type: 'spring', stiffness: 380, damping: 34 }}
+                      />
+                    )}
+                    <CalendarDays className="relative h-3.5 w-3.5" />
+                    <span className="relative">Lịch</span>
+                  </button>
                 </div>
               </div>
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center xl:flex-nowrap">
@@ -1550,7 +1603,17 @@ export default function TaskManager({
           </header>
 
           <WorkspaceViewTransition enabled={isDesktopCinematic && !reducedMotion} view={workspaceView}>
-          {workspaceView === 'orbit' ? (
+          {workspaceView === 'calendar' ? (
+            <CalendarWeekView
+              tasks={tasks}
+              topics={topics}
+              userId={user?.id || ''}
+              onUpdateTask={handleCalendarUpdate}
+              onCreateTask={handleCalendarCreate}
+              onToggleTask={handleToggleLeaf}
+              onOpenTask={openTaskDetails}
+            />
+          ) : workspaceView === 'orbit' ? (
             <TopicOrbitView
               topicName={selectedRootTopic?.name || 'No topic selected'}
               topicAccent={getTopicColorByName(selectedRootTopic?.topic_color, 0).text}
