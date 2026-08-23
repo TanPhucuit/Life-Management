@@ -109,18 +109,15 @@ export const useFocusTimerStore = create<TimerStore>((set, get) => ({
     set({ timer: null });
     writeCache(userId, null);
     try {
-      // A start immediately followed by a stop isn't a real focus session.
-      if (elapsedMs >= 3000) {
-        const startDate = new Date(current.startedAtMs);
-        await api.createSession({
-          userId,
-          taskId: current.taskId,
-          startTime: toLocalStamp(startDate),
-          endTime: toLocalStamp(now),
-          sessionDate: toLocalDate(startDate),
-          focusedMinutes: Math.max(1, Math.round(elapsedMs / 60000)),
-        });
-      }
+      const startDate = new Date(current.startedAtMs);
+      await api.createSession({
+        userId,
+        taskId: current.taskId,
+        startTime: toLocalStamp(startDate),
+        endTime: toLocalStamp(now),
+        sessionDate: toLocalDate(startDate),
+        focusedMinutes: Math.max(1, Math.round(elapsedMs / 60000)),
+      });
       await api.stopTimer(userId);
     } catch (error) {
       set({ error: error instanceof Error ? error.message : 'Could not save the focus session.' });

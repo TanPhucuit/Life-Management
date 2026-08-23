@@ -19,7 +19,7 @@ import {
   YAxis,
 } from 'recharts';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { api, ApiCycleTick, ApiDate } from '@/app/lib/api';
+import { api, ApiCycleTick, ApiDate, ApiSession } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 
 type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success' | 'cycle_ticks';
@@ -47,6 +47,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const [analyticsView, setAnalyticsView] = useState<AnalyticsView>('month_overview');
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [allDates, setAllDates] = useState<ApiDate[]>([]);
+  const [focusSessions, setFocusSessions] = useState<ApiSession[]>([]);
   const [cycleTicks, setCycleTicks] = useState<ApiCycleTick[]>([]);
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -69,6 +70,22 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   useEffect(() => {
     if (!user?.id) return;
 
+    const loadFocusSessions = async () => {
+      try {
+        setErrorMessage('');
+        const rows = await api.getSessions(user.id, { month: currentMonth, year: currentYear });
+        setFocusSessions(rows);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Could not load focus sessions.');
+      }
+    };
+
+    void loadFocusSessions();
+  }, [currentMonth, currentYear, user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
     const loadCycleTicks = async () => {
       try {
         setErrorMessage('');
@@ -85,12 +102,23 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const studyHoursByDate = useMemo(() => {
     const hoursByDate: Record<string, number> = {};
     allDates.forEach((date) => {
+      if (date.year !== currentYear || date.month !== currentMonth) return;
       const dateKey = formatDateKey(date.year, date.month, date.day);
       const minutes = Number(date.focused_minutes) || 0;
       hoursByDate[dateKey] = (hoursByDate[dateKey] || 0) + minutes / 60;
     });
+    focusSessions.forEach((session) => {
+      const dateKey = normalizeSessionDate(session.session_date);
+      if (!dateKey) return;
+      const minutes = getSessionFocusedMinutes(session);
+      hoursByDate[dateKey] = (hoursByDate[dateKey] || 0) + minutes / 60;
+    });
     return hoursByDate;
-  }, [allDates]);
+  }, [allDates, currentMonth, currentYear, focusSessions]);
+
+  const focusSessionDays = useMemo(() => {
+    return new Set(focusSessions.map((session) => normalizeSessionDate(session.session_date)).filter(Boolean));
+  }, [focusSessions]);
 
   const weeksCount = getWeeksInMonth(currentMonth, currentYear);
 
@@ -135,14 +163,14 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     return days.map((day) => {
       cumulativeSum += studyHoursByDate[day.date] || 0;
       const dayOfWeek = new Date(day.year, day.month - 1, day.day).getDay();
-      const shouldShowValue = allDates.some((date) => date.year === day.year && date.month === day.month && date.day === day.day) && !isFutureDate(day.day, day.month, day.year);
+      const shouldShowValue = (allDates.some((date) => date.year === day.year && date.month === day.month && date.day === day.day) || focusSessionDays.has(day.date)) && !isFutureDate(day.day, day.month, day.year);
 
       return {
         name: `${dayNames[dayOfWeek]} ${day.day}`,
         value: shouldShowValue ? roundOneDecimal(cumulativeSum) : null,
       };
     });
-  }, [allDates, currentMonth, currentYear, selectedWeek, studyHoursByDate]);
+  }, [allDates, currentMonth, currentYear, focusSessionDays, selectedWeek, studyHoursByDate]);
 
   const kosTrend = useMemo(() => {
     const monthData = allDates.filter((date) => date.year === currentYear && date.month === currentMonth);
@@ -187,8 +215,12 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   }, [cycleTicks, currentMonth, currentYear]);
 
   const monthlyTotalHours = weeklyData.reduce((sum, week) => sum + week.hours, 0);
+  const monthlyFocusSessionCount = focusSessions.length;
   const monthlyCycleCount = cycleTicks.filter((tick) => tick.is_checked).length;
-  const monthlyRecordCount = allDates.filter((date) => date.year === currentYear && date.month === currentMonth).length;
+  const monthlyRecordCount = new Set([
+    ...allDates.filter((date) => date.year === currentYear && date.month === currentMonth).map((date) => formatDateKey(date.year, date.month, date.day)),
+    ...Array.from(focusSessionDays),
+  ]).size;
   const monthlyKosTotal = allDates
     .filter((date) => date.year === currentYear && date.month === currentMonth)
     .reduce((sum, date) => sum + (Number(date.key_of_success) || 0), 0);
@@ -223,7 +255,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         errorMessage={errorMessage}
         kosDistribution={kosDistribution}
         kosTrend={kosTrend}
-        monthlyCycleCount={monthlyCycleCount}
+        monthlyFocusSessionCount={monthlyFocusSessionCount}
         monthlyKosTotal={monthlyKosTotal}
         monthlyRecordCount={monthlyRecordCount}
         monthlyTotalHours={monthlyTotalHours}
@@ -277,9 +309,9 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
 
       <section className="grid grid-cols-1 gap-3 md:grid-cols-4">
         <MetricCard label="Study hours" value={`${roundOneDecimal(monthlyTotalHours)}h`} />
+        <MetricCard label="Focus sessions" value={monthlyFocusSessionCount} />
         <MetricCard label="Tracked days" value={monthlyRecordCount} />
         <MetricCard label="Success keys" value={monthlyKosTotal} />
-        <MetricCard label="Cycle blocks" value={monthlyCycleCount} />
       </section>
 
       <section className="glass-panel rounded-2xl p-2">
@@ -469,7 +501,7 @@ interface DesktopCinematicAnalyticsProps {
   errorMessage: string;
   kosDistribution: Array<{ name: string; value: number; color: string }>;
   kosTrend: ChartPoint[];
-  monthlyCycleCount: number;
+  monthlyFocusSessionCount: number;
   monthlyKosTotal: number;
   monthlyRecordCount: number;
   monthlyTotalHours: number;
@@ -510,7 +542,7 @@ function DesktopCinematicAnalytics({
   errorMessage,
   kosDistribution,
   kosTrend,
-  monthlyCycleCount,
+  monthlyFocusSessionCount,
   monthlyKosTotal,
   monthlyRecordCount,
   monthlyTotalHours,
@@ -585,9 +617,9 @@ function DesktopCinematicAnalytics({
 
       <section className="grid grid-cols-4 gap-4" aria-label="Monthly summary">
         <CinematicMetric index={0} label="Study hours" value={`${roundOneDecimal(monthlyTotalHours)}h`} reducedMotion={reducedMotion} />
-        <CinematicMetric index={1} label="Tracked days" value={String(monthlyRecordCount)} reducedMotion={reducedMotion} />
-        <CinematicMetric index={2} label="Success keys" value={String(monthlyKosTotal)} reducedMotion={reducedMotion} />
-        <CinematicMetric index={3} label="Cycle blocks" value={String(monthlyCycleCount)} reducedMotion={reducedMotion} />
+        <CinematicMetric index={1} label="Focus sessions" value={String(monthlyFocusSessionCount)} reducedMotion={reducedMotion} />
+        <CinematicMetric index={2} label="Tracked days" value={String(monthlyRecordCount)} reducedMotion={reducedMotion} />
+        <CinematicMetric index={3} label="Success keys" value={String(monthlyKosTotal)} reducedMotion={reducedMotion} />
       </section>
 
       <nav className="grid grid-cols-5 gap-2 rounded-[24px] border border-[var(--border)] bg-[var(--glass)] p-2 shadow-[var(--shadow-sm)] backdrop-blur-xl" aria-label="Analytics views" role="tablist">
@@ -811,6 +843,21 @@ function CinematicChartPanel({ title, children, reducedMotion }: { title: string
 
 function formatDateKey(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function normalizeSessionDate(value?: string | null) {
+  if (!value) return '';
+  return value.slice(0, 10);
+}
+
+function getSessionFocusedMinutes(session: ApiSession) {
+  const storedMinutes = Number(session.focused_minutes);
+  if (Number.isFinite(storedMinutes) && storedMinutes > 0) return storedMinutes;
+
+  const startMs = new Date(session.start_time).getTime();
+  const endMs = new Date(session.end_time).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  return Math.max(1, Math.round((endMs - startMs) / 60000));
 }
 
 function roundOneDecimal(value: number) {
