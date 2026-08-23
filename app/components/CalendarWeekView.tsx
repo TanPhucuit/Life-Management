@@ -1,76 +1,61 @@
 'use client';
 
-import { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Check, ChevronLeft, ChevronRight, Circle, Palette, Plus, Search, X } from 'lucide-react';
+import { PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Palette, Plus, Search, X } from 'lucide-react';
 import { ApiTask, ApiTopic } from '@/app/lib/api';
 import { getTopicColorByName } from '@/app/lib/topicColors';
 import { CALENDAR_COLORS, CALENDAR_DONE_HEX, contrastText, resolveCalendarColor } from '@/app/lib/calendarColors';
 import { CalendarEvent, loadEvents, newEventId, saveEvents } from '@/app/lib/calendarEvents';
 
 const DAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-const LANE_HEIGHT = 30;
-const LANE_TOP = 8;
-const CELL_MIN_HEIGHT = 520;
+const HOUR_HEIGHT = 48; // px per hour — Google Calendar's default density
+const GUTTER = 56; // time-axis width
+const SNAP_MIN = 15; // drag/resize snap
+const MIN_EVENT_MIN = 30; // shortest a timed block can be
+const DAY_MINUTES = 24 * 60;
 
 // ---- date helpers ---------------------------------------------------------
 const pad = (n: number) => String(n).padStart(2, '0');
 const toYMD = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-const fromYMD = (ymd: string) => {
-  const [y, m, d] = ymd.split('-').map(Number);
-  return new Date(y, m - 1, d);
-};
-const addDays = (ymd: string, days: number) => {
-  const date = fromYMD(ymd);
-  date.setDate(date.getDate() + days);
-  return toYMD(date);
-};
+const fromYMD = (ymd: string) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(y, m - 1, d); };
+const addDays = (ymd: string, days: number) => { const date = fromYMD(ymd); date.setDate(date.getDate() + days); return toYMD(date); };
 const dayDiff = (a: string, b: string) => Math.round((fromYMD(a).getTime() - fromYMD(b).getTime()) / 86400000);
-// A Postgres TIMESTAMP comes back date-first, so the calendar day is the first
-// ten characters — reading it that way avoids any timezone day-shift.
-const ymdFromTimestamp = (value?: string | null): string | null => {
+
+// A task timestamp → its local day and minute-of-day. Postgres TIMESTAMP has no
+// zone; JS parses 'YYYY-MM-DDTHH:MM:SS' as local, which is what we want.
+const parseStamp = (value?: string | null): { ymd: string; min: number } | null => {
   if (!value) return null;
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : toYMD(date);
+  const date = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
+  if (Number.isNaN(date.getTime())) return null;
+  return { ymd: toYMD(date), min: date.getHours() * 60 + date.getMinutes() };
 };
-// Written back at local noon so it never lands on the previous day.
-const timestampFor = (ymd: string) => `${ymd}T12:00:00`;
+const stampFor = (ymd: string, min: number) => `${ymd}T${pad(Math.floor(min / 60))}:${pad(min % 60)}:00`;
+const snap = (min: number) => Math.round(min / SNAP_MIN) * SNAP_MIN;
+const fmtTime = (min: number) => `${pad(Math.floor(min / 60) % 24)}:${pad(min % 60)}`;
 
 const startOfWeekMonday = (date: Date) => {
   const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const weekday = (copy.getDay() + 6) % 7; // 0 = Monday
-  copy.setDate(copy.getDate() - weekday);
+  copy.setDate(copy.getDate() - ((copy.getDay() + 6) % 7));
   return copy;
 };
 
 const isTaskDone = (task: ApiTask) => (task.effective_status !== undefined ? task.effective_status : task.status) === 'completed';
 
-type ScheduledItem = {
-  id: string;
-  kind: 'task' | 'event';
-  title: string;
-  startYMD: string;
-  endYMD: string;
-  color: string;
-  done: boolean;
-  task?: ApiTask;
-  event?: CalendarEvent;
+type Timed = {
+  id: string; kind: 'task' | 'event'; title: string; ymd: string;
+  startMin: number; endMin: number; color: string; done: boolean;
+  task?: ApiTask; event?: CalendarEvent;
+};
+type AllDay = {
+  id: string; kind: 'task' | 'event'; title: string; startYMD: string; endYMD: string;
+  color: string; done: boolean; task?: ApiTask; event?: CalendarEvent;
 };
 
-type Lane = ScheduledItem & { startCol: number; span: number; lane: number };
-
-type DragPayload = { kind: 'task' | 'event'; id: string; span: number };
-
+type DragPayload = { kind: 'task' | 'event'; id: string; durMin: number };
 export type CalendarUpdate = { startDate?: string | null; deadline?: string | null; taskColor?: string | null };
 
 export default function CalendarWeekView({
-  tasks,
-  topics,
-  userId,
-  onUpdateTask,
-  onCreateTask,
-  onToggleTask,
-  onOpenTask,
+  tasks, topics, userId, onUpdateTask, onCreateTask, onToggleTask, onOpenTask,
 }: {
   tasks: ApiTask[];
   topics: ApiTopic[];
@@ -83,25 +68,29 @@ export default function CalendarWeekView({
   const [anchor, setAnchor] = useState(() => startOfWeekMonday(new Date()));
   const [sidebarTopicId, setSidebarTopicId] = useState('');
   const [sidebarSearch, setSidebarSearch] = useState('');
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [colorPickerId, setColorPickerId] = useState<string | null>(null);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; ymd: string } | null>(null);
-  const [composer, setComposer] = useState<{ mode: 'task' | 'event'; ymd: string; x: number; y: number } | null>(null);
-  // Live overrides while dragging a resize handle, so the bar tracks the cursor
-  // before the change is committed.
-  const [resizeOverride, setResizeOverride] = useState<{ id: string; endYMD: string } | null>(null);
-  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; ymd: string; min: number | null } | null>(null);
+  const [composer, setComposer] = useState<{ mode: 'task' | 'event'; ymd: string; min: number | null; x: number; y: number } | null>(null);
+  // Live gesture state so a drag/resize tracks the cursor before it commits.
+  const [drag, setDrag] = useState<{ id: string; ymd: string; startMin: number; endMin: number } | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  const columnsRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => { setEvents(loadEvents(userId)); }, [userId]);
-  useEffect(() => {
-    if (!sidebarTopicId && topics.length) setSidebarTopicId(topics[0].id);
-  }, [sidebarTopicId, topics]);
+  useEffect(() => { if (!sidebarTopicId && topics.length) setSidebarTopicId(topics[0].id); }, [sidebarTopicId, topics]);
+  useEffect(() => { setExpandedIds(new Set()); }, [sidebarTopicId]);
   useEffect(() => {
     const close = () => { setContextMenu(null); setColorPickerId(null); };
     window.addEventListener('click', close);
-    window.addEventListener('scroll', close, true);
-    return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); };
+    return () => window.removeEventListener('click', close);
   }, []);
+  // Move the red "now" line each minute.
+  useEffect(() => { const id = window.setInterval(() => setNow(new Date()), 60000); return () => window.clearInterval(id); }, []);
+  // Open on the working day, like Google Calendar.
+  useLayoutEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 7 * HOUR_HEIGHT; }, []);
 
   const persistEvents = (next: CalendarEvent[]) => { setEvents(next); saveEvents(userId, next); };
 
@@ -109,64 +98,225 @@ export default function CalendarWeekView({
   const topicIndex = useMemo(() => new Map(topics.map((t, i) => [t.id, i])), [topics]);
 
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => {
-    const date = new Date(anchor);
-    date.setDate(anchor.getDate() + i);
-    return date;
+    const date = new Date(anchor); date.setDate(anchor.getDate() + i); return date;
   }), [anchor]);
   const weekStartYMD = toYMD(weekDays[0]);
   const weekEndYMD = toYMD(weekDays[6]);
-  const todayYMD = toYMD(new Date());
+  const todayYMD = toYMD(now);
 
-  // Every task that carries a date becomes a bar; the rest stay in the sidebar.
-  const scheduledItems = useMemo<ScheduledItem[]>(() => {
-    const items: ScheduledItem[] = [];
+  const colorFor = (task: ApiTask, done: boolean) => {
+    if (done) return CALENDAR_DONE_HEX;
+    const topicColor = getTopicColorByName(topicById.get(task.topic_id)?.topic_color, topicIndex.get(task.topic_id) || 0).text;
+    return resolveCalendarColor(task.task_color, topicColor);
+  };
+
+  // Split every dated task/event into a timed block (same-day, has a time) or
+  // an all-day bar (date-only, or spanning more than one day) — exactly the two
+  // regions Google Calendar draws.
+  const { timed, allDay } = useMemo(() => {
+    const timedList: Timed[] = [];
+    const allDayList: AllDay[] = [];
+    const consider = (
+      id: string, kind: 'task' | 'event', title: string, color: string, done: boolean,
+      start: { ymd: string; min: number } | null, end: { ymd: string; min: number } | null,
+      task?: ApiTask, event?: CalendarEvent,
+    ) => {
+      const s = start || end;
+      const e = end || start;
+      if (!s || !e) return;
+      const multiDay = s.ymd !== e.ymd;
+      const midnightOnly = s.min === 0 && e.min === 0;
+      if (multiDay || midnightOnly) {
+        allDayList.push({ id, kind, title, startYMD: s.ymd, endYMD: dayDiff(e.ymd, s.ymd) < 0 ? s.ymd : e.ymd, color, done, task, event });
+      } else {
+        const startMin = s.min;
+        const endMin = Math.max(startMin + MIN_EVENT_MIN, end && end.ymd === s.ymd ? end.min : startMin + 60);
+        timedList.push({ id, kind, title, ymd: s.ymd, startMin, endMin: Math.min(DAY_MINUTES, endMin), color, done, task, event });
+      }
+    };
     tasks.forEach((task) => {
-      const start = ymdFromTimestamp(task.start_date);
-      const end = ymdFromTimestamp(task.deadline);
+      const start = parseStamp(task.start_date);
+      const end = parseStamp(task.deadline);
       if (!start && !end) return;
-      const startYMD = start || (end as string);
-      let endYMD = end || (start as string);
-      if (dayDiff(endYMD, startYMD) < 0) endYMD = startYMD;
-      const done = isTaskDone(task);
-      const topicColor = getTopicColorByName(topicById.get(task.topic_id)?.topic_color, topicIndex.get(task.topic_id) || 0).text;
-      items.push({
-        id: task.id,
-        kind: 'task',
-        title: task.title,
-        startYMD,
-        endYMD,
-        done,
-        color: done ? CALENDAR_DONE_HEX : resolveCalendarColor(task.task_color, topicColor),
-        task,
-      });
+      consider(task.id, 'task', task.title, colorFor(task, isTaskDone(task)), isTaskDone(task), start, end, task);
     });
-    events.forEach((event) => {
-      items.push({
-        id: event.id,
-        kind: 'event',
-        title: event.title,
-        startYMD: event.start,
-        endYMD: dayDiff(event.end, event.start) < 0 ? event.start : event.end,
-        done: event.done,
-        color: event.done ? CALENDAR_DONE_HEX : resolveCalendarColor(event.color, '#616161'),
-        event,
-      });
+    events.forEach((evt) => {
+      consider(evt.id, 'event', evt.title, evt.done ? CALENDAR_DONE_HEX : resolveCalendarColor(evt.color, '#616161'), evt.done,
+        parseStamp(evt.start), parseStamp(evt.end), undefined, evt);
     });
-    return items;
+    return { timed: timedList, allDay: allDayList };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, tasks, topicById, topicIndex]);
 
-  // Clip to the visible week and pack into non-overlapping lanes.
-  const lanes = useMemo<Lane[]>(() => {
-    const visible = scheduledItems
+  // ---- sidebar hierarchy --------------------------------------------------
+  const scheduledIds = useMemo(() => {
+    const set = new Set<string>();
+    timed.forEach((t) => set.add(t.id));
+    allDay.forEach((a) => set.add(a.id));
+    return set;
+  }, [allDay, timed]);
+
+  const childrenOf = useMemo(() => {
+    const map = new Map<string | null, ApiTask[]>();
+    tasks.forEach((task) => {
+      if (task.topic_id !== sidebarTopicId) return;
+      const parent = task.parent_task_id || null;
+      map.set(parent, [...(map.get(parent) || []), task]);
+    });
+    map.forEach((list) => list.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+    return map;
+  }, [sidebarTopicId, tasks]);
+
+  const toggleExpanded = (id: string) => setExpandedIds((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  type SidebarRow = { task: ApiTask; depth: number; hasChildren: boolean; scheduled: boolean };
+  const sidebarRows = useMemo<SidebarRow[]>(() => {
+    const search = sidebarSearch.trim().toLowerCase();
+    const matchMemo = new Map<string, boolean>();
+    const matches = (task: ApiTask): boolean => {
+      const cached = matchMemo.get(task.id);
+      if (cached !== undefined) return cached;
+      const self = !search || task.title.toLowerCase().includes(search);
+      const result = self || (childrenOf.get(task.id) || []).some(matches);
+      matchMemo.set(task.id, result);
+      return result;
+    };
+    const rows: SidebarRow[] = [];
+    const walk = (task: ApiTask, depth: number) => {
+      if (search && !matches(task)) return;
+      const children = childrenOf.get(task.id) || [];
+      rows.push({ task, depth, hasChildren: children.length > 0, scheduled: scheduledIds.has(task.id) });
+      if (search || expandedIds.has(task.id)) children.forEach((child) => walk(child, depth + 1));
+    };
+    (childrenOf.get(null) || []).forEach((root) => walk(root, 0));
+    return rows;
+  }, [childrenOf, expandedIds, scheduledIds, sidebarSearch]);
+
+  // ---- geometry from pointer ----------------------------------------------
+  const pointFrom = (clientX: number, clientY: number) => {
+    const rect = columnsRef.current?.getBoundingClientRect();
+    if (!rect) return { ymd: weekStartYMD, min: 0 };
+    const col = Math.max(0, Math.min(6, Math.floor(((clientX - rect.left) / rect.width) * 7)));
+    const min = Math.max(0, Math.min(DAY_MINUTES, ((clientY - rect.top) / HOUR_HEIGHT) * 60));
+    return { ymd: addDays(weekStartYMD, col), min: snap(min) };
+  };
+
+  const commitTimed = (item: Timed, ymd: string, startMin: number, endMin: number) => {
+    if (item.kind === 'task') {
+      void onUpdateTask(item.id, { startDate: stampFor(ymd, startMin), deadline: stampFor(ymd, endMin) });
+    } else {
+      persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, start: stampFor(ymd, startMin), end: stampFor(ymd, endMin) } : evt));
+    }
+  };
+
+  const beginMove = (event: ReactPointerEvent, item: Timed) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const dur = item.endMin - item.startMin;
+    const rect = columnsRef.current?.getBoundingClientRect();
+    const grabOffsetMin = rect ? snap(((event.clientY - rect.top) / HOUR_HEIGHT) * 60) - item.startMin : 0;
+    let latest = { ymd: item.ymd, startMin: item.startMin, endMin: item.endMin };
+    let moved = false;
+    const move = (native: PointerEvent) => {
+      moved = true;
+      const p = pointFrom(native.clientX, native.clientY);
+      const startMin = Math.max(0, Math.min(DAY_MINUTES - dur, p.min - grabOffsetMin));
+      latest = { ymd: p.ymd, startMin, endMin: startMin + dur };
+      setDrag({ id: item.id, ...latest });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setDrag(null);
+      if (moved) commitTimed(item, latest.ymd, latest.startMin, latest.endMin);
+      else if (item.kind === 'task') onOpenTask(item.id);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const beginResize = (event: ReactPointerEvent, item: Timed) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    let latestEnd = item.endMin;
+    const move = (native: PointerEvent) => {
+      const p = pointFrom(native.clientX, native.clientY);
+      latestEnd = Math.max(item.startMin + MIN_EVENT_MIN, Math.min(DAY_MINUTES, p.min));
+      setDrag({ id: item.id, ymd: item.ymd, startMin: item.startMin, endMin: latestEnd });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setDrag(null);
+      commitTimed(item, item.ymd, item.startMin, latestEnd);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  const onDropSchedule = (clientX: number, clientY: number, raw: string) => {
+    let payload: DragPayload;
+    try { payload = JSON.parse(raw); } catch { return; }
+    const p = pointFrom(clientX, clientY);
+    const dur = Math.max(MIN_EVENT_MIN, payload.durMin || 60);
+    const startMin = Math.min(DAY_MINUTES - dur, p.min);
+    if (payload.kind === 'task') void onUpdateTask(payload.id, { startDate: stampFor(p.ymd, startMin), deadline: stampFor(p.ymd, startMin + dur) });
+    else persistEvents(events.map((evt) => evt.id === payload.id ? { ...evt, start: stampFor(p.ymd, startMin), end: stampFor(p.ymd, startMin + dur) } : evt));
+  };
+
+  const toggleDone = (item: Timed | AllDay) => {
+    if (item.kind === 'task' && item.task) void onToggleTask(item.task);
+    else if (item.event) persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, done: !evt.done } : evt));
+  };
+  const applyColor = (item: Timed | AllDay, hex: string) => {
+    if (item.kind === 'task') void onUpdateTask(item.id, { taskColor: hex });
+    else persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, color: hex } : evt));
+    setColorPickerId(null);
+  };
+
+  // ---- overlap layout for a day's timed blocks ----------------------------
+  const layoutColumn = (items: Timed[]) => {
+    const sorted = [...items].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+    const placed: Array<Timed & { col: number; cols: number }> = [];
+    let cluster: Array<Timed & { col: number; cols: number }> = [];
+    let clusterEnd = -1;
+    const flush = () => {
+      const cols = cluster.reduce((m, it) => Math.max(m, it.col + 1), 0);
+      cluster.forEach((it) => { it.cols = cols; });
+      placed.push(...cluster);
+      cluster = [];
+      clusterEnd = -1;
+    };
+    sorted.forEach((item) => {
+      if (cluster.length && item.startMin >= clusterEnd) flush();
+      const taken = new Set(cluster.filter((it) => it.endMin > item.startMin).map((it) => it.col));
+      let col = 0; while (taken.has(col)) col += 1;
+      cluster.push({ ...item, col, cols: 1 });
+      clusterEnd = Math.max(clusterEnd, item.endMin);
+    });
+    flush();
+    return placed;
+  };
+
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const monthLabel = `${weekDays[0].toLocaleDateString('vi-VN', { day: '2-digit', month: 'short' })} – ${weekDays[6].toLocaleDateString('vi-VN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+
+  // All-day bars packed into lanes (kept from the day-oriented model).
+  const allDayLanes = useMemo(() => {
+    const visible = allDay
       .map((item) => {
-        const endYMD = resizeOverride?.id === item.id ? resizeOverride.endYMD : item.endYMD;
-        if (dayDiff(endYMD, weekStartYMD) < 0 || dayDiff(item.startYMD, weekEndYMD) > 0) return null;
+        if (dayDiff(item.endYMD, weekStartYMD) < 0 || dayDiff(item.startYMD, weekEndYMD) > 0) return null;
         const startCol = Math.max(0, dayDiff(item.startYMD, weekStartYMD));
-        const endCol = Math.min(6, dayDiff(endYMD, weekStartYMD));
-        return { ...item, endYMD, startCol, span: endCol - startCol + 1, lane: 0 } as Lane;
+        const endCol = Math.min(6, dayDiff(item.endYMD, weekStartYMD));
+        return { ...item, startCol, span: endCol - startCol + 1, lane: 0 };
       })
-      .filter(Boolean) as Lane[];
-    visible.sort((a, b) => a.startCol - b.startCol || b.span - a.span || a.title.localeCompare(b.title));
+      .filter(Boolean) as Array<AllDay & { startCol: number; span: number; lane: number }>;
+    visible.sort((a, b) => a.startCol - b.startCol || b.span - a.span);
     const laneEnds: number[] = [];
     visible.forEach((bar) => {
       let lane = laneEnds.findIndex((end) => end < bar.startCol);
@@ -175,234 +325,176 @@ export default function CalendarWeekView({
       bar.lane = lane;
     });
     return visible;
-  }, [resizeOverride, scheduledItems, weekEndYMD, weekStartYMD]);
-
-  const laneCount = lanes.reduce((max, bar) => Math.max(max, bar.lane + 1), 0);
-  const bodyMinHeight = Math.max(CELL_MIN_HEIGHT, LANE_TOP + laneCount * LANE_HEIGHT + 24);
-
-  const scheduledIds = useMemo(() => new Set(scheduledItems.map((item) => item.id)), [scheduledItems]);
-  const sidebarTasks = useMemo(() => {
-    const search = sidebarSearch.trim().toLowerCase();
-    return tasks.filter((task) =>
-      task.topic_id === sidebarTopicId &&
-      !scheduledIds.has(task.id) &&
-      (!search || task.title.toLowerCase().includes(search)),
-    );
-  }, [scheduledIds, sidebarSearch, sidebarTopicId, tasks]);
-
-  // ---- drag & drop --------------------------------------------------------
-  const columnFromClientX = (clientX: number) => {
-    const rect = bodyRef.current?.getBoundingClientRect();
-    if (!rect) return 0;
-    const ratio = (clientX - rect.left) / rect.width;
-    return Math.max(0, Math.min(6, Math.floor(ratio * 7)));
-  };
-
-  const handleDropOnDay = (event: ReactDragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const raw = event.dataTransfer.getData('application/json') || event.dataTransfer.getData('text/plain');
-    if (!raw) return;
-    let payload: DragPayload;
-    try { payload = JSON.parse(raw); } catch { return; }
-    const targetCol = columnFromClientX(event.clientX);
-    const targetYMD = addDays(weekStartYMD, targetCol);
-    const span = Math.max(1, payload.span || 1);
-    if (payload.kind === 'task') {
-      void onUpdateTask(payload.id, { startDate: timestampFor(targetYMD), deadline: timestampFor(addDays(targetYMD, span - 1)) });
-    } else {
-      persistEvents(events.map((evt) => evt.id === payload.id
-        ? { ...evt, start: targetYMD, end: addDays(targetYMD, span - 1) }
-        : evt));
-    }
-  };
-
-  const beginResize = (event: ReactPointerEvent, item: Lane) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const move = (native: PointerEvent) => {
-      const col = columnFromClientX(native.clientX);
-      const endYMD = addDays(weekStartYMD, Math.max(dayDiff(item.startYMD, weekStartYMD), col));
-      setResizeOverride({ id: item.id, endYMD });
-    };
-    const up = (native: PointerEvent) => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      const col = columnFromClientX(native.clientX);
-      const endYMD = addDays(weekStartYMD, Math.max(dayDiff(item.startYMD, weekStartYMD), col));
-      setResizeOverride(null);
-      if (item.kind === 'task') void onUpdateTask(item.id, { deadline: timestampFor(endYMD) });
-      else persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, end: endYMD } : evt));
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
-
-  const toggleItemDone = (item: ScheduledItem) => {
-    if (item.kind === 'task' && item.task) void onToggleTask(item.task);
-    else if (item.event) persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, done: !evt.done } : evt));
-  };
-
-  const applyColor = (item: ScheduledItem, hex: string) => {
-    if (item.kind === 'task') void onUpdateTask(item.id, { taskColor: hex });
-    else persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, color: hex } : evt));
-    setColorPickerId(null);
-  };
-
-  const monthLabel = `${weekDays[0].toLocaleDateString('vi-VN', { day: '2-digit', month: 'short' })} – ${weekDays[6].toLocaleDateString('vi-VN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  }, [allDay, weekEndYMD, weekStartYMD]);
+  const allDayRows = allDayLanes.reduce((m, b) => Math.max(m, b.lane + 1), 0);
 
   return (
-    <section className="lm-cal flex min-h-0 flex-1">
-      {/* Sidebar: pick a topic, drag an unscheduled task onto the grid. */}
-      <aside className="lm-cal-side flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
+    <section className="lm-cal flex min-h-0 flex-1 select-none">
+      {/* Sidebar: topic hierarchy — expand a parent to reach its children. */}
+      <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="border-b border-slate-100 p-3">
           <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">Chủ đề</label>
-          <select
-            value={sidebarTopicId}
-            onChange={(event) => setSidebarTopicId(event.target.value)}
-            className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-800 outline-none focus:border-blue-500"
-          >
+          <select value={sidebarTopicId} onChange={(event) => setSidebarTopicId(event.target.value)} className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm font-medium text-slate-800 outline-none focus:border-blue-500">
             {!topics.length && <option value="">Chưa có chủ đề</option>}
             {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
           </select>
           <div className="relative mt-2">
             <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-slate-400" />
-            <input
-              value={sidebarSearch}
-              onChange={(event) => setSidebarSearch(event.target.value)}
-              placeholder="Tìm task…"
-              className="h-8 w-full rounded-md border border-slate-200 bg-white pl-7 pr-2 text-xs outline-none focus:border-blue-500"
-            />
+            <input value={sidebarSearch} onChange={(event) => setSidebarSearch(event.target.value)} placeholder="Tìm task…" className="h-8 w-full rounded-md border border-slate-200 bg-white pl-7 pr-2 text-xs outline-none focus:border-blue-500" />
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto p-2">
-          <p className="px-1 pb-1 text-[11px] text-slate-400">Kéo task vào lịch ({sidebarTasks.length})</p>
-          {sidebarTasks.map((task) => {
-            const topicColor = getTopicColorByName(topicById.get(task.topic_id)?.topic_color, topicIndex.get(task.topic_id) || 0).text;
-            const color = resolveCalendarColor(task.task_color, topicColor);
+        <div className="min-h-0 flex-1 overflow-auto py-1">
+          <p className="px-3 pb-1 pt-1 text-[11px] text-slate-400">Kéo task vào lịch</p>
+          {sidebarRows.map(({ task, depth, hasChildren, scheduled }) => {
+            const color = colorFor(task, isTaskDone(task));
+            const expanded = !!sidebarSearch.trim() || expandedIds.has(task.id);
             return (
-              <div
-                key={task.id}
-                draggable
-                onDragStart={(event) => {
-                  const payload: DragPayload = { kind: 'task', id: task.id, span: 1 };
-                  event.dataTransfer.setData('application/json', JSON.stringify(payload));
-                  event.dataTransfer.effectAllowed = 'move';
-                }}
-                onClick={() => onOpenTask(task.id)}
-                className="mb-1 flex cursor-grab items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 shadow-sm transition hover:border-slate-300 active:cursor-grabbing"
-              >
-                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
-                <span className="truncate">{task.title}</span>
+              <div key={task.id} className="flex items-center gap-1 pr-2 hover:bg-slate-50" style={{ paddingLeft: 8 + depth * 14 }}>
+                {hasChildren ? (
+                  <button type="button" onClick={() => toggleExpanded(task.id)} className="grid h-6 w-6 shrink-0 place-items-center text-slate-400 hover:text-slate-700" aria-label={expanded ? 'Thu gọn' : 'Mở rộng'}>
+                    {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                  </button>
+                ) : <span className="w-6 shrink-0" />}
+                <div
+                  draggable={!scheduled}
+                  onDragStart={(event) => {
+                    const payload: DragPayload = { kind: 'task', id: task.id, durMin: 60 };
+                    event.dataTransfer.setData('application/json', JSON.stringify(payload));
+                    event.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onClick={() => onOpenTask(task.id)}
+                  title={scheduled ? 'Đã có trên lịch' : 'Kéo vào lịch'}
+                  className={`flex min-w-0 flex-1 items-center gap-2 rounded px-1.5 py-1 text-xs ${scheduled ? 'cursor-default text-slate-400' : 'cursor-grab text-slate-700 active:cursor-grabbing'}`}
+                >
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color, opacity: scheduled ? 0.4 : 1 }} />
+                  <span className={`truncate ${scheduled ? 'line-through' : ''}`}>{task.title}</span>
+                </div>
               </div>
             );
           })}
-          {!sidebarTasks.length && <p className="px-1 py-6 text-center text-xs text-slate-400">Không có task chưa xếp lịch.</p>}
+          {!sidebarRows.length && <p className="px-3 py-6 text-center text-xs text-slate-400">Chủ đề này chưa có task.</p>}
         </div>
       </aside>
 
-      {/* Week grid */}
-      <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
-        <header className="flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+      {/* Calendar */}
+      <div className="flex min-w-0 flex-1 flex-col bg-white">
+        <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
           <button type="button" onClick={() => setAnchor(startOfWeekMonday(new Date()))} className="h-8 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Hôm nay</button>
           <button type="button" onClick={() => { const d = new Date(anchor); d.setDate(d.getDate() - 7); setAnchor(d); }} className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"><ChevronLeft className="h-4 w-4" /></button>
           <button type="button" onClick={() => { const d = new Date(anchor); d.setDate(d.getDate() + 7); setAnchor(d); }} className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"><ChevronRight className="h-4 w-4" /></button>
           <h2 className="ml-1 flex items-center gap-2 text-sm font-semibold text-slate-800"><CalendarDays className="h-4 w-4 text-slate-400" />{monthLabel}</h2>
-          <span className="ml-auto text-[11px] text-slate-400">Chuột phải vào một ngày để thêm task / sự kiện</span>
+          <span className="ml-auto text-[11px] text-slate-400">Chuột phải vào lịch để thêm · kéo mép dưới để chỉnh thời lượng</span>
         </header>
 
         {/* Day headers */}
-        <div className="grid grid-cols-7 border-b border-slate-200 bg-white">
+        <div className="grid border-b border-slate-200" style={{ gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)` }}>
+          <div />
           {weekDays.map((date, index) => {
             const ymd = toYMD(date);
             const isToday = ymd === todayYMD;
             return (
-              <div key={ymd} className="border-r border-slate-100 px-2 py-1.5 text-center last:border-r-0">
-                <div className="text-[11px] font-medium uppercase text-slate-400">{DAY_LABELS[index]}</div>
+              <div key={ymd} className="border-l border-slate-100 py-1.5 text-center">
+                <div className={`text-[11px] font-medium uppercase ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>{DAY_LABELS[index]}</div>
                 <div className={`mx-auto mt-0.5 grid h-7 w-7 place-items-center rounded-full text-sm font-semibold ${isToday ? 'bg-blue-600 text-white' : 'text-slate-700'}`}>{date.getDate()}</div>
               </div>
             );
           })}
         </div>
 
-        {/* Body: day columns (drop + right-click) with a bar overlay on top. */}
-        <div className="min-h-0 flex-1 overflow-auto">
-          <div ref={bodyRef} className="relative" style={{ minHeight: bodyMinHeight }}>
-            <div className="absolute inset-0 grid grid-cols-7">
-              {weekDays.map((date) => {
-                const ymd = toYMD(date);
+        {/* All-day row */}
+        {allDayLanes.length > 0 && (
+          <div className="grid border-b border-slate-200 bg-slate-50/40" style={{ gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)` }}>
+            <div className="flex items-start justify-end pr-2 pt-1 text-[10px] text-slate-400">Cả ngày</div>
+            <div className="relative col-span-7" style={{ height: allDayRows * 24 + 8 }}>
+              {allDayLanes.map((bar) => {
+                const text = contrastText(bar.color);
                 return (
-                  <div
-                    key={ymd}
-                    onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }}
-                    onDrop={(event) => handleDropOnDay(event)}
-                    onContextMenu={(event) => { event.preventDefault(); setContextMenu({ x: event.clientX, y: event.clientY, ymd }); }}
-                    onDoubleClick={(event) => setComposer({ mode: 'task', ymd, x: event.clientX, y: event.clientY })}
-                    className={`border-r border-slate-100 last:border-r-0 ${ymd === todayYMD ? 'bg-blue-50/40' : 'bg-white'}`}
-                  />
+                  <div key={bar.id} className="absolute px-1" style={{ left: `${(bar.startCol / 7) * 100}%`, width: `${(bar.span / 7) * 100}%`, top: 4 + bar.lane * 24 }}>
+                    <div className="flex h-5 items-center gap-1 overflow-hidden rounded px-1.5 text-[11px] font-medium" style={{ background: bar.color, color: text, opacity: bar.done ? 0.85 : 1 }} title={bar.title} onClick={() => bar.kind === 'task' && onOpenTask(bar.id)}>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); toggleDone(bar); }} className="grid h-3 w-3 shrink-0 place-items-center rounded-sm border" style={{ borderColor: text, background: bar.done ? text : 'transparent' }} aria-label="Hoàn thành">
+                        {bar.done && <Check className="h-2 w-2" style={{ color: bar.color }} />}
+                      </button>
+                      <span className={`truncate ${bar.done ? 'line-through' : ''}`}>{bar.title}</span>
+                    </div>
+                  </div>
                 );
               })}
             </div>
+          </div>
+        )}
 
-            <div className="pointer-events-none absolute inset-0">
-              {lanes.map((bar) => {
-                const left = (bar.startCol / 7) * 100;
-                const width = (bar.span / 7) * 100;
-                const text = contrastText(bar.color);
+        {/* Time grid */}
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
+          <div className="grid" style={{ gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)`, height: DAY_MINUTES / 60 * HOUR_HEIGHT }}>
+            {/* time axis */}
+            <div className="relative">
+              {Array.from({ length: 24 }, (_, hour) => (
+                <div key={hour} className="absolute right-1 -translate-y-1/2 text-[10px] text-slate-400" style={{ top: hour * HOUR_HEIGHT }}>
+                  {hour === 0 ? '' : `${pad(hour)}:00`}
+                </div>
+              ))}
+            </div>
+
+            {/* day columns */}
+            <div ref={columnsRef} className="relative col-span-7 grid" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
+              {/* hour lines */}
+              {Array.from({ length: 24 }, (_, hour) => (
+                <div key={hour} className="pointer-events-none absolute left-0 right-0 border-t border-slate-100" style={{ top: hour * HOUR_HEIGHT }} />
+              ))}
+
+              {weekDays.map((date) => {
+                const ymd = toYMD(date);
+                const dayItems = timed.filter((item) => (drag?.id === item.id ? drag.ymd : item.ymd) === ymd);
+                const laid = layoutColumn(dayItems.map((item) => drag?.id === item.id ? { ...item, startMin: drag.startMin, endMin: drag.endMin } : item));
                 return (
                   <div
-                    key={bar.id}
-                    className="pointer-events-auto absolute"
-                    style={{ left: `${left}%`, width: `${width}%`, top: LANE_TOP + bar.lane * LANE_HEIGHT, paddingLeft: 4, paddingRight: 4 }}
+                    key={ymd}
+                    className={`relative border-l border-slate-100 ${ymd === todayYMD ? 'bg-blue-50/30' : ''}`}
+                    onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }}
+                    onDrop={(event) => { event.preventDefault(); const raw = event.dataTransfer.getData('application/json') || event.dataTransfer.getData('text/plain'); if (raw) onDropSchedule(event.clientX, event.clientY, raw); }}
+                    onContextMenu={(event) => { event.preventDefault(); const p = pointFrom(event.clientX, event.clientY); setContextMenu({ x: event.clientX, y: event.clientY, ymd, min: p.min }); }}
+                    onDoubleClick={(event) => { const p = pointFrom(event.clientX, event.clientY); setComposer({ mode: 'task', ymd, min: p.min, x: event.clientX, y: event.clientY }); }}
                   >
-                    <div
-                      draggable
-                      onDragStart={(event) => {
-                        const payload: DragPayload = { kind: bar.kind, id: bar.id, span: bar.span };
-                        event.dataTransfer.setData('application/json', JSON.stringify(payload));
-                        event.dataTransfer.effectAllowed = 'move';
-                      }}
-                      onClick={() => { if (bar.kind === 'task') onOpenTask(bar.id); }}
-                      className="group relative flex h-[26px] cursor-grab items-center gap-1.5 overflow-hidden rounded-md pl-1.5 pr-4 text-xs font-medium shadow-sm active:cursor-grabbing"
-                      style={{ background: bar.color, color: text, opacity: bar.done ? 0.85 : 1 }}
-                      title={bar.title}
-                    >
-                      {/* complete checkbox */}
-                      <button
-                        type="button"
-                        onClick={(event) => { event.stopPropagation(); toggleItemDone(bar); }}
-                        className="grid h-4 w-4 shrink-0 place-items-center rounded-sm border"
-                        style={{ borderColor: text, background: bar.done ? text : 'transparent' }}
-                        aria-label={bar.done ? 'Bỏ hoàn thành' : 'Đánh dấu hoàn thành'}
-                      >
-                        {bar.done ? <Check className="h-3 w-3" style={{ color: bar.color }} /> : <Circle className="h-2.5 w-2.5 opacity-0" />}
-                      </button>
-                      <span className={`truncate ${bar.done ? 'line-through' : ''}`}>{bar.title}</span>
-                      {bar.kind === 'event' && <span className="ml-1 shrink-0 rounded-sm bg-black/15 px-1 text-[9px] uppercase tracking-wide">sự kiện</span>}
-                      {/* colour */}
-                      <button
-                        type="button"
-                        onClick={(event) => { event.stopPropagation(); setColorPickerId(colorPickerId === bar.id ? null : bar.id); }}
-                        className="absolute right-3 top-1/2 hidden -translate-y-1/2 group-hover:block"
-                        style={{ color: text }}
-                        aria-label="Đổi màu"
-                      >
-                        <Palette className="h-3 w-3" />
-                      </button>
-                      {/* resize handle */}
-                      <span
-                        onPointerDown={(event) => beginResize(event, bar)}
-                        className="absolute right-0 top-0 h-full w-2 cursor-ew-resize"
-                        style={{ touchAction: 'none' }}
-                      />
-                    </div>
-
-                    {colorPickerId === bar.id && (
-                      <div className="absolute left-0 top-8 z-30 flex w-40 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl" onClick={(event) => event.stopPropagation()}>
-                        {CALENDAR_COLORS.map((color) => (
-                          <button key={color.name} type="button" title={color.label} onClick={() => applyColor(bar, color.hex)} className="h-5 w-5 rounded-full ring-1 ring-black/5" style={{ background: color.hex }} />
-                        ))}
+                    {ymd === todayYMD && (
+                      <div className="pointer-events-none absolute left-0 right-0 z-20" style={{ top: (nowMin / 60) * HOUR_HEIGHT }}>
+                        <div className="relative border-t-2 border-red-500"><span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-red-500" /></div>
                       </div>
                     )}
+                    {laid.map((item) => {
+                      const top = (item.startMin / 60) * HOUR_HEIGHT;
+                      const height = Math.max(16, ((item.endMin - item.startMin) / 60) * HOUR_HEIGHT - 2);
+                      const text = contrastText(item.color);
+                      const widthPct = 100 / item.cols;
+                      const isDragging = drag?.id === item.id;
+                      return (
+                        <div key={item.id} className="absolute z-10 px-[3px]" style={{ top, height, left: `${item.col * widthPct}%`, width: `${widthPct}%` }}>
+                          <div
+                            onPointerDown={(event) => beginMove(event, item)}
+                            className="group relative flex h-full cursor-grab flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-[11px] leading-tight shadow-sm active:cursor-grabbing"
+                            style={{ background: item.color, color: text, opacity: item.done ? 0.9 : 1, outline: isDragging ? '2px solid rgba(0,0,0,.25)' : 'none' }}
+                            title={item.title}
+                          >
+                            <div className="flex items-start gap-1">
+                              <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toggleDone(item); }} className="mt-[1px] grid h-3 w-3 shrink-0 place-items-center rounded-sm border" style={{ borderColor: text, background: item.done ? text : 'transparent' }} aria-label="Hoàn thành">
+                                {item.done && <Check className="h-2 w-2" style={{ color: item.color }} />}
+                              </button>
+                              <span className={`min-w-0 flex-1 truncate font-medium ${item.done ? 'line-through' : ''}`}>{item.title}</span>
+                              <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setColorPickerId(colorPickerId === item.id ? null : item.id); }} className="hidden shrink-0 group-hover:block" style={{ color: text }} aria-label="Đổi màu"><Palette className="h-3 w-3" /></button>
+                            </div>
+                            {height > 28 && <span className="mt-0.5 truncate opacity-80">{fmtTime(item.startMin)}–{fmtTime(item.endMin)}</span>}
+                            {/* resize handle (bottom edge) — drag to change duration */}
+                            <span onPointerDown={(event) => beginResize(event, item)} className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize" style={{ touchAction: 'none' }}>
+                              <span className="mx-auto block h-1 w-6 translate-y-[1px] rounded-full bg-black/25 opacity-0 group-hover:opacity-100" />
+                            </span>
+                          </div>
+                          {colorPickerId === item.id && (
+                            <div className="absolute left-1 top-6 z-30 flex w-40 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                              {CALENDAR_COLORS.map((c) => <button key={c.name} type="button" title={c.label} onClick={() => applyColor(item, c.hex)} className="h-5 w-5 rounded-full ring-1 ring-black/5" style={{ background: c.hex }} />)}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -411,12 +503,11 @@ export default function CalendarWeekView({
         </div>
       </div>
 
-      {/* right-click menu */}
       {contextMenu && (
-        <div className="fixed z-50 w-44 overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()}>
-          <div className="px-3 py-1 text-[11px] text-slate-400">{fromYMD(contextMenu.ymd).toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' })}</div>
-          <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-50" onClick={() => { setComposer({ mode: 'task', ymd: contextMenu.ymd, x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}><Plus className="h-3.5 w-3.5 text-blue-600" /> Task mới</button>
-          <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-50" onClick={() => { setComposer({ mode: 'event', ymd: contextMenu.ymd, x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}><CalendarDays className="h-3.5 w-3.5 text-purple-600" /> Sự kiện mới</button>
+        <div className="fixed z-50 w-44 overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
+          <div className="px-3 py-1 text-[11px] text-slate-400">{fromYMD(contextMenu.ymd).toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' })}{contextMenu.min !== null ? ` · ${fmtTime(contextMenu.min)}` : ''}</div>
+          <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-50" onClick={() => { setComposer({ mode: 'task', ymd: contextMenu.ymd, min: contextMenu.min, x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}><Plus className="h-3.5 w-3.5 text-blue-600" /> Task mới</button>
+          <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-50" onClick={() => { setComposer({ mode: 'event', ymd: contextMenu.ymd, min: contextMenu.min, x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}><CalendarDays className="h-3.5 w-3.5 text-purple-600" /> Sự kiện mới</button>
         </div>
       )}
 
@@ -435,14 +526,9 @@ export default function CalendarWeekView({
 }
 
 function Composer({
-  composer,
-  topics,
-  defaultTopicId,
-  onClose,
-  onSubmitTask,
-  onSubmitEvent,
+  composer, topics, defaultTopicId, onClose, onSubmitTask, onSubmitEvent,
 }: {
-  composer: { mode: 'task' | 'event'; ymd: string; x: number; y: number };
+  composer: { mode: 'task' | 'event'; ymd: string; min: number | null; x: number; y: number };
   topics: ApiTopic[];
   defaultTopicId: string;
   onClose: () => void;
@@ -451,46 +537,51 @@ function Composer({
 }) {
   const [title, setTitle] = useState('');
   const [topicId, setTopicId] = useState(defaultTopicId);
-  const [deadline, setDeadline] = useState(composer.ymd);
+  const startMin = composer.min ?? 9 * 60;
+  const [time, setTime] = useState(`${pad(Math.floor(startMin / 60))}:${pad(startMin % 60)}`);
+  const [durHours, setDurHours] = useState(1);
   const [color, setColor] = useState(CALENDAR_COLORS[composer.mode === 'event' ? 9 : 6].hex);
 
   const left = Math.min(composer.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 300);
-  const top = Math.min(composer.y, (typeof window !== 'undefined' ? window.innerHeight : 800) - 260);
+  const top = Math.min(composer.y, (typeof window !== 'undefined' ? window.innerHeight : 800) - 300);
 
   const submit = () => {
     if (!title.trim()) return;
+    const [h, m] = time.split(':').map(Number);
+    const s = (h || 0) * 60 + (m || 0);
+    const e = Math.min(24 * 60, s + Math.round(durHours * 60));
+    const startStamp = `${composer.ymd}T${pad(Math.floor(s / 60))}:${pad(s % 60)}:00`;
+    const endStamp = `${composer.ymd}T${pad(Math.floor(e / 60) % 24)}:${pad(e % 60)}:00`;
     if (composer.mode === 'task') {
       if (!topicId) return;
-      onSubmitTask({ topicId, title: title.trim(), startDate: `${composer.ymd}T12:00:00`, deadline: `${deadline}T12:00:00`, taskColor: color });
+      onSubmitTask({ topicId, title: title.trim(), startDate: startStamp, deadline: endStamp, taskColor: color });
     } else {
-      onSubmitEvent({ id: newEventId(), title: title.trim(), start: composer.ymd, end: deadline, color, done: false });
+      onSubmitEvent({ id: newEventId(), title: title.trim(), start: startStamp, end: endStamp, color, done: false });
     }
   };
 
   return (
-    <div className="fixed z-50 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-2xl" style={{ left, top }} onClick={(event) => event.stopPropagation()}>
+    <div className="fixed z-50 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-2xl" style={{ left, top }} onClick={(e) => e.stopPropagation()}>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-sm font-semibold text-slate-800">{composer.mode === 'task' ? 'Task mới' : 'Sự kiện mới'}</h3>
         <button type="button" onClick={onClose} className="grid h-6 w-6 place-items-center rounded text-slate-400 hover:bg-slate-100"><X className="h-3.5 w-3.5" /></button>
       </div>
-      <input autoFocus value={title} onChange={(event) => setTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') submit(); if (event.key === 'Escape') onClose(); }} placeholder="Tên…" className="mb-2 h-9 w-full rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-blue-500" />
+      <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') submit(); if (e.key === 'Escape') onClose(); }} placeholder="Tên…" className="mb-2 h-9 w-full rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-blue-500" />
       {composer.mode === 'task' && (
         <label className="mb-2 block">
           <span className="mb-1 block text-[11px] font-semibold uppercase text-slate-400">Chủ đề</span>
-          <select value={topicId} onChange={(event) => setTopicId(event.target.value)} className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-500">
+          <select value={topicId} onChange={(e) => setTopicId(e.target.value)} className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-500">
             {!topics.length && <option value="">Chưa có chủ đề</option>}
             {topics.map((topic) => <option key={topic.id} value={topic.id}>{topic.name}</option>)}
           </select>
         </label>
       )}
-      <label className="mb-2 block">
-        <span className="mb-1 block text-[11px] font-semibold uppercase text-slate-400">{composer.mode === 'task' ? 'Deadline' : 'Kết thúc'}</span>
-        <input type="date" value={deadline} min={composer.ymd} onChange={(event) => setDeadline(event.target.value || composer.ymd)} className="h-9 w-full rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-blue-500" />
-      </label>
+      <div className="mb-2 grid grid-cols-2 gap-2">
+        <label className="block"><span className="mb-1 block text-[11px] font-semibold uppercase text-slate-400">Giờ</span><input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="h-9 w-full rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-blue-500" /></label>
+        <label className="block"><span className="mb-1 block text-[11px] font-semibold uppercase text-slate-400">Thời lượng (giờ)</span><input type="number" min={0.25} step={0.25} value={durHours} onChange={(e) => setDurHours(Math.max(0.25, Number(e.target.value) || 1))} className="h-9 w-full rounded-md border border-slate-200 px-2 text-sm outline-none focus:border-blue-500" /></label>
+      </div>
       <div className="mb-3 flex flex-wrap gap-1">
-        {CALENDAR_COLORS.map((entry) => (
-          <button key={entry.name} type="button" title={entry.label} onClick={() => setColor(entry.hex)} className={`h-5 w-5 rounded-full ring-2 ${color === entry.hex ? 'ring-slate-900' : 'ring-transparent'}`} style={{ background: entry.hex }} />
-        ))}
+        {CALENDAR_COLORS.map((entry) => <button key={entry.name} type="button" title={entry.label} onClick={() => setColor(entry.hex)} className={`h-5 w-5 rounded-full ring-2 ${color === entry.hex ? 'ring-slate-900' : 'ring-transparent'}`} style={{ background: entry.hex }} />)}
       </div>
       <button type="button" onClick={submit} disabled={!title.trim()} className="h-9 w-full rounded-md bg-slate-900 text-sm font-semibold text-white disabled:opacity-40">Tạo</button>
     </div>
