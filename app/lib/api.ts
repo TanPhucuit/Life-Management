@@ -58,6 +58,7 @@ export interface ApiDate {
   month: number;
   year: number;
   focused_minutes: number;
+  holy_mind_minutes?: number | null;
   key_of_success: number;
   created_at?: string;
   updated_at?: string;
@@ -216,6 +217,7 @@ export const api = {
     month: number;
     year: number;
     focusedMinutes?: number;
+    holyMindMinutes?: number;
     keyOfSuccess?: number;
   }) {
     return requestJson<ApiDate>('/api/dates', {
@@ -226,6 +228,7 @@ export const api = {
   updateDate(input: {
     id: string;
     focusedMinutes?: number;
+    holyMindMinutes?: number;
     keyOfSuccess?: number;
   }) {
     return requestJson<ApiDate>('/api/dates', {

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronLeft, Clock3, Pause, Play, RotateCcw, Save, SlidersHorizontal, Target, Trophy } from 'lucide-react';
+import { ChevronLeft, Clock3, Pause, Play, RotateCcw, Save, SlidersHorizontal, Sparkles, Target, Trophy } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { api, ApiDate } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
@@ -24,6 +24,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
   const router = useRouter();
   const { user } = useAppStore();
   const [focusedMinutes, setFocusedMinutes] = useState(0);
+  const [holyMindMinutes, setHolyMindMinutes] = useState(0);
   const [keyOfSuccess, setKeyOfSuccess] = useState(0);
   const [stopwatchTime, setStopwatchTime] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
@@ -42,6 +43,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
         const matchedDate = dateRows.find((item: ApiDate) => item.day === day && item.month === month && item.year === year);
         setDateRecordId(matchedDate?.id || null);
         setFocusedMinutes(matchedDate?.focused_minutes || 0);
+        setHolyMindMinutes(matchedDate?.holy_mind_minutes || 0);
         setKeyOfSuccess(matchedDate?.key_of_success || 0);
       } catch (error) {
         console.error('Error loading day details:', error);
@@ -72,13 +74,18 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     return `${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  const saveDateRecord = async (nextFocusedMinutes = focusedMinutes, nextKeyOfSuccess = keyOfSuccess) => {
+  const saveDateRecord = async (
+    nextFocusedMinutes = focusedMinutes,
+    nextHolyMindMinutes = holyMindMinutes,
+    nextKeyOfSuccess = keyOfSuccess,
+  ) => {
     if (!user?.id) return;
 
     if (dateRecordId) {
       await api.updateDate({
         id: dateRecordId,
         focusedMinutes: nextFocusedMinutes,
+        holyMindMinutes: nextHolyMindMinutes,
         keyOfSuccess: nextKeyOfSuccess,
       });
       return;
@@ -90,6 +97,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
       month,
       year,
       focusedMinutes: nextFocusedMinutes,
+      holyMindMinutes: nextHolyMindMinutes,
       keyOfSuccess: nextKeyOfSuccess,
     });
     setDateRecordId(created.id);
@@ -103,7 +111,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
     setIsRunning(false);
 
     try {
-      await saveDateRecord(updatedMinutes, keyOfSuccess);
+      await saveDateRecord(updatedMinutes, holyMindMinutes, keyOfSuccess);
     } catch (error) {
       console.error('Error saving stopwatch:', error);
     }
@@ -112,7 +120,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
   const handleSaveDayDetails = async () => {
     setIsSaving(true);
     try {
-      await saveDateRecord(focusedMinutes, keyOfSuccess);
+      await saveDateRecord(focusedMinutes, holyMindMinutes, keyOfSuccess);
     } catch (error) {
       console.error('Error saving day details:', error);
     } finally {
@@ -127,6 +135,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
 
   const focusedHoursNumber = focusedMinutes / 60;
   const focusedHours = focusedHoursNumber.toFixed(1);
+  const holyMindHours = (holyMindMinutes / 60).toFixed(1);
   const progressPercent = Math.min((focusedMinutes / (targetHours * 60)) * 100, 100);
   const remainingHours = Math.max(0, targetHours - focusedHoursNumber).toFixed(1);
   const dayName = dayNames[new Date(year, month - 1, day).getDay()];
@@ -167,7 +176,7 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
 
             <div className="grid grid-cols-3 gap-2 md:w-[420px]">
               <SummaryTile label="Complete" value={`${progressPercent.toFixed(0)}%`} />
-              <SummaryTile label="Remaining" value={`${remainingHours}h`} />
+              <SummaryTile label="Holly Mind" value={`${holyMindHours}h`} />
               <SummaryTile label="Key" value={keyOfSuccess} />
             </div>
           </div>
@@ -220,6 +229,31 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                     value={targetHours}
                     onChange={(event) => setTargetHours(Number(event.target.value))}
                     className="w-full accent-blue-600"
+                  />
+                </div>
+              </ControlPanel>
+
+              <ControlPanel title="Holly Mind" icon={<Sparkles className="h-4 w-4" />}>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-500">Minutes</span>
+                    <span className="text-lg font-semibold text-emerald-600">{holyMindMinutes}m</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="720"
+                    step="15"
+                    value={holyMindMinutes}
+                    onChange={(event) => setHolyMindMinutes(Number(event.target.value))}
+                    className="w-full accent-emerald-600"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    value={holyMindMinutes}
+                    onChange={(event) => setHolyMindMinutes(Math.max(0, Number(event.target.value)))}
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-right text-sm font-semibold text-slate-950 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                   />
                 </div>
               </ControlPanel>
@@ -298,6 +332,16 @@ export default function DayDetailsPage({ day, month, year }: DayDetailsPageProps
                       value={focusedMinutes}
                       onChange={(event) => setFocusedMinutes(Math.max(0, Number(event.target.value)))}
                       className="h-9 w-24 rounded-md border border-slate-200 bg-white px-3 text-right text-sm font-semibold text-slate-950 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <label className="text-sm font-medium text-slate-700">Holly Mind</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={holyMindMinutes}
+                      onChange={(event) => setHolyMindMinutes(Math.max(0, Number(event.target.value)))}
+                      className="h-9 w-24 rounded-md border border-slate-200 bg-white px-3 text-right text-sm font-semibold text-slate-950 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                     />
                   </div>
                   <input

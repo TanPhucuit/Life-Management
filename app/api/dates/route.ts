@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { userId, monthId, day, month, year, focusedMinutes, keyOfSuccess } = body;
+    const { userId, monthId, day, month, year, focusedMinutes, holyMindMinutes, keyOfSuccess } = body;
 
     if (!userId || !day || !month || !year) {
       return NextResponse.json(
@@ -124,6 +124,7 @@ export async function POST(request: NextRequest) {
           month,
           year,
           focused_minutes: focusedMinutes || 0,
+          holy_mind_minutes: holyMindMinutes || 0,
           key_of_success: keyOfSuccess || 0,
         },
       ])
@@ -153,7 +154,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { id, focusedMinutes, keyOfSuccess } = body;
+    const { id, focusedMinutes, holyMindMinutes, keyOfSuccess } = body;
 
     if (!id) {
       return NextResponse.json(
@@ -164,9 +165,11 @@ export async function PUT(request: NextRequest) {
 
     const updateData: {
       focused_minutes?: number;
+      holy_mind_minutes?: number;
       key_of_success?: number;
     } = {};
     if (focusedMinutes !== undefined) updateData.focused_minutes = focusedMinutes;
+    if (holyMindMinutes !== undefined) updateData.holy_mind_minutes = holyMindMinutes;
     if (keyOfSuccess !== undefined) updateData.key_of_success = keyOfSuccess;
 
     const { data, error } = await supabase

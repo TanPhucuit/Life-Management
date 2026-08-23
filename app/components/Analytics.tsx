@@ -9,7 +9,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  ComposedChart,
   Pie,
   PieChart,
   ReferenceLine,
@@ -19,12 +18,11 @@ import {
   YAxis,
 } from 'recharts';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { api, ApiCycleTick, ApiDate, ApiSession } from '@/app/lib/api';
+import { api, ApiDate, ApiSession } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 
 type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success' | 'cycle_ticks';
 type ChartPoint = { name: string; value: number | null };
-type CycleChartPoint = { name: string; count: number | null; cumulative: number | null };
 
 export type AnalyticsVariant = 'legacy' | 'desktop-cinematic';
 
@@ -38,7 +36,13 @@ const monthNames = [
 ];
 
 const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-const cycleTarget = 240;
+const legacyTooltipStyle = {
+  background: 'rgba(255, 255, 255, .96)',
+  border: '1px solid rgb(226 232 240)',
+  borderRadius: 12,
+  boxShadow: '0 18px 45px rgba(15, 23, 42, .12)',
+  color: '#0f172a',
+};
 
 export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const { selectedMonth, selectedYear, currentMonth: storeMonth, currentYear: storeYear, user } = useAppStore();
@@ -48,7 +52,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const [selectedWeek, setSelectedWeek] = useState(1);
   const [allDates, setAllDates] = useState<ApiDate[]>([]);
   const [focusSessions, setFocusSessions] = useState<ApiSession[]>([]);
-  const [cycleTicks, setCycleTicks] = useState<ApiCycleTick[]>([]);
+  const [selectedTotal, setSelectedTotal] = useState<'timer' | 'holy'>('timer');
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
@@ -73,7 +77,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     const loadFocusSessions = async () => {
       try {
         setErrorMessage('');
-        const rows = await api.getSessions(user.id, { month: currentMonth, year: currentYear });
+        const rows = await api.getSessions(user.id);
         setFocusSessions(rows);
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Could not load focus sessions.');
@@ -81,23 +85,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     };
 
     void loadFocusSessions();
-  }, [currentMonth, currentYear, user?.id]);
-
-  useEffect(() => {
-    if (!user?.id) return;
-
-    const loadCycleTicks = async () => {
-      try {
-        setErrorMessage('');
-        const rows = await api.getCycleTicks(user.id, currentMonth, currentYear);
-        setCycleTicks(rows);
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : 'Could not load cycle data.');
-      }
-    };
-
-    void loadCycleTicks();
-  }, [currentMonth, currentYear, user?.id]);
+  }, [user?.id]);
 
   const studyHoursByDate = useMemo(() => {
     const hoursByDate: Record<string, number> = {};
@@ -109,7 +97,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     });
     focusSessions.forEach((session) => {
       const dateKey = normalizeSessionDate(session.session_date);
-      if (!dateKey) return;
+      if (!dateKey || !isDateKeyInMonth(dateKey, currentMonth, currentYear)) return;
       const minutes = getSessionFocusedMinutes(session);
       hoursByDate[dateKey] = (hoursByDate[dateKey] || 0) + minutes / 60;
     });
@@ -117,8 +105,12 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   }, [allDates, currentMonth, currentYear, focusSessions]);
 
   const focusSessionDays = useMemo(() => {
-    return new Set(focusSessions.map((session) => normalizeSessionDate(session.session_date)).filter(Boolean));
-  }, [focusSessions]);
+    return new Set(
+      focusSessions
+        .map((session) => normalizeSessionDate(session.session_date))
+        .filter((dateKey) => dateKey && isDateKeyInMonth(dateKey, currentMonth, currentYear)),
+    );
+  }, [currentMonth, currentYear, focusSessions]);
 
   const weeksCount = getWeeksInMonth(currentMonth, currentYear);
 
@@ -172,51 +164,69 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     });
   }, [allDates, currentMonth, currentYear, focusSessionDays, selectedWeek, studyHoursByDate]);
 
-  const kosTrend = useMemo(() => {
-    const monthData = allDates.filter((date) => date.year === currentYear && date.month === currentMonth);
+  const focusTimerCumulativeData = useMemo(() => {
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    const monthStart = formatDateKey(currentYear, currentMonth, 1);
     const trendData: ChartPoint[] = [];
-    let cumulativeSum = 0;
+    let cumulativeMinutes = focusSessions.reduce((sum, session) => {
+      const dateKey = normalizeSessionDate(session.session_date);
+      if (!dateKey || dateKey >= monthStart) return sum;
+      return sum + getSessionFocusedMinutes(session);
+    }, 0);
+    const minutesByDay = new Map<number, number>();
+
+    focusSessions.forEach((session) => {
+      const dateKey = normalizeSessionDate(session.session_date);
+      if (!dateKey || !isDateKeyInMonth(dateKey, currentMonth, currentYear)) return;
+      const day = Number(dateKey.slice(8, 10));
+      minutesByDay.set(day, (minutesByDay.get(day) || 0) + getSessionFocusedMinutes(session));
+    });
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const dayData = monthData.find((date) => date.day === day);
-      if (dayData) cumulativeSum += Number(dayData.key_of_success) || 0;
+      cumulativeMinutes += minutesByDay.get(day) || 0;
 
       trendData.push({
         name: `${day}`,
-        value: dayData && !isFutureDate(day, currentMonth, currentYear) ? cumulativeSum : null,
+        value: !isFutureDate(day, currentMonth, currentYear) ? roundOneDecimal(cumulativeMinutes / 60) : null,
+      });
+    }
+
+    return trendData;
+  }, [currentMonth, currentYear, focusSessions]);
+
+  const holyMindCumulativeData = useMemo(() => {
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    const monthStart = formatDateKey(currentYear, currentMonth, 1);
+    const minutesByDay = new Map<number, number>();
+    const trendData: ChartPoint[] = [];
+    let cumulativeMinutes = 0;
+
+    allDates.forEach((date) => {
+      const dateKey = formatDateKey(date.year, date.month, date.day);
+      const minutes = Number(date.holy_mind_minutes) || 0;
+      if (dateKey < monthStart) {
+        cumulativeMinutes += minutes;
+        return;
+      }
+      if (date.year === currentYear && date.month === currentMonth) {
+        minutesByDay.set(date.day, (minutesByDay.get(date.day) || 0) + minutes);
+      }
+    });
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      cumulativeMinutes += minutesByDay.get(day) || 0;
+      trendData.push({
+        name: String(day),
+        value: !isFutureDate(day, currentMonth, currentYear) ? roundOneDecimal(cumulativeMinutes / 60) : null,
       });
     }
 
     return trendData;
   }, [allDates, currentMonth, currentYear]);
 
-  const cycleMonthlyData = useMemo<CycleChartPoint[]>(() => {
-    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-    const countByDay = new Map<number, number>();
-
-    cycleTicks.forEach((tick) => {
-      if (!tick.is_checked) return;
-      countByDay.set(tick.day, (countByDay.get(tick.day) || 0) + 1);
-    });
-
-    let cumulative = 0;
-    return Array.from({ length: daysInMonth }, (_, index) => {
-      const day = index + 1;
-      const count = countByDay.get(day) || 0;
-      cumulative += count;
-      const shouldShowValue = !isFutureDate(day, currentMonth, currentYear);
-      return {
-        name: String(day),
-        count: shouldShowValue ? count : null,
-        cumulative: shouldShowValue ? cumulative : null,
-      };
-    });
-  }, [cycleTicks, currentMonth, currentYear]);
-
   const monthlyTotalHours = weeklyData.reduce((sum, week) => sum + week.hours, 0);
-  const monthlyFocusSessionCount = focusSessions.length;
-  const monthlyCycleCount = cycleTicks.filter((tick) => tick.is_checked).length;
+  const monthlyFocusSessions = focusSessions.filter((session) => isDateKeyInMonth(normalizeSessionDate(session.session_date), currentMonth, currentYear));
+  const monthlyFocusSessionCount = monthlyFocusSessions.length;
   const monthlyRecordCount = new Set([
     ...allDates.filter((date) => date.year === currentYear && date.month === currentMonth).map((date) => formatDateKey(date.year, date.month, date.day)),
     ...Array.from(focusSessionDays),
@@ -224,9 +234,10 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const monthlyKosTotal = allDates
     .filter((date) => date.year === currentYear && date.month === currentMonth)
     .reduce((sum, date) => sum + (Number(date.key_of_success) || 0), 0);
+  const totalFocusTimerMinutes = focusSessions.reduce((sum, session) => sum + getSessionFocusedMinutes(session), 0);
+  const totalHolyMindMinutes = allDates.reduce((sum, date) => sum + (Number(date.holy_mind_minutes) || 0), 0);
   const weeklyProgressMax = Math.max(0, ...weeklyProgressData.map((point) => point.value || 0));
   const weeklyProgressDomain: [number, number] = weeklyProgressMax > 50 ? [0, 90] : [0, 45];
-  const cycleDomainMax = Math.max(cycleTarget + 20, monthlyCycleCount + 20);
 
   const moveMonth = (direction: -1 | 1) => {
     setCurrentMonth((month) => {
@@ -249,20 +260,23 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         analyticsView={analyticsView}
         currentMonth={currentMonth}
         currentYear={currentYear}
-        cycleDomainMax={cycleDomainMax}
-        cycleMonthlyData={cycleMonthlyData}
         dailyData={dailyData}
         errorMessage={errorMessage}
+        focusTimerCumulativeData={focusTimerCumulativeData}
+        holyMindCumulativeData={holyMindCumulativeData}
         kosDistribution={kosDistribution}
-        kosTrend={kosTrend}
         monthlyFocusSessionCount={monthlyFocusSessionCount}
         monthlyKosTotal={monthlyKosTotal}
         monthlyRecordCount={monthlyRecordCount}
         monthlyTotalHours={monthlyTotalHours}
         moveMonth={moveMonth}
+        selectedTotal={selectedTotal}
+        setSelectedTotal={setSelectedTotal}
         selectedWeek={selectedWeek}
         setAnalyticsView={setAnalyticsView}
         setSelectedWeek={setSelectedWeek}
+        totalFocusTimerMinutes={totalFocusTimerMinutes}
+        totalHolyMindMinutes={totalHolyMindMinutes}
         weeklyData={weeklyData}
         weeklyProgressData={weeklyProgressData}
         weeklyProgressDomain={weeklyProgressDomain}
@@ -278,7 +292,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">Progress analytics</h2>
-            <p className="mt-1 text-sm text-slate-500">Study time, weekly momentum, success keys, and cycle consistency.</p>
+            <p className="mt-1 text-sm text-slate-500">Study time, weekly momentum, timer totals, and Holly Mind growth.</p>
           </div>
           <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-1">
             <button
@@ -314,6 +328,13 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         <MetricCard label="Success keys" value={monthlyKosTotal} />
       </section>
 
+      <CumulativeTotalPanel
+        selected={selectedTotal}
+        onSelect={setSelectedTotal}
+        totalFocusTimerMinutes={totalFocusTimerMinutes}
+        totalHolyMindMinutes={totalHolyMindMinutes}
+      />
+
       <section className="glass-panel rounded-2xl p-2">
         <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
           <ViewButton active={analyticsView === 'month_overview'} onClick={() => setAnalyticsView('month_overview')}>
@@ -326,24 +347,24 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
             Weekly progress
           </ViewButton>
           <ViewButton active={analyticsView === 'key_of_success'} onClick={() => setAnalyticsView('key_of_success')}>
-            Key of Success
+            Timer total
           </ViewButton>
           <ViewButton active={analyticsView === 'cycle_ticks'} onClick={() => setAnalyticsView('cycle_ticks')}>
-            Cycles
+            Holly Mind
           </ViewButton>
         </div>
       </section>
 
       {analyticsView === 'month_overview' && (
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <ChartPanel title={`Study hours by week — ${monthNames[currentMonth - 1]}`}>
+          <ChartPanel title={`Study hours by week - ${monthNames[currentMonth - 1]}`}>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={weeklyData} barCategoryGap="22%" accessibilityLayer>
-                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
-                <XAxis dataKey="name" stroke="#64748b" />
-                <YAxis stroke="#64748b" />
-                <Tooltip formatter={(value) => [`${value}h`, 'Study time']} />
-                <Bar dataKey="hours" fill="var(--chart-1)" maxBarSize={52} radius={[8, 8, 0, 0]} />
+              <BarChart data={weeklyData} barCategoryGap="26%" margin={{ top: 8, right: 8, left: -14, bottom: 0 }} accessibilityLayer>
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} />
+                <YAxis stroke="#64748b" tickLine={false} axisLine={false} />
+                <Tooltip formatter={(value) => [`${value}h`, 'Study time']} contentStyle={legacyTooltipStyle} cursor={{ fill: 'rgba(37, 99, 235, .06)' }} />
+                <Bar dataKey="hours" fill="var(--chart-1)" maxBarSize={52} radius={[10, 10, 3, 3]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartPanel>
@@ -351,12 +372,12 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
           <ChartPanel title="Key of Success distribution">
             <ResponsiveContainer width="100%" height={280}>
               <PieChart accessibilityLayer>
-                <Pie data={kosDistribution} dataKey="value" nameKey="name" outerRadius={92} labelLine={false}>
+                <Pie data={kosDistribution} dataKey="value" nameKey="name" innerRadius={48} outerRadius={92} paddingAngle={3} cornerRadius={7} labelLine={false}>
                   {kosDistribution.map((entry) => (
                     <Cell key={entry.name} fill={entry.color} />
                   ))}
                 </Pie>
-                <Tooltip />
+                <Tooltip contentStyle={legacyTooltipStyle} />
               </PieChart>
             </ResponsiveContainer>
             <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
@@ -374,14 +395,14 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       {analyticsView === 'week_daily' && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week" />
-          <ChartPanel title={`Daily study hours — Week ${selectedWeek}`}>
+          <ChartPanel title={`Daily study hours - Week ${selectedWeek}`}>
             <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={dailyData} barCategoryGap="22%" accessibilityLayer>
-                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
-                <XAxis dataKey="name" stroke="#64748b" angle={-35} textAnchor="end" height={70} />
-                <YAxis stroke="#64748b" />
-                <Tooltip formatter={(value) => [`${value}h`, 'Study time']} />
-                <Bar dataKey="hours" fill="var(--chart-2)" maxBarSize={46} radius={[8, 8, 0, 0]} />
+              <BarChart data={dailyData} barCategoryGap="26%" margin={{ top: 8, right: 8, left: -14, bottom: 0 }} accessibilityLayer>
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} angle={-35} textAnchor="end" height={70} />
+                <YAxis stroke="#64748b" tickLine={false} axisLine={false} />
+                <Tooltip formatter={(value) => [`${value}h`, 'Study time']} contentStyle={legacyTooltipStyle} cursor={{ fill: 'rgba(20, 184, 166, .06)' }} />
+                <Bar dataKey="hours" fill="var(--chart-2)" maxBarSize={46} radius={[10, 10, 3, 3]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartPanel>
@@ -391,19 +412,19 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       {analyticsView === 'weekly_progress' && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           <WeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week to view progress" />
-          <ChartPanel title={`Cumulative study time — Week ${selectedWeek}`}>
+          <ChartPanel title={`Cumulative study time - Week ${selectedWeek}`}>
             <ResponsiveContainer width="100%" height={340}>
-              <AreaChart data={weeklyProgressData} accessibilityLayer>
+              <AreaChart data={weeklyProgressData} margin={{ top: 10, right: 10, left: -14, bottom: 0 }} accessibilityLayer>
                 <defs>
                   <linearGradient id="weeklyProgressGradient" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#2563eb" stopOpacity={0.24} />
                     <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
-                <XAxis dataKey="name" stroke="#64748b" angle={-35} textAnchor="end" height={70} />
-                <YAxis stroke="#64748b" domain={weeklyProgressDomain} allowDataOverflow={false} />
-                <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])} />
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} angle={-35} textAnchor="end" height={70} />
+                <YAxis stroke="#64748b" tickLine={false} axisLine={false} domain={weeklyProgressDomain} allowDataOverflow={false} />
+                <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])} contentStyle={legacyTooltipStyle} />
                 <ReferenceLine y={40} label={{ value: '40h', fill: '#d97706', fontSize: 12 }} stroke="#d97706" strokeDasharray="4 4" />
                 {weeklyProgressMax > 50 && (
                   <ReferenceLine y={80} label={{ value: '80h', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeDasharray="4 4" />
@@ -425,26 +446,26 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       )}
 
       {analyticsView === 'key_of_success' && (
-        <ChartPanel title={`Key of Success progress — ${monthNames[currentMonth - 1]} ${currentYear}`}>
+        <ChartPanel title={`Timer cumulative total - ${monthNames[currentMonth - 1]} ${currentYear}`}>
           <ResponsiveContainer width="100%" height={340}>
-            <AreaChart data={kosTrend} accessibilityLayer>
+            <AreaChart data={focusTimerCumulativeData} margin={{ top: 10, right: 10, left: -14, bottom: 0 }} accessibilityLayer>
               <defs>
-                <linearGradient id="kosGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.24} />
-                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                <linearGradient id="timerCumulativeGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.24} />
+                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
-              <XAxis dataKey="name" stroke="#64748b" />
-              <YAxis stroke="#64748b" domain={[0, 'dataMax + 5']} />
-              <Tooltip formatter={(value) => (value == null ? [] : [value, 'Key of Success'])} />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+              <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} />
+              <YAxis stroke="#64748b" tickLine={false} axisLine={false} domain={[0, 'dataMax + 5']} />
+              <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Timer total'])} contentStyle={legacyTooltipStyle} />
               <Area
                 type="monotone"
                 dataKey="value"
-                stroke="#f97316"
+                stroke="#2563eb"
                 strokeWidth={3}
-                fill="url(#kosGradient)"
-                dot={{ fill: '#f97316', r: 3 }}
+                fill="url(#timerCumulativeGradient)"
+                dot={{ fill: '#2563eb', r: 3 }}
                 activeDot={{ r: 5 }}
                 connectNulls={false}
               />
@@ -454,36 +475,30 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       )}
 
       {analyticsView === 'cycle_ticks' && (
-        <ChartPanel title={`Checked cycle blocks — ${monthNames[currentMonth - 1]} ${currentYear}`}>
+        <ChartPanel title={`Holly Mind cumulative total - ${monthNames[currentMonth - 1]} ${currentYear}`}>
           <ResponsiveContainer width="100%" height={360}>
-            <ComposedChart data={cycleMonthlyData} accessibilityLayer>
+            <AreaChart data={holyMindCumulativeData} margin={{ top: 10, right: 10, left: -14, bottom: 0 }} accessibilityLayer>
               <defs>
-                <linearGradient id="cycleGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#eab308" stopOpacity={0.28} />
-                  <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
+                <linearGradient id="holyMindGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#059669" stopOpacity={0.24} />
+                  <stop offset="95%" stopColor="#059669" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 3" />
-              <XAxis dataKey="name" stroke="#64748b" />
-              <YAxis stroke="#64748b" domain={[0, cycleDomainMax]} />
-              <Tooltip
-                formatter={(value, name) => [
-                  value,
-                  name === 'cumulative' ? 'Cumulative' : 'Daily',
-                ]}
-              />
-              <ReferenceLine y={cycleTarget} label={{ value: '240', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeWidth={2} />
+              <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+              <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} />
+              <YAxis stroke="#64748b" tickLine={false} axisLine={false} domain={[0, 'dataMax + 5']} />
+              <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Holly Mind total'])} contentStyle={legacyTooltipStyle} />
               <Area
                 type="monotone"
-                dataKey="cumulative"
-                stroke="#ca8a04"
+                dataKey="value"
+                stroke="#059669"
                 strokeWidth={3}
-                fill="url(#cycleGradient)"
-                dot={{ fill: '#ca8a04', r: 3 }}
+                fill="url(#holyMindGradient)"
+                dot={{ fill: '#059669', r: 3 }}
                 activeDot={{ r: 5 }}
+                connectNulls={false}
               />
-              <Bar dataKey="count" fill="#facc15" maxBarSize={24} radius={[4, 4, 0, 0]} />
-            </ComposedChart>
+            </AreaChart>
           </ResponsiveContainer>
         </ChartPanel>
       )}
@@ -495,20 +510,23 @@ interface DesktopCinematicAnalyticsProps {
   analyticsView: AnalyticsView;
   currentMonth: number;
   currentYear: number;
-  cycleDomainMax: number;
-  cycleMonthlyData: CycleChartPoint[];
   dailyData: Array<{ name: string; hours: number }>;
   errorMessage: string;
+  focusTimerCumulativeData: ChartPoint[];
+  holyMindCumulativeData: ChartPoint[];
   kosDistribution: Array<{ name: string; value: number; color: string }>;
-  kosTrend: ChartPoint[];
   monthlyFocusSessionCount: number;
   monthlyKosTotal: number;
   monthlyRecordCount: number;
   monthlyTotalHours: number;
   moveMonth: (direction: -1 | 1) => void;
+  selectedTotal: 'timer' | 'holy';
   selectedWeek: number;
   setAnalyticsView: (view: AnalyticsView) => void;
+  setSelectedTotal: (value: 'timer' | 'holy') => void;
   setSelectedWeek: (week: number) => void;
+  totalFocusTimerMinutes: number;
+  totalHolyMindMinutes: number;
   weeklyData: Array<{ name: string; hours: number }>;
   weeklyProgressData: ChartPoint[];
   weeklyProgressDomain: [number, number];
@@ -528,28 +546,31 @@ const cinematicViewItems: Array<{ id: AnalyticsView; label: string; hint: string
   { id: 'month_overview', label: 'Month', hint: 'Weekly totals' },
   { id: 'week_daily', label: 'Week details', hint: 'Daily hours' },
   { id: 'weekly_progress', label: 'Progress', hint: 'Cumulative week' },
-  { id: 'key_of_success', label: 'Success keys', hint: 'Monthly trend' },
-  { id: 'cycle_ticks', label: 'Cycles', hint: '240-block target' },
+  { id: 'key_of_success', label: 'Timer total', hint: 'All sessions' },
+  { id: 'cycle_ticks', label: 'Holly Mind', hint: 'All-time total' },
 ];
 
 function DesktopCinematicAnalytics({
   analyticsView,
   currentMonth,
   currentYear,
-  cycleDomainMax,
-  cycleMonthlyData,
   dailyData,
   errorMessage,
+  focusTimerCumulativeData,
+  holyMindCumulativeData,
   kosDistribution,
-  kosTrend,
   monthlyFocusSessionCount,
   monthlyKosTotal,
   monthlyRecordCount,
   monthlyTotalHours,
   moveMonth,
+  selectedTotal,
   selectedWeek,
   setAnalyticsView,
+  setSelectedTotal,
   setSelectedWeek,
+  totalFocusTimerMinutes,
+  totalHolyMindMinutes,
   weeklyData,
   weeklyProgressData,
   weeklyProgressDomain,
@@ -572,7 +593,7 @@ function DesktopCinematicAnalytics({
             <p className="text-[10px] font-semibold uppercase tracking-[.24em] text-[var(--primary)]">Progress analytics</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-[-.045em]">Your progress, without the noise.</h1>
             <p className="mt-2 max-w-2xl text-sm text-[var(--foreground-muted)]">
-              The original study-time, success-key, and cycle calculations in a clearer desktop workspace.
+              Study time, session totals, and Holly Mind growth in a clearer desktop workspace.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/75 p-1.5 shadow-[var(--shadow-sm)]">
@@ -622,6 +643,13 @@ function DesktopCinematicAnalytics({
         <CinematicMetric index={3} label="Success keys" value={String(monthlyKosTotal)} reducedMotion={reducedMotion} />
       </section>
 
+      <CumulativeTotalPanel
+        selected={selectedTotal}
+        onSelect={setSelectedTotal}
+        totalFocusTimerMinutes={totalFocusTimerMinutes}
+        totalHolyMindMinutes={totalHolyMindMinutes}
+      />
+
       <nav className="grid grid-cols-5 gap-2 rounded-[24px] border border-[var(--border)] bg-[var(--glass)] p-2 shadow-[var(--shadow-sm)] backdrop-blur-xl" aria-label="Analytics views" role="tablist">
         {cinematicViewItems.map((item) => {
           const active = analyticsView === item.id;
@@ -659,7 +687,7 @@ function DesktopCinematicAnalytics({
         >
           {analyticsView === 'month_overview' && (
             <div className="grid grid-cols-2 gap-5">
-              <CinematicChartPanel title={`Study hours by week — ${monthNames[currentMonth - 1]}`} reducedMotion={reducedMotion}>
+              <CinematicChartPanel title={`Study hours by week - ${monthNames[currentMonth - 1]}`} reducedMotion={reducedMotion}>
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={weeklyData} barCategoryGap="22%" margin={{ top: 10, right: 10, left: -8, bottom: 0 }} accessibilityLayer>
                     <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
@@ -707,7 +735,7 @@ function DesktopCinematicAnalytics({
           {analyticsView === 'week_daily' && (
             <>
               <CinematicWeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week" reducedMotion={reducedMotion} />
-              <CinematicChartPanel title={`Daily study hours — Week ${selectedWeek}`} reducedMotion={reducedMotion}>
+              <CinematicChartPanel title={`Daily study hours - Week ${selectedWeek}`} reducedMotion={reducedMotion}>
                 <ResponsiveContainer width="100%" height={380}>
                   <BarChart data={dailyData} barCategoryGap="22%" margin={{ top: 12, right: 14, left: -8, bottom: 8 }} accessibilityLayer>
                     <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
@@ -724,7 +752,7 @@ function DesktopCinematicAnalytics({
           {analyticsView === 'weekly_progress' && (
             <>
               <CinematicWeekSelector weeksCount={weeksCount} selectedWeek={selectedWeek} onSelect={setSelectedWeek} label="Choose a week to view progress" reducedMotion={reducedMotion} />
-              <CinematicChartPanel title={`Cumulative study time — Week ${selectedWeek}`} reducedMotion={reducedMotion}>
+              <CinematicChartPanel title={`Cumulative study time - Week ${selectedWeek}`} reducedMotion={reducedMotion}>
                 <ResponsiveContainer width="100%" height={400}>
                   <AreaChart data={weeklyProgressData} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
                     <defs>
@@ -747,43 +775,41 @@ function DesktopCinematicAnalytics({
           )}
 
           {analyticsView === 'key_of_success' && (
-            <CinematicChartPanel title={`Key of Success progress — ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
+            <CinematicChartPanel title={`Timer cumulative total - ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
               <ResponsiveContainer width="100%" height={420}>
-                <AreaChart data={kosTrend} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
+                <AreaChart data={focusTimerCumulativeData} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
                   <defs>
-                    <linearGradient id="cinematicKosGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f97316" stopOpacity={.32} />
-                      <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                    <linearGradient id="cinematicTimerCumulativeGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#2563eb" stopOpacity={.32} />
+                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
                   <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
                   <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} domain={[0, 'dataMax + 5']} />
-                  <Tooltip formatter={(value) => (value == null ? [] : [value, 'Key of Success'])} contentStyle={cinematicTooltipStyle} />
-                  <Area type="monotone" dataKey="value" stroke="#f97316" strokeWidth={3} fill="url(#cinematicKosGradient)" dot={{ fill: '#f97316', r: 3 }} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
+                  <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Timer total'])} contentStyle={cinematicTooltipStyle} />
+                  <Area type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} fill="url(#cinematicTimerCumulativeGradient)" dot={{ fill: '#2563eb', r: 3 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
                 </AreaChart>
               </ResponsiveContainer>
             </CinematicChartPanel>
           )}
 
           {analyticsView === 'cycle_ticks' && (
-            <CinematicChartPanel title={`Checked cycle blocks — ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
+            <CinematicChartPanel title={`Holly Mind cumulative total - ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
               <ResponsiveContainer width="100%" height={430}>
-                <ComposedChart data={cycleMonthlyData} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
+                <AreaChart data={holyMindCumulativeData} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
                   <defs>
-                    <linearGradient id="cinematicCycleGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#eab308" stopOpacity={.3} />
-                      <stop offset="95%" stopColor="#eab308" stopOpacity={0} />
+                    <linearGradient id="cinematicHolyMindGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#059669" stopOpacity={.32} />
+                      <stop offset="95%" stopColor="#059669" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
                   <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
-                  <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} domain={[0, cycleDomainMax]} />
-                  <Tooltip formatter={(value, name) => [value, name === 'cumulative' ? 'Cumulative' : 'Daily']} contentStyle={cinematicTooltipStyle} />
-                  <ReferenceLine y={cycleTarget} label={{ value: '240', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeWidth={2} />
-                  <Area type="monotone" dataKey="cumulative" stroke="#ca8a04" strokeWidth={3} fill="url(#cinematicCycleGradient)" dot={{ fill: '#ca8a04', r: 3 }} activeDot={{ r: 5 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
-                  <Bar dataKey="count" fill="#facc15" maxBarSize={24} radius={[5, 5, 1, 1]} isAnimationActive={!reducedMotion} animationDuration={barDuration} animationEasing="ease-out" />
-                </ComposedChart>
+                  <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} domain={[0, 'dataMax + 5']} />
+                  <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Holly Mind total'])} contentStyle={cinematicTooltipStyle} />
+                  <Area type="monotone" dataKey="value" stroke="#059669" strokeWidth={3} fill="url(#cinematicHolyMindGradient)" dot={{ fill: '#059669', r: 3 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
+                </AreaChart>
               </ResponsiveContainer>
             </CinematicChartPanel>
           )}
@@ -850,6 +876,10 @@ function normalizeSessionDate(value?: string | null) {
   return value.slice(0, 10);
 }
 
+function isDateKeyInMonth(dateKey: string, month: number, year: number) {
+  return dateKey.startsWith(`${year}-${String(month).padStart(2, '0')}-`);
+}
+
 function getSessionFocusedMinutes(session: ApiSession) {
   const storedMinutes = Number(session.focused_minutes);
   if (Number.isFinite(storedMinutes) && storedMinutes > 0) return storedMinutes;
@@ -862,6 +892,10 @@ function getSessionFocusedMinutes(session: ApiSession) {
 
 function roundOneDecimal(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+function formatHoursFromMinutes(minutes: number) {
+  return `${roundOneDecimal(minutes / 60)}h`;
 }
 
 function isFutureDate(day: number, month: number, year: number) {
@@ -903,6 +937,68 @@ function MetricCard({ label, value }: { label: string; value: number | string })
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
     </motion.div>
+  );
+}
+
+function CumulativeTotalPanel({
+  selected,
+  onSelect,
+  totalFocusTimerMinutes,
+  totalHolyMindMinutes,
+}: {
+  selected: 'timer' | 'holy';
+  onSelect: (value: 'timer' | 'holy') => void;
+  totalFocusTimerMinutes: number;
+  totalHolyMindMinutes: number;
+}) {
+  const items = [
+    {
+      id: 'timer' as const,
+      label: 'Timer total',
+      value: formatHoursFromMinutes(totalFocusTimerMinutes),
+      minutes: `${Math.round(totalFocusTimerMinutes)}m`,
+      color: 'blue',
+    },
+    {
+      id: 'holy' as const,
+      label: 'Holly Mind',
+      value: formatHoursFromMinutes(totalHolyMindMinutes),
+      minutes: `${Math.round(totalHolyMindMinutes)}m`,
+      color: 'emerald',
+    },
+  ];
+  const active = items.find((item) => item.id === selected) || items[0];
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-medium text-slate-500">Selected cumulative total</p>
+          <div className="mt-1 flex items-end gap-3">
+            <p className={`text-4xl font-semibold tabular-nums ${active.color === 'emerald' ? 'text-emerald-600' : 'text-blue-600'}`}>{active.value}</p>
+            <p className="pb-1 text-sm font-medium text-slate-500">{active.minutes}</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+          {items.map((item) => {
+            const isActive = selected === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelect(item.id)}
+                className={`rounded-lg px-4 py-3 text-left transition ${
+                  isActive ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span className="block text-xs font-medium">{item.label}</span>
+                <span className="mt-1 block text-lg font-semibold tabular-nums">{item.value}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </section>
   );
 }
 
