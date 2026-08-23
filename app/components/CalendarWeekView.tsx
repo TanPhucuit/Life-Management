@@ -1,7 +1,8 @@
 'use client';
 
-import { PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Palette, Plus, Search, X } from 'lucide-react';
+import { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { CalendarDays, CalendarOff, Check, ChevronDown, ChevronLeft, ChevronRight, Plus, Search, X } from 'lucide-react';
 import { ApiTask, ApiTopic } from '@/app/lib/api';
 import { getTopicColorByName } from '@/app/lib/topicColors';
 import { CALENDAR_COLORS, CALENDAR_DONE_HEX, contrastText, resolveCalendarColor } from '@/app/lib/calendarColors';
@@ -74,8 +75,10 @@ export default function CalendarWeekView({
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [colorPickerId, setColorPickerId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; ymd: string; min: number | null } | null>(null);
+  // Right-click on a scheduled task/event: recolour it, or take it off the
+  // calendar without touching the underlying task.
+  const [itemMenu, setItemMenu] = useState<{ id: string; kind: 'task' | 'event'; x: number; y: number } | null>(null);
   const [composer, setComposer] = useState<{ mode: 'task' | 'event'; ymd: string; min: number | null; x: number; y: number } | null>(null);
   const [now, setNow] = useState(() => new Date());
   const columnsRef = useRef<HTMLDivElement | null>(null);
@@ -88,9 +91,10 @@ export default function CalendarWeekView({
   useEffect(() => { if (!sidebarTopicId && topics.length) setSidebarTopicId(topics[0].id); }, [sidebarTopicId, topics]);
   useEffect(() => { setExpandedIds(new Set()); }, [sidebarTopicId]);
   useEffect(() => {
-    const close = () => { setContextMenu(null); setColorPickerId(null); };
+    const close = () => { setContextMenu(null); setItemMenu(null); };
     window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); };
   }, []);
   useEffect(() => { const id = window.setInterval(() => setNow(new Date()), 60000); return () => window.clearInterval(id); }, []);
   useLayoutEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 7 * HOUR_HEIGHT - 12; }, []);
@@ -339,11 +343,31 @@ export default function CalendarWeekView({
     if (item.kind === 'task' && item.task) void onToggleTask(item.task);
     else if (item.event) persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, done: !evt.done } : evt));
   };
-  const applyColor = (item: Timed | AllDay, hex: string) => {
-    if (item.kind === 'task') void onUpdateTask(item.id, { taskColor: hex });
-    else persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, color: hex } : evt));
-    setColorPickerId(null);
+  const applyColorTo = (id: string, kind: 'task' | 'event', hex: string) => {
+    if (kind === 'task') void onUpdateTask(id, { taskColor: hex });
+    else persistEvents(events.map((evt) => evt.id === id ? { ...evt, color: hex } : evt));
+    setItemMenu(null);
   };
+  // "Remove from calendar" — the task itself is untouched, it just loses its
+  // dates and drops back into the sidebar's unscheduled list. A standalone
+  // event has nowhere else to live, so it is deleted outright.
+  const removeFromCalendar = (id: string, kind: 'task' | 'event') => {
+    if (kind === 'task') void onUpdateTask(id, { startDate: null, deadline: null });
+    else persistEvents(events.filter((evt) => evt.id !== id));
+    setItemMenu(null);
+  };
+  const openItemMenu = (event: ReactMouseEvent, id: string, kind: 'task' | 'event') => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(null);
+    setItemMenu({ id, kind, x: event.clientX, y: event.clientY });
+  };
+  // Both popovers anchor at the click point but must not spill past the
+  // viewport edge — clamped against an approximate menu footprint.
+  const clampMenu = (x: number, y: number, width: number, height: number) => ({
+    left: typeof window === 'undefined' ? x : Math.min(x, window.innerWidth - width - 8),
+    top: typeof window === 'undefined' ? y : Math.min(y, window.innerHeight - height - 8),
+  });
 
   const nowMin = now.getHours() * 60 + now.getMinutes();
   const monthLabel = weekDays[0].toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
@@ -447,7 +471,13 @@ export default function CalendarWeekView({
                 const text = contrastText(bar.color);
                 return (
                   <div key={bar.id} className="absolute px-1" style={{ left: `${(bar.startCol / 7) * 100}%`, width: `${(bar.span / 7) * 100}%`, top: 4 + bar.lane * 24 }}>
-                    <div className="flex h-5 items-center gap-1 overflow-hidden rounded px-1.5 text-[11px] font-medium" style={{ background: bar.color, color: text, opacity: bar.done ? 0.85 : 1 }} title={bar.title} onClick={() => bar.kind === 'task' && onOpenTask(bar.id)}>
+                    <div
+                      className="flex h-5 cursor-pointer items-center gap-1 overflow-hidden rounded px-1.5 text-[11px] font-medium transition hover:brightness-95"
+                      style={{ background: bar.color, color: text, opacity: bar.done ? 0.85 : 1 }}
+                      title={bar.title}
+                      onClick={() => bar.kind === 'task' && onOpenTask(bar.id)}
+                      onContextMenu={(event) => openItemMenu(event, bar.id, bar.kind)}
+                    >
                       <button type="button" onClick={(e) => { e.stopPropagation(); toggleDone(bar); }} className="grid h-3 w-3 shrink-0 place-items-center rounded-sm border" style={{ borderColor: text, background: bar.done ? text : 'transparent' }} aria-label="Hoàn thành">
                         {bar.done && <Check className="h-2 w-2" style={{ color: bar.color }} />}
                       </button>
@@ -472,9 +502,12 @@ export default function CalendarWeekView({
             </div>
 
             <div ref={columnsRef} className="relative col-span-7">
-              {/* hour lines */}
+              {/* hour + half-hour lines */}
               {Array.from({ length: 24 }, (_, hour) => (
                 <div key={hour} className="pointer-events-none absolute left-0 right-0 border-t border-slate-100" style={{ top: hour * HOUR_HEIGHT }} />
+              ))}
+              {Array.from({ length: 24 }, (_, hour) => (
+                <div key={`${hour}-half`} className="pointer-events-none absolute left-0 right-0 border-t border-dashed border-slate-100/70" style={{ top: hour * HOUR_HEIGHT + HOUR_HEIGHT / 2 }} />
               ))}
               {/* vertical day separators + per-day drop / right-click targets */}
               <div className="absolute inset-0 grid" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
@@ -507,7 +540,8 @@ export default function CalendarWeekView({
                   <div
                     key={item.id}
                     onPointerDown={(event) => beginMove(event, item)}
-                    className="lm-cal-event group absolute z-10 flex cursor-grab flex-col overflow-hidden rounded-lg px-1.5 py-0.5 text-[11px] leading-tight active:cursor-grabbing"
+                    onContextMenu={(event) => openItemMenu(event, item.id, item.kind)}
+                    className="lm-cal-event group absolute z-10 flex cursor-grab flex-col overflow-hidden rounded-lg px-1.5 py-0.5 text-[11px] leading-tight shadow-sm transition-shadow duration-150 hover:shadow-md active:cursor-grabbing"
                     style={{ left: `${item.leftPct}%`, width: `${item.widthPct}%`, top: item.top, height: item.height - 2, background: item.color, color: text, opacity: item.done ? 0.9 : 1, boxShadow: 'inset 3px 0 0 rgba(0,0,0,.18)' }}
                     title={item.title}
                   >
@@ -516,17 +550,11 @@ export default function CalendarWeekView({
                         {item.done && <Check className="h-2 w-2" style={{ color: item.color }} />}
                       </button>
                       <span className={`min-w-0 flex-1 truncate font-semibold ${item.done ? 'line-through' : ''}`}>{item.title}</span>
-                      <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setColorPickerId(colorPickerId === item.id ? null : item.id); }} className="hidden shrink-0 group-hover:block" style={{ color: text }} aria-label="Đổi màu"><Palette className="h-3 w-3" /></button>
                     </div>
                     <span data-time-label className="mt-0.5 truncate opacity-80" style={{ display: item.height > 30 ? 'block' : 'none' }}>{fmtTime(item.startMin)} – {fmtTime(item.endMin)}</span>
                     <span onPointerDown={(event) => beginResize(event, item, event.currentTarget.parentElement as HTMLElement)} className="absolute inset-x-0 bottom-0 flex h-2.5 cursor-ns-resize items-end justify-center" style={{ touchAction: 'none' }}>
                       <span className="mb-[1px] h-1 w-6 rounded-full bg-black/25 opacity-0 group-hover:opacity-100" />
                     </span>
-                    {colorPickerId === item.id && (
-                      <div className="absolute left-1 top-6 z-30 flex w-40 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                        {CALENDAR_COLORS.map((c) => <button key={c.name} type="button" title={c.label} onClick={() => applyColor(item, c.hex)} className="h-5 w-5 rounded-full ring-1 ring-black/5" style={{ background: c.hex }} />)}
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -535,13 +563,65 @@ export default function CalendarWeekView({
         </div>
       </div>
 
-      {contextMenu && (
-        <div className="fixed z-50 w-44 overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-sm shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(e) => e.stopPropagation()}>
-          <div className="px-3 py-1 text-[11px] text-slate-400">{fromYMD(contextMenu.ymd).toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' })}{contextMenu.min !== null ? ` · ${fmtTime(contextMenu.min)}` : ''}</div>
-          <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-50" onClick={() => { setComposer({ mode: 'task', ymd: contextMenu.ymd, min: contextMenu.min, x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}><Plus className="h-3.5 w-3.5 text-blue-600" /> Task mới</button>
-          <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-50" onClick={() => { setComposer({ mode: 'event', ymd: contextMenu.ymd, min: contextMenu.min, x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}><CalendarDays className="h-3.5 w-3.5 text-purple-600" /> Sự kiện mới</button>
-        </div>
-      )}
+      <AnimatePresence>
+        {contextMenu && (
+          <motion.div
+            key="day-context-menu"
+            initial={{ opacity: 0, scale: 0.92, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.12, ease: 'easeOut' }}
+            className="fixed z-50 w-44 origin-top-left overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-xl"
+            style={clampMenu(contextMenu.x, contextMenu.y, 176, 110)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-3 py-1 text-[11px] text-slate-400">{fromYMD(contextMenu.ymd).toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit' })}{contextMenu.min !== null ? ` · ${fmtTime(contextMenu.min)}` : ''}</div>
+            <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-50" onClick={() => { setComposer({ mode: 'task', ymd: contextMenu.ymd, min: contextMenu.min, x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}><Plus className="h-3.5 w-3.5 text-blue-600" /> Task mới</button>
+            <button type="button" className="flex w-full items-center gap-2 px-3 py-1.5 hover:bg-slate-50" onClick={() => { setComposer({ mode: 'event', ymd: contextMenu.ymd, min: contextMenu.min, x: contextMenu.x, y: contextMenu.y }); setContextMenu(null); }}><CalendarDays className="h-3.5 w-3.5 text-purple-600" /> Sự kiện mới</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Right-click on a scheduled task/event: recolour or take off the
+          calendar. Scale-and-fade in, the way Google Calendar's own event
+          menu settles into place. */}
+      <AnimatePresence>
+        {itemMenu && (
+          <motion.div
+            key="item-context-menu"
+            initial={{ opacity: 0, scale: 0.9, y: -6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.92 }}
+            transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+            className="fixed z-50 w-52 origin-top-left overflow-hidden rounded-lg border border-slate-200 bg-white py-2 text-sm shadow-xl"
+            style={clampMenu(itemMenu.x, itemMenu.y, 208, 140)}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Màu sắc</p>
+            <div className="flex flex-wrap gap-1.5 px-3 pb-2">
+              {CALENDAR_COLORS.map((c) => (
+                <button
+                  key={c.name}
+                  type="button"
+                  title={c.label}
+                  onClick={() => applyColorTo(itemMenu.id, itemMenu.kind, c.hex)}
+                  className="h-5 w-5 rounded-full ring-1 ring-black/5 transition hover:scale-110"
+                  style={{ background: c.hex }}
+                />
+              ))}
+            </div>
+            <div className="my-1 border-t border-slate-100" />
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-red-600 hover:bg-red-50"
+              onClick={() => removeFromCalendar(itemMenu.id, itemMenu.kind)}
+            >
+              <CalendarOff className="h-3.5 w-3.5" />
+              {itemMenu.kind === 'task' ? 'Bỏ khỏi lịch' : 'Xóa sự kiện'}
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {composer && (
         <Composer
