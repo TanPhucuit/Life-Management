@@ -35,6 +35,7 @@ import { useAppStore } from '@/app/lib/store';
 import { getTopicColorByName, topicColorPalette } from '@/app/lib/topicColors';
 import TaskTableView from './TaskTableView';
 import CalendarWeekView, { type CalendarUpdate } from './CalendarWeekView';
+import { FocusTaskControl } from './FocusTaskControl';
 import { EDGE_DRAW_MS, ElasticTopologyField } from './task-network/ElasticTopologyField';
 import type { OrbitPlanetInput, TreeTaskInput } from './topic-orbit/types';
 import { SemanticDiveDirection, SemanticDiveDirector, SemanticDivePhase } from './task-network/SemanticDiveDirector';
@@ -4790,6 +4791,7 @@ function TaskDetailsContent({
   onUpdateTask: (taskId: string, input: { status?: ApiTaskStatus; title?: string; startDate?: string | null; deadline?: string | null }) => Promise<void>;
   onToggleTask: (task: ApiTask) => void;
 }) {
+  const { user } = useAppStore();
   const canToggleSelectedTask = selectedTaskChildren.length === 0;
   const [titleDraft, setTitleDraft] = useState(selectedTask?.title || '');
   const trimmedTitleDraft = titleDraft.trim();
@@ -4819,9 +4821,12 @@ function TaskDetailsContent({
               <h2 className="text-lg font-semibold">{selectedTask.title}</h2>
               <p className="mt-1 text-sm text-slate-500">{selectedTask.description || 'No description yet.'}</p>
             </div>
-            <button onClick={() => onArchive(selectedTask.id)} className="rounded-md border border-red-200 p-2 text-red-600 hover:bg-red-50" title="Archive">
-              <Trash2 className="h-4 w-4" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {user?.id && <FocusTaskControl userId={user.id} taskId={selectedTask.id} taskTitle={selectedTask.title} />}
+              <button onClick={() => onArchive(selectedTask.id)} className="rounded-md border border-red-200 p-2 text-red-600 hover:bg-red-50" title="Archive">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           </div>
 
           <div className="mb-4 space-y-2 rounded-md border border-slate-200 p-3 text-sm">

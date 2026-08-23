@@ -118,6 +118,7 @@ export async function POST(request: NextRequest) {
       endTime,
       sessionDate,
       inTimeStatus,
+      focusedMinutes,
     } = body;
 
     if (!userId || !taskId || !startTime || !endTime || !sessionDate) {
@@ -135,6 +136,7 @@ export async function POST(request: NextRequest) {
           end_time: endTime,
           session_date: sessionDate,
           in_time_status: inTimeStatus || 'in_time',
+          ...(focusedMinutes !== undefined ? { focused_minutes: focusedMinutes } : {}),
         },
       ])
       .select()

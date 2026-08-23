@@ -86,6 +86,15 @@ export interface ApiIeltsHours {
   updated_at?: string;
 }
 
+export interface ApiActiveTimer {
+  id: string;
+  user_id: string;
+  task_id: string;
+  started_at: string; // real instant (timestamptz) — safe to diff against Date.now() from any device/timezone
+  created_at?: string;
+  tasks?: { title: string; topic_id: string; task_color?: string | null } | null;
+}
+
 export interface TaskTreeStats {
   completedTasks: number;
   incompleteTasks: number;
@@ -276,6 +285,7 @@ export const api = {
     endTime: string;
     sessionDate: string;
     inTimeStatus?: ApiSession['in_time_status'];
+    focusedMinutes?: number;
   }) {
     return requestJson<ApiSession>('/api/sessions', {
       method: 'POST',
@@ -299,6 +309,20 @@ export const api = {
   },
   deleteSession(id: string) {
     return requestJson<{ success: boolean }>(`/api/sessions?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+  getActiveTimer(userId: string) {
+    return requestJson<ApiActiveTimer | null>(`/api/timer?userId=${encodeURIComponent(userId)}`);
+  },
+  startTimer(userId: string, taskId: string) {
+    return requestJson<ApiActiveTimer>('/api/timer', {
+      method: 'POST',
+      body: JSON.stringify({ userId, taskId }),
+    });
+  },
+  stopTimer(userId: string) {
+    return requestJson<{ success: boolean }>(`/api/timer?userId=${encodeURIComponent(userId)}`, {
       method: 'DELETE',
     });
   },

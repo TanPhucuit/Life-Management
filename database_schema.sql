@@ -103,6 +103,20 @@ CREATE TABLE sessions (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Active Timers Table — the one focus timer currently running for a user. Its
+-- existence IS the "counting" state: started_at is a true instant (timestamptz,
+-- unlike the naive local timestamps the rest of this app uses for scheduling),
+-- so elapsed time is computed correctly as (now - started_at) regardless of
+-- which device/timezone reopens the page. Stopping the timer reads this row,
+-- writes one row to `sessions` (one run = one focus session), and deletes it.
+CREATE TABLE active_timers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  started_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Cycle Ticks Table
 CREATE TABLE cycle_ticks (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -150,6 +164,8 @@ CREATE INDEX idx_sessions_date ON sessions(session_date);
 CREATE INDEX idx_cycle_ticks_user_id ON cycle_ticks(user_id);
 CREATE INDEX idx_cycle_ticks_year_month_day ON cycle_ticks(user_id, year, month, day);
 CREATE INDEX idx_ielts_hours_user_id ON ielts_hours(user_id);
+CREATE INDEX idx_active_timers_user_id ON active_timers(user_id);
+CREATE INDEX idx_active_timers_task_id ON active_timers(task_id);
 
 -- Non-destructive migration for existing Supabase projects.
 -- Run this block if your database was created before task tree support.
@@ -195,6 +211,16 @@ CREATE INDEX IF NOT EXISTS idx_tasks_archived_at ON tasks(archived_at);
 CREATE INDEX IF NOT EXISTS idx_cycle_ticks_user_id ON cycle_ticks(user_id);
 CREATE INDEX IF NOT EXISTS idx_cycle_ticks_year_month_day ON cycle_ticks(user_id, year, month, day);
 CREATE INDEX IF NOT EXISTS idx_ielts_hours_user_id ON ielts_hours(user_id);
+
+CREATE TABLE IF NOT EXISTS active_timers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+  task_id UUID NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  started_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_active_timers_user_id ON active_timers(user_id);
+CREATE INDEX IF NOT EXISTS idx_active_timers_task_id ON active_timers(task_id);
 
 -- Recursive task tree view for reporting. The application also computes this
 -- in the API so the UI keeps working if the view has not been deployed yet.
