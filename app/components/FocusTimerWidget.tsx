@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Square } from 'lucide-react';
 import { useAppStore } from '@/app/lib/store';
@@ -12,6 +13,7 @@ import { formatStopwatch, useFocusTimerStore } from '@/app/lib/timerStore';
 export default function FocusTimerWidget() {
   const { user } = useAppStore();
   const { timer, ready, hydrate, stop } = useFocusTimerStore();
+  const pathname = usePathname();
   const [, setTick] = useState(0);
   const [stopping, setStopping] = useState(false);
 
@@ -37,7 +39,7 @@ export default function FocusTimerWidget() {
     return () => window.clearInterval(id);
   }, [timer]);
 
-  if (!ready || !timer) return null;
+  if (pathname === '/' || !ready || !timer) return null;
 
   const elapsed = Date.now() - timer.startedAtMs;
 
