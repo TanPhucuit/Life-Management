@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Play, Square } from 'lucide-react';
 import { formatStopwatch, useFocusTimerStore } from '@/app/lib/timerStore';
+import { StopwatchDigits } from '@/app/components/StopwatchDigits';
 
 // Drop this next to any single task's UI to give it a Start/Stop control that
 // stays in sync with the one global focus timer (see FocusTimerWidget, which
@@ -52,7 +53,7 @@ export function FocusTaskControl({
       {isRunningThis ? (
         <>
           <Square className="h-3.5 w-3.5 fill-current" />
-          <span className="font-mono tabular-nums">{formatStopwatch(Date.now() - (timer?.startedAtMs || Date.now()))}</span>
+          <StopwatchDigits value={formatStopwatch(Date.now() - (timer?.startedAtMs || Date.now()))} className="font-mono" />
         </>
       ) : (
         <>
