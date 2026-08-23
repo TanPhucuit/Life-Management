@@ -26,8 +26,8 @@ export function StopwatchDigits({ value, className = '' }: { value: string; clas
         return (
           <span
             key={index}
-            className="relative inline-block h-[1em] overflow-hidden text-center"
-            style={{ width: isDigit ? '0.62em' : '0.32em' }}
+            className="relative inline-block h-[1em] shrink-0 overflow-hidden text-center"
+            style={{ width: isDigit ? '0.62em' : '0.34em', marginInline: isDigit ? undefined : '0.03em' }}
           >
             <motion.span
               key={`${index}-${char}`}

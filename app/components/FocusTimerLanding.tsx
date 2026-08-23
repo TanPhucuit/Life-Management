@@ -127,7 +127,7 @@ export default function FocusTimerLanding() {
         transition={{ duration: 0.42, ease: easeOut }}
         className="mx-auto grid min-h-dvh w-full max-w-6xl content-center gap-6 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(300px,.95fr)] lg:px-8"
       >
-        <section className="rounded-[28px] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-lg sm:p-7 lg:p-8">
+        <section className="rounded-[28px] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl sm:p-7 lg:p-8">
           <div className="mb-6 flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <motion.span
@@ -147,24 +147,32 @@ export default function FocusTimerLanding() {
             </Link>
           </div>
 
-          <div className="relative grid min-h-[220px] place-items-center overflow-hidden rounded-3xl bg-[var(--surface-soft)] px-4 py-8 text-center sm:min-h-[280px]">
-            {/* Breathing halo: only exists while the timer is actually running,
-                so its arrival is itself the cue that counting has started.
-                Plain conditional render, not AnimatePresence — this only
-                needs an enter animation; an unmount that has to wait on an
-                exit callback is a risk this component doesn't need to take. */}
+          <div
+            className="relative grid min-h-[220px] place-items-center rounded-3xl border border-[var(--border)] bg-[var(--surface-soft)] px-4 py-10 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:min-h-[300px] sm:py-12"
+            style={{ containerType: 'inline-size' }}
+          >
+            {/* A faint static glow sits behind the digits at rest so the box
+                never reads as flat/empty; the running state layers a brighter
+                breathing halo on top of it. Both are sized in % of THIS box
+                (not the viewport), so they can never bleed past its rounded
+                corners — no overflow-hidden needed to contain them. */}
+            <span
+              aria-hidden
+              className="pointer-events-none absolute h-[65%] w-[65%] rounded-full transition-opacity duration-700"
+              style={{ background: 'radial-gradient(circle, var(--primary-soft), transparent 72%)', opacity: timer ? 0 : 0.35 }}
+            />
             {timer && (
               <motion.span
                 aria-hidden
-                className="pointer-events-none absolute h-[70%] w-[70%] rounded-full"
+                className="pointer-events-none absolute h-[65%] w-[65%] rounded-full"
                 style={{ background: 'radial-gradient(circle, var(--primary-soft), transparent 72%)' }}
                 initial={{ opacity: 0, scale: 0.85 }}
-                animate={{ opacity: [0.55, 0.95, 0.55], scale: [0.95, 1.05, 0.95] }}
+                animate={{ opacity: [0.6, 1, 0.6], scale: [0.95, 1.05, 0.95] }}
                 transition={reducedMotion ? { duration: 0 } : { duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
               />
             )}
 
-            <div className="relative overflow-hidden">
+            <div className="relative flex flex-col items-center">
               {/* Deliberately no AnimatePresence/exit here: this line can change
                   twice in a row inside one second (loading -> ready -> task
                   switched), and an exit animation that has to fully finish
@@ -173,22 +181,28 @@ export default function FocusTimerLanding() {
                   Keying by the text itself still gives every change its own
                   fade-in; the old text is simply gone the instant React swaps
                   the keyed node, which can never get stuck. */}
-                <motion.p
-                  key={displayStatus}
-                  initial={reducedMotion ? false : { opacity: 0, y: -6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.22, ease: easeOut }}
-                  className="mb-3 text-sm font-medium text-[var(--foreground-muted)]"
-                >
-                  {displayStatus}
-                </motion.p>
+              <motion.p
+                key={displayStatus}
+                initial={reducedMotion ? false : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.22, ease: easeOut }}
+                className="mb-4 max-w-full truncate rounded-full bg-[var(--surface-raised)] px-3 py-1 text-xs font-medium text-[var(--foreground-muted)] sm:text-sm"
+              >
+                {displayStatus}
+              </motion.p>
 
+              {/* Font-size is driven by cqw (this box's own rendered width via
+                  container-type: inline-size above), never vw — vw sizes off
+                  the FULL viewport, which is what let the digits render wider
+                  than this card and get clipped on a two-column desktop
+                  layout. cqw is always correctly scoped to this box, so the
+                  row can never outgrow it regardless of column width. */}
               <StopwatchDigits
                 value={formatStopwatch(elapsed)}
-                className="font-mono text-[clamp(3rem,14vw,8.5rem)] font-semibold leading-none tracking-normal"
+                className="font-mono text-[clamp(2.75rem,17cqw,7rem)] font-semibold leading-none tracking-normal"
               />
 
-              <div className="mt-5 flex items-center justify-center gap-2 text-sm text-[var(--foreground-muted)]">
+              <div className="mt-5 flex items-center justify-center gap-2 rounded-full bg-[var(--surface-raised)] px-3 py-1.5 text-xs font-medium text-[var(--foreground-muted)] sm:text-sm">
                 <span className="relative flex h-2.5 w-2.5 shrink-0">
                   {timer && !reducedMotion && (
                     <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
@@ -276,7 +290,7 @@ export default function FocusTimerLanding() {
               <p className="text-sm text-[var(--foreground-muted)]">{loadingTasks ? 'Đang tải task...' : `${focusTasks.length} task có thể chạy`}</p>
             </div>
           </motion.div>
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             {focusTasks.slice(0, 5).map((task) => (
               <motion.button
                 key={task.id}
