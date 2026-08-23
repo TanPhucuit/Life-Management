@@ -7,11 +7,12 @@ import { getTopicColorByName } from '@/app/lib/topicColors';
 import { CALENDAR_COLORS, CALENDAR_DONE_HEX, contrastText, resolveCalendarColor } from '@/app/lib/calendarColors';
 import { CalendarEvent, loadEvents, newEventId, saveEvents } from '@/app/lib/calendarEvents';
 
-const DAY_LABELS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-const HOUR_HEIGHT = 48; // px per hour — Google Calendar's default density
+// Sunday-first, like Google Calendar's default.
+const DAY_LABELS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const HOUR_HEIGHT = 48; // px per hour
 const GUTTER = 56; // time-axis width
-const SNAP_MIN = 15; // drag/resize snap
-const MIN_EVENT_MIN = 30; // shortest a timed block can be
+const SNAP_MIN = 15;
+const MIN_EVENT_MIN = 30;
 const DAY_MINUTES = 24 * 60;
 
 // ---- date helpers ---------------------------------------------------------
@@ -21,8 +22,6 @@ const fromYMD = (ymd: string) => { const [y, m, d] = ymd.split('-').map(Number);
 const addDays = (ymd: string, days: number) => { const date = fromYMD(ymd); date.setDate(date.getDate() + days); return toYMD(date); };
 const dayDiff = (a: string, b: string) => Math.round((fromYMD(a).getTime() - fromYMD(b).getTime()) / 86400000);
 
-// A task timestamp → its local day and minute-of-day. Postgres TIMESTAMP has no
-// zone; JS parses 'YYYY-MM-DDTHH:MM:SS' as local, which is what we want.
 const parseStamp = (value?: string | null): { ymd: string; min: number } | null => {
   if (!value) return null;
   const date = new Date(value.length <= 10 ? `${value}T00:00:00` : value);
@@ -31,11 +30,17 @@ const parseStamp = (value?: string | null): { ymd: string; min: number } | null 
 };
 const stampFor = (ymd: string, min: number) => `${ymd}T${pad(Math.floor(min / 60))}:${pad(min % 60)}:00`;
 const snap = (min: number) => Math.round(min / SNAP_MIN) * SNAP_MIN;
-const fmtTime = (min: number) => `${pad(Math.floor(min / 60) % 24)}:${pad(min % 60)}`;
+const fmtTime = (min: number) => {
+  const h = Math.floor(min / 60) % 24;
+  const m = min % 60;
+  const period = h < 12 ? 'am' : 'pm';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12}${period}` : `${h12}:${pad(m)}${period}`;
+};
 
-const startOfWeekMonday = (date: Date) => {
+const startOfWeekSunday = (date: Date) => {
   const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  copy.setDate(copy.getDate() - ((copy.getDay() + 6) % 7));
+  copy.setDate(copy.getDate() - copy.getDay());
   return copy;
 };
 
@@ -50,7 +55,6 @@ type AllDay = {
   id: string; kind: 'task' | 'event'; title: string; startYMD: string; endYMD: string;
   color: string; done: boolean; task?: ApiTask; event?: CalendarEvent;
 };
-
 type DragPayload = { kind: 'task' | 'event'; id: string; durMin: number };
 export type CalendarUpdate = { startDate?: string | null; deadline?: string | null; taskColor?: string | null };
 
@@ -65,7 +69,7 @@ export default function CalendarWeekView({
   onToggleTask: (task: ApiTask) => void | Promise<void>;
   onOpenTask: (taskId: string) => void;
 }) {
-  const [anchor, setAnchor] = useState(() => startOfWeekMonday(new Date()));
+  const [anchor, setAnchor] = useState(() => startOfWeekSunday(new Date()));
   const [sidebarTopicId, setSidebarTopicId] = useState('');
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -73,11 +77,12 @@ export default function CalendarWeekView({
   const [colorPickerId, setColorPickerId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; ymd: string; min: number | null } | null>(null);
   const [composer, setComposer] = useState<{ mode: 'task' | 'event'; ymd: string; min: number | null; x: number; y: number } | null>(null);
-  // Live gesture state so a drag/resize tracks the cursor before it commits.
-  const [drag, setDrag] = useState<{ id: string; ymd: string; startMin: number; endMin: number } | null>(null);
   const [now, setNow] = useState(() => new Date());
   const columnsRef = useRef<HTMLDivElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Set true for the duration of a pointer gesture so nothing re-renders under
+  // it — the gesture writes to the DOM directly and commits once on release.
+  const draggingRef = useRef(false);
 
   useEffect(() => { setEvents(loadEvents(userId)); }, [userId]);
   useEffect(() => { if (!sidebarTopicId && topics.length) setSidebarTopicId(topics[0].id); }, [sidebarTopicId, topics]);
@@ -87,10 +92,8 @@ export default function CalendarWeekView({
     window.addEventListener('click', close);
     return () => window.removeEventListener('click', close);
   }, []);
-  // Move the red "now" line each minute.
   useEffect(() => { const id = window.setInterval(() => setNow(new Date()), 60000); return () => window.clearInterval(id); }, []);
-  // Open on the working day, like Google Calendar.
-  useLayoutEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 7 * HOUR_HEIGHT; }, []);
+  useLayoutEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 7 * HOUR_HEIGHT - 12; }, []);
 
   const persistEvents = (next: CalendarEvent[]) => { setEvents(next); saveEvents(userId, next); };
 
@@ -110,9 +113,6 @@ export default function CalendarWeekView({
     return resolveCalendarColor(task.task_color, topicColor);
   };
 
-  // Split every dated task/event into a timed block (same-day, has a time) or
-  // an all-day bar (date-only, or spanning more than one day) — exactly the two
-  // regions Google Calendar draws.
   const { timed, allDay } = useMemo(() => {
     const timedList: Timed[] = [];
     const allDayList: AllDay[] = [];
@@ -121,12 +121,9 @@ export default function CalendarWeekView({
       start: { ymd: string; min: number } | null, end: { ymd: string; min: number } | null,
       task?: ApiTask, event?: CalendarEvent,
     ) => {
-      const s = start || end;
-      const e = end || start;
+      const s = start || end; const e = end || start;
       if (!s || !e) return;
-      const multiDay = s.ymd !== e.ymd;
-      const midnightOnly = s.min === 0 && e.min === 0;
-      if (multiDay || midnightOnly) {
+      if (s.ymd !== e.ymd || (s.min === 0 && e.min === 0)) {
         allDayList.push({ id, kind, title, startYMD: s.ymd, endYMD: dayDiff(e.ymd, s.ymd) < 0 ? s.ymd : e.ymd, color, done, task, event });
       } else {
         const startMin = s.min;
@@ -135,15 +132,11 @@ export default function CalendarWeekView({
       }
     };
     tasks.forEach((task) => {
-      const start = parseStamp(task.start_date);
-      const end = parseStamp(task.deadline);
+      const start = parseStamp(task.start_date); const end = parseStamp(task.deadline);
       if (!start && !end) return;
       consider(task.id, 'task', task.title, colorFor(task, isTaskDone(task)), isTaskDone(task), start, end, task);
     });
-    events.forEach((evt) => {
-      consider(evt.id, 'event', evt.title, evt.done ? CALENDAR_DONE_HEX : resolveCalendarColor(evt.color, '#616161'), evt.done,
-        parseStamp(evt.start), parseStamp(evt.end), undefined, evt);
-    });
+    events.forEach((evt) => consider(evt.id, 'event', evt.title, evt.done ? CALENDAR_DONE_HEX : resolveCalendarColor(evt.color, '#616161'), evt.done, parseStamp(evt.start), parseStamp(evt.end), undefined, evt));
     return { timed: timedList, allDay: allDayList };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events, tasks, topicById, topicIndex]);
@@ -196,63 +189,136 @@ export default function CalendarWeekView({
     return rows;
   }, [childrenOf, expandedIds, scheduledIds, sidebarSearch]);
 
-  // ---- geometry from pointer ----------------------------------------------
+  // ---- geometry -----------------------------------------------------------
   const pointFrom = (clientX: number, clientY: number) => {
     const rect = columnsRef.current?.getBoundingClientRect();
-    if (!rect) return { ymd: weekStartYMD, min: 0 };
+    if (!rect) return { col: 0, ymd: weekStartYMD, min: 0 };
     const col = Math.max(0, Math.min(6, Math.floor(((clientX - rect.left) / rect.width) * 7)));
-    const min = Math.max(0, Math.min(DAY_MINUTES, ((clientY - rect.top) / HOUR_HEIGHT) * 60));
-    return { ymd: addDays(weekStartYMD, col), min: snap(min) };
+    const min = Math.max(0, Math.min(DAY_MINUTES, ((clientY - rect.top + (scrollRef.current?.scrollTop || 0) - (scrollRef.current?.scrollTop || 0)) / HOUR_HEIGHT) * 60));
+    return { col, ymd: addDays(weekStartYMD, col), min: snap(min) };
   };
+
+  // Timed blocks laid across the whole 7-day area (so a drag can cross days
+  // without changing DOM parents). Returns geometry in the units the DOM uses:
+  // left/width in %, top/height in px.
+  const placed = useMemo(() => {
+    const perDay = new Map<string, Timed[]>();
+    timed.forEach((item) => {
+      if (dayDiff(item.ymd, weekStartYMD) < 0 || dayDiff(item.ymd, weekEndYMD) > 0) return;
+      perDay.set(item.ymd, [...(perDay.get(item.ymd) || []), item]);
+    });
+    const out: Array<Timed & { leftPct: number; widthPct: number; top: number; height: number }> = [];
+    perDay.forEach((items, ymd) => {
+      const dayIndex = dayDiff(ymd, weekStartYMD);
+      const sorted = [...items].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+      const cluster: Array<Timed & { col: number; cols: number }> = [];
+      let clusterEnd = -1;
+      const flush = () => {
+        const cols = cluster.reduce((m, it) => Math.max(m, it.col + 1), 0) || 1;
+        cluster.forEach((it) => {
+          const colW = 100 / 7 / cols;
+          out.push({
+            ...it,
+            leftPct: dayIndex * (100 / 7) + it.col * colW,
+            widthPct: colW,
+            top: (it.startMin / 60) * HOUR_HEIGHT,
+            height: Math.max(16, ((it.endMin - it.startMin) / 60) * HOUR_HEIGHT),
+          });
+        });
+        cluster.length = 0; clusterEnd = -1;
+      };
+      sorted.forEach((item) => {
+        if (cluster.length && item.startMin >= clusterEnd) flush();
+        const taken = new Set(cluster.filter((it) => it.endMin > item.startMin).map((it) => it.col));
+        let col = 0; while (taken.has(col)) col += 1;
+        cluster.push({ ...item, col, cols: 1 });
+        clusterEnd = Math.max(clusterEnd, item.endMin);
+      });
+      flush();
+    });
+    return out;
+  }, [timed, weekEndYMD, weekStartYMD]);
 
   const commitTimed = (item: Timed, ymd: string, startMin: number, endMin: number) => {
-    if (item.kind === 'task') {
-      void onUpdateTask(item.id, { startDate: stampFor(ymd, startMin), deadline: stampFor(ymd, endMin) });
-    } else {
-      persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, start: stampFor(ymd, startMin), end: stampFor(ymd, endMin) } : evt));
-    }
+    if (item.kind === 'task') void onUpdateTask(item.id, { startDate: stampFor(ymd, startMin), deadline: stampFor(ymd, endMin) });
+    else persistEvents(events.map((evt) => evt.id === item.id ? { ...evt, start: stampFor(ymd, startMin), end: stampFor(ymd, endMin) } : evt));
   };
 
-  const beginMove = (event: ReactPointerEvent, item: Timed) => {
+  // Writes geometry straight to the element — no React, no re-layout.
+  const writeGeom = (el: HTMLElement, leftPct: number, widthPct: number, top: number, height: number) => {
+    el.style.left = `${leftPct}%`;
+    el.style.width = `${widthPct}%`;
+    el.style.top = `${top}px`;
+    el.style.height = `${height}px`;
+  };
+
+  const beginMove = (event: ReactPointerEvent<HTMLDivElement>, item: Timed) => {
     if (event.button !== 0) return;
     event.preventDefault();
+    const el = event.currentTarget;
+    const label = el.querySelector<HTMLElement>('[data-time-label]');
     const dur = item.endMin - item.startMin;
     const rect = columnsRef.current?.getBoundingClientRect();
     const grabOffsetMin = rect ? snap(((event.clientY - rect.top) / HOUR_HEIGHT) * 60) - item.startMin : 0;
+    draggingRef.current = true;
+    el.style.zIndex = '40';
+    el.style.boxShadow = '0 8px 24px rgba(15,23,42,.28)';
+    el.style.opacity = '0.92';
     let latest = { ymd: item.ymd, startMin: item.startMin, endMin: item.endMin };
-    let moved = false;
+    let frame = 0;
+    let pending: { col: number; startMin: number } | null = null;
+    const apply = () => {
+      frame = 0;
+      if (!pending) return;
+      const startMin = pending.startMin;
+      latest = { ymd: addDays(weekStartYMD, pending.col), startMin, endMin: startMin + dur };
+      writeGeom(el, pending.col * (100 / 7), 100 / 7, (startMin / 60) * HOUR_HEIGHT, (dur / 60) * HOUR_HEIGHT);
+      if (label) label.textContent = `${fmtTime(startMin)} – ${fmtTime(startMin + dur)}`;
+    };
     const move = (native: PointerEvent) => {
-      moved = true;
       const p = pointFrom(native.clientX, native.clientY);
-      const startMin = Math.max(0, Math.min(DAY_MINUTES - dur, p.min - grabOffsetMin));
-      latest = { ymd: p.ymd, startMin, endMin: startMin + dur };
-      setDrag({ id: item.id, ...latest });
+      const startMin = Math.max(0, Math.min(DAY_MINUTES - dur, snap(p.min - grabOffsetMin)));
+      pending = { col: p.col, startMin };
+      if (!frame) frame = requestAnimationFrame(apply);
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      setDrag(null);
-      if (moved) commitTimed(item, latest.ymd, latest.startMin, latest.endMin);
+      if (frame) cancelAnimationFrame(frame);
+      draggingRef.current = false;
+      const grabbed = pending !== null;
+      if (grabbed) commitTimed(item, latest.ymd, latest.startMin, latest.endMin);
       else if (item.kind === 'task') onOpenTask(item.id);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   };
 
-  const beginResize = (event: ReactPointerEvent, item: Timed) => {
+  const beginResize = (event: ReactPointerEvent, item: Timed, hostEl: HTMLElement) => {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    const label = hostEl.querySelector<HTMLElement>('[data-time-label]');
+    draggingRef.current = true;
     let latestEnd = item.endMin;
+    let frame = 0;
+    let pendingEnd = item.endMin;
+    const apply = () => {
+      frame = 0;
+      latestEnd = pendingEnd;
+      hostEl.style.height = `${((latestEnd - item.startMin) / 60) * HOUR_HEIGHT}px`;
+      if (label) label.textContent = `${fmtTime(item.startMin)} – ${fmtTime(latestEnd)}`;
+    };
     const move = (native: PointerEvent) => {
       const p = pointFrom(native.clientX, native.clientY);
-      latestEnd = Math.max(item.startMin + MIN_EVENT_MIN, Math.min(DAY_MINUTES, p.min));
-      setDrag({ id: item.id, ymd: item.ymd, startMin: item.startMin, endMin: latestEnd });
+      pendingEnd = Math.max(item.startMin + MIN_EVENT_MIN, Math.min(DAY_MINUTES, snap(p.min)));
+      if (!frame) frame = requestAnimationFrame(apply);
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      setDrag(null);
+      if (frame) cancelAnimationFrame(frame);
+      draggingRef.current = false;
       commitTimed(item, item.ymd, item.startMin, latestEnd);
     };
     window.addEventListener('pointermove', move);
@@ -279,34 +345,9 @@ export default function CalendarWeekView({
     setColorPickerId(null);
   };
 
-  // ---- overlap layout for a day's timed blocks ----------------------------
-  const layoutColumn = (items: Timed[]) => {
-    const sorted = [...items].sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
-    const placed: Array<Timed & { col: number; cols: number }> = [];
-    let cluster: Array<Timed & { col: number; cols: number }> = [];
-    let clusterEnd = -1;
-    const flush = () => {
-      const cols = cluster.reduce((m, it) => Math.max(m, it.col + 1), 0);
-      cluster.forEach((it) => { it.cols = cols; });
-      placed.push(...cluster);
-      cluster = [];
-      clusterEnd = -1;
-    };
-    sorted.forEach((item) => {
-      if (cluster.length && item.startMin >= clusterEnd) flush();
-      const taken = new Set(cluster.filter((it) => it.endMin > item.startMin).map((it) => it.col));
-      let col = 0; while (taken.has(col)) col += 1;
-      cluster.push({ ...item, col, cols: 1 });
-      clusterEnd = Math.max(clusterEnd, item.endMin);
-    });
-    flush();
-    return placed;
-  };
-
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const monthLabel = `${weekDays[0].toLocaleDateString('vi-VN', { day: '2-digit', month: 'short' })} – ${weekDays[6].toLocaleDateString('vi-VN', { day: '2-digit', month: 'short', year: 'numeric' })}`;
+  const monthLabel = weekDays[0].toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
 
-  // All-day bars packed into lanes (kept from the day-oriented model).
   const allDayLanes = useMemo(() => {
     const visible = allDay
       .map((item) => {
@@ -329,8 +370,8 @@ export default function CalendarWeekView({
   const allDayRows = allDayLanes.reduce((m, b) => Math.max(m, b.lane + 1), 0);
 
   return (
-    <section className="lm-cal flex min-h-0 flex-1 select-none">
-      {/* Sidebar: topic hierarchy — expand a parent to reach its children. */}
+    <section className="lm-cal flex min-h-0 flex-1 select-none bg-white">
+      {/* Sidebar */}
       <aside className="flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white">
         <div className="border-b border-slate-100 p-3">
           <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-400">Chủ đề</label>
@@ -357,11 +398,7 @@ export default function CalendarWeekView({
                 ) : <span className="w-6 shrink-0" />}
                 <div
                   draggable={!scheduled}
-                  onDragStart={(event) => {
-                    const payload: DragPayload = { kind: 'task', id: task.id, durMin: 60 };
-                    event.dataTransfer.setData('application/json', JSON.stringify(payload));
-                    event.dataTransfer.effectAllowed = 'move';
-                  }}
+                  onDragStart={(event) => { const payload: DragPayload = { kind: 'task', id: task.id, durMin: 60 }; event.dataTransfer.setData('application/json', JSON.stringify(payload)); event.dataTransfer.effectAllowed = 'move'; }}
                   onClick={() => onOpenTask(task.id)}
                   title={scheduled ? 'Đã có trên lịch' : 'Kéo vào lịch'}
                   className={`flex min-w-0 flex-1 items-center gap-2 rounded px-1.5 py-1 text-xs ${scheduled ? 'cursor-default text-slate-400' : 'cursor-grab text-slate-700 active:cursor-grabbing'}`}
@@ -377,13 +414,13 @@ export default function CalendarWeekView({
       </aside>
 
       {/* Calendar */}
-      <div className="flex min-w-0 flex-1 flex-col bg-white">
+      <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
-          <button type="button" onClick={() => setAnchor(startOfWeekMonday(new Date()))} className="h-8 rounded-md border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50">Hôm nay</button>
-          <button type="button" onClick={() => { const d = new Date(anchor); d.setDate(d.getDate() - 7); setAnchor(d); }} className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"><ChevronLeft className="h-4 w-4" /></button>
-          <button type="button" onClick={() => { const d = new Date(anchor); d.setDate(d.getDate() + 7); setAnchor(d); }} className="grid h-8 w-8 place-items-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"><ChevronRight className="h-4 w-4" /></button>
-          <h2 className="ml-1 flex items-center gap-2 text-sm font-semibold text-slate-800"><CalendarDays className="h-4 w-4 text-slate-400" />{monthLabel}</h2>
-          <span className="ml-auto text-[11px] text-slate-400">Chuột phải vào lịch để thêm · kéo mép dưới để chỉnh thời lượng</span>
+          <button type="button" onClick={() => setAnchor(startOfWeekSunday(new Date()))} className="h-8 rounded-full border border-slate-200 px-4 text-xs font-semibold text-slate-700 hover:bg-slate-50">Hôm nay</button>
+          <button type="button" onClick={() => { const d = new Date(anchor); d.setDate(d.getDate() - 7); setAnchor(d); }} className="grid h-8 w-8 place-items-center rounded-full text-slate-600 hover:bg-slate-100"><ChevronLeft className="h-4 w-4" /></button>
+          <button type="button" onClick={() => { const d = new Date(anchor); d.setDate(d.getDate() + 7); setAnchor(d); }} className="grid h-8 w-8 place-items-center rounded-full text-slate-600 hover:bg-slate-100"><ChevronRight className="h-4 w-4" /></button>
+          <h2 className="ml-1 text-lg font-normal capitalize text-slate-800">{monthLabel}</h2>
+          <span className="ml-auto text-[11px] text-slate-400">Kéo để dời · kéo mép dưới để chỉnh giờ · chuột phải để thêm</span>
         </header>
 
         {/* Day headers */}
@@ -393,9 +430,9 @@ export default function CalendarWeekView({
             const ymd = toYMD(date);
             const isToday = ymd === todayYMD;
             return (
-              <div key={ymd} className="border-l border-slate-100 py-1.5 text-center">
-                <div className={`text-[11px] font-medium uppercase ${isToday ? 'text-blue-600' : 'text-slate-400'}`}>{DAY_LABELS[index]}</div>
-                <div className={`mx-auto mt-0.5 grid h-7 w-7 place-items-center rounded-full text-sm font-semibold ${isToday ? 'bg-blue-600 text-white' : 'text-slate-700'}`}>{date.getDate()}</div>
+              <div key={ymd} className="py-1.5 text-center">
+                <div className={`text-[11px] font-medium uppercase tracking-wide ${isToday ? 'text-blue-600' : 'text-slate-500'}`}>{DAY_LABELS[index]}</div>
+                <div className={`mx-auto mt-1 grid h-9 w-9 place-items-center rounded-full text-xl font-normal ${isToday ? 'bg-blue-600 text-white' : 'text-slate-700'}`}>{date.getDate()}</div>
               </div>
             );
           })}
@@ -403,7 +440,7 @@ export default function CalendarWeekView({
 
         {/* All-day row */}
         {allDayLanes.length > 0 && (
-          <div className="grid border-b border-slate-200 bg-slate-50/40" style={{ gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)` }}>
+          <div className="grid border-b border-slate-200" style={{ gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)` }}>
             <div className="flex items-start justify-end pr-2 pt-1 text-[10px] text-slate-400">Cả ngày</div>
             <div className="relative col-span-7" style={{ height: allDayRows * 24 + 8 }}>
               {allDayLanes.map((bar) => {
@@ -426,75 +463,70 @@ export default function CalendarWeekView({
         {/* Time grid */}
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
           <div className="grid" style={{ gridTemplateColumns: `${GUTTER}px repeat(7, 1fr)`, height: DAY_MINUTES / 60 * HOUR_HEIGHT }}>
-            {/* time axis */}
             <div className="relative">
               {Array.from({ length: 24 }, (_, hour) => (
-                <div key={hour} className="absolute right-1 -translate-y-1/2 text-[10px] text-slate-400" style={{ top: hour * HOUR_HEIGHT }}>
-                  {hour === 0 ? '' : `${pad(hour)}:00`}
+                <div key={hour} className="absolute right-2 -translate-y-1/2 text-[11px] text-slate-400" style={{ top: hour * HOUR_HEIGHT }}>
+                  {hour === 0 ? '' : `${(hour % 12 === 0 ? 12 : hour % 12)} ${hour < 12 ? 'AM' : 'PM'}`}
                 </div>
               ))}
             </div>
 
-            {/* day columns */}
-            <div ref={columnsRef} className="relative col-span-7 grid" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
+            <div ref={columnsRef} className="relative col-span-7">
               {/* hour lines */}
               {Array.from({ length: 24 }, (_, hour) => (
                 <div key={hour} className="pointer-events-none absolute left-0 right-0 border-t border-slate-100" style={{ top: hour * HOUR_HEIGHT }} />
               ))}
+              {/* vertical day separators + per-day drop / right-click targets */}
+              <div className="absolute inset-0 grid" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
+                {weekDays.map((date) => {
+                  const ymd = toYMD(date);
+                  return (
+                    <div
+                      key={ymd}
+                      className={`border-l border-slate-100 ${ymd === todayYMD ? 'bg-blue-50/30' : ''}`}
+                      onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }}
+                      onDrop={(event) => { event.preventDefault(); const raw = event.dataTransfer.getData('application/json') || event.dataTransfer.getData('text/plain'); if (raw) onDropSchedule(event.clientX, event.clientY, raw); }}
+                      onContextMenu={(event) => { event.preventDefault(); const p = pointFrom(event.clientX, event.clientY); setContextMenu({ x: event.clientX, y: event.clientY, ymd, min: p.min }); }}
+                      onDoubleClick={(event) => { const p = pointFrom(event.clientX, event.clientY); setComposer({ mode: 'task', ymd, min: p.min, x: event.clientX, y: event.clientY }); }}
+                    />
+                  );
+                })}
+              </div>
 
-              {weekDays.map((date) => {
-                const ymd = toYMD(date);
-                const dayItems = timed.filter((item) => (drag?.id === item.id ? drag.ymd : item.ymd) === ymd);
-                const laid = layoutColumn(dayItems.map((item) => drag?.id === item.id ? { ...item, startMin: drag.startMin, endMin: drag.endMin } : item));
+              {/* now line */}
+              {dayDiff(todayYMD, weekStartYMD) >= 0 && dayDiff(todayYMD, weekEndYMD) <= 0 && (
+                <div className="pointer-events-none absolute z-30" style={{ top: (nowMin / 60) * HOUR_HEIGHT, left: `${dayDiff(todayYMD, weekStartYMD) * (100 / 7)}%`, width: `${100 / 7}%` }}>
+                  <div className="relative border-t-2 border-red-500"><span className="absolute -left-1 -top-[5px] h-2.5 w-2.5 rounded-full bg-red-500" /></div>
+                </div>
+              )}
+
+              {/* timed blocks — one overlay so a drag can cross days smoothly */}
+              {placed.map((item) => {
+                const text = contrastText(item.color);
                 return (
                   <div
-                    key={ymd}
-                    className={`relative border-l border-slate-100 ${ymd === todayYMD ? 'bg-blue-50/30' : ''}`}
-                    onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }}
-                    onDrop={(event) => { event.preventDefault(); const raw = event.dataTransfer.getData('application/json') || event.dataTransfer.getData('text/plain'); if (raw) onDropSchedule(event.clientX, event.clientY, raw); }}
-                    onContextMenu={(event) => { event.preventDefault(); const p = pointFrom(event.clientX, event.clientY); setContextMenu({ x: event.clientX, y: event.clientY, ymd, min: p.min }); }}
-                    onDoubleClick={(event) => { const p = pointFrom(event.clientX, event.clientY); setComposer({ mode: 'task', ymd, min: p.min, x: event.clientX, y: event.clientY }); }}
+                    key={item.id}
+                    onPointerDown={(event) => beginMove(event, item)}
+                    className="lm-cal-event group absolute z-10 flex cursor-grab flex-col overflow-hidden rounded-lg px-1.5 py-0.5 text-[11px] leading-tight active:cursor-grabbing"
+                    style={{ left: `${item.leftPct}%`, width: `${item.widthPct}%`, top: item.top, height: item.height - 2, background: item.color, color: text, opacity: item.done ? 0.9 : 1, boxShadow: 'inset 3px 0 0 rgba(0,0,0,.18)' }}
+                    title={item.title}
                   >
-                    {ymd === todayYMD && (
-                      <div className="pointer-events-none absolute left-0 right-0 z-20" style={{ top: (nowMin / 60) * HOUR_HEIGHT }}>
-                        <div className="relative border-t-2 border-red-500"><span className="absolute -left-1 -top-1 h-2 w-2 rounded-full bg-red-500" /></div>
+                    <div className="flex items-start gap-1">
+                      <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toggleDone(item); }} className="mt-[1px] grid h-3 w-3 shrink-0 place-items-center rounded-sm border" style={{ borderColor: text, background: item.done ? text : 'transparent' }} aria-label="Hoàn thành">
+                        {item.done && <Check className="h-2 w-2" style={{ color: item.color }} />}
+                      </button>
+                      <span className={`min-w-0 flex-1 truncate font-semibold ${item.done ? 'line-through' : ''}`}>{item.title}</span>
+                      <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setColorPickerId(colorPickerId === item.id ? null : item.id); }} className="hidden shrink-0 group-hover:block" style={{ color: text }} aria-label="Đổi màu"><Palette className="h-3 w-3" /></button>
+                    </div>
+                    <span data-time-label className="mt-0.5 truncate opacity-80" style={{ display: item.height > 30 ? 'block' : 'none' }}>{fmtTime(item.startMin)} – {fmtTime(item.endMin)}</span>
+                    <span onPointerDown={(event) => beginResize(event, item, event.currentTarget.parentElement as HTMLElement)} className="absolute inset-x-0 bottom-0 flex h-2.5 cursor-ns-resize items-end justify-center" style={{ touchAction: 'none' }}>
+                      <span className="mb-[1px] h-1 w-6 rounded-full bg-black/25 opacity-0 group-hover:opacity-100" />
+                    </span>
+                    {colorPickerId === item.id && (
+                      <div className="absolute left-1 top-6 z-30 flex w-40 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                        {CALENDAR_COLORS.map((c) => <button key={c.name} type="button" title={c.label} onClick={() => applyColor(item, c.hex)} className="h-5 w-5 rounded-full ring-1 ring-black/5" style={{ background: c.hex }} />)}
                       </div>
                     )}
-                    {laid.map((item) => {
-                      const top = (item.startMin / 60) * HOUR_HEIGHT;
-                      const height = Math.max(16, ((item.endMin - item.startMin) / 60) * HOUR_HEIGHT - 2);
-                      const text = contrastText(item.color);
-                      const widthPct = 100 / item.cols;
-                      const isDragging = drag?.id === item.id;
-                      return (
-                        <div key={item.id} className="absolute z-10 px-[3px]" style={{ top, height, left: `${item.col * widthPct}%`, width: `${widthPct}%` }}>
-                          <div
-                            onPointerDown={(event) => beginMove(event, item)}
-                            className="group relative flex h-full cursor-grab flex-col overflow-hidden rounded-md px-1.5 py-0.5 text-[11px] leading-tight shadow-sm active:cursor-grabbing"
-                            style={{ background: item.color, color: text, opacity: item.done ? 0.9 : 1, outline: isDragging ? '2px solid rgba(0,0,0,.25)' : 'none' }}
-                            title={item.title}
-                          >
-                            <div className="flex items-start gap-1">
-                              <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); toggleDone(item); }} className="mt-[1px] grid h-3 w-3 shrink-0 place-items-center rounded-sm border" style={{ borderColor: text, background: item.done ? text : 'transparent' }} aria-label="Hoàn thành">
-                                {item.done && <Check className="h-2 w-2" style={{ color: item.color }} />}
-                              </button>
-                              <span className={`min-w-0 flex-1 truncate font-medium ${item.done ? 'line-through' : ''}`}>{item.title}</span>
-                              <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setColorPickerId(colorPickerId === item.id ? null : item.id); }} className="hidden shrink-0 group-hover:block" style={{ color: text }} aria-label="Đổi màu"><Palette className="h-3 w-3" /></button>
-                            </div>
-                            {height > 28 && <span className="mt-0.5 truncate opacity-80">{fmtTime(item.startMin)}–{fmtTime(item.endMin)}</span>}
-                            {/* resize handle (bottom edge) — drag to change duration */}
-                            <span onPointerDown={(event) => beginResize(event, item)} className="absolute inset-x-0 bottom-0 h-2 cursor-ns-resize" style={{ touchAction: 'none' }}>
-                              <span className="mx-auto block h-1 w-6 translate-y-[1px] rounded-full bg-black/25 opacity-0 group-hover:opacity-100" />
-                            </span>
-                          </div>
-                          {colorPickerId === item.id && (
-                            <div className="absolute left-1 top-6 z-30 flex w-40 flex-wrap gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
-                              {CALENDAR_COLORS.map((c) => <button key={c.name} type="button" title={c.label} onClick={() => applyColor(item, c.hex)} className="h-5 w-5 rounded-full ring-1 ring-black/5" style={{ background: c.hex }} />)}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
                   </div>
                 );
               })}
@@ -552,12 +584,8 @@ function Composer({
     const e = Math.min(24 * 60, s + Math.round(durHours * 60));
     const startStamp = `${composer.ymd}T${pad(Math.floor(s / 60))}:${pad(s % 60)}:00`;
     const endStamp = `${composer.ymd}T${pad(Math.floor(e / 60) % 24)}:${pad(e % 60)}:00`;
-    if (composer.mode === 'task') {
-      if (!topicId) return;
-      onSubmitTask({ topicId, title: title.trim(), startDate: startStamp, deadline: endStamp, taskColor: color });
-    } else {
-      onSubmitEvent({ id: newEventId(), title: title.trim(), start: startStamp, end: endStamp, color, done: false });
-    }
+    if (composer.mode === 'task') { if (!topicId) return; onSubmitTask({ topicId, title: title.trim(), startDate: startStamp, deadline: endStamp, taskColor: color }); }
+    else onSubmitEvent({ id: newEventId(), title: title.trim(), start: startStamp, end: endStamp, color, done: false });
   };
 
   return (
