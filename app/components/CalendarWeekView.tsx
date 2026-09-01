@@ -96,7 +96,19 @@ export default function CalendarWeekView({
     window.addEventListener('scroll', close, true);
     return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); };
   }, []);
-  useEffect(() => { const id = window.setInterval(() => setNow(new Date()), 60000); return () => window.clearInterval(id); }, []);
+  // The initial `anchor`/`now` are computed once during render, which for a
+  // 'use client' page also runs on the server — if the server's clock is in a
+  // different timezone than the visitor's (e.g. a UTC deployment vs a UTC+7
+  // browser), that first guess at "today" can be a whole day off. Re-deriving
+  // both from the browser's own clock the moment we mount fixes that for good,
+  // instead of waiting up to a minute for the next interval tick to correct it.
+  useEffect(() => {
+    const clientNow = new Date();
+    setNow(clientNow);
+    setAnchor(startOfWeekSunday(clientNow));
+    const id = window.setInterval(() => setNow(new Date()), 60000);
+    return () => window.clearInterval(id);
+  }, []);
   useLayoutEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = 7 * HOUR_HEIGHT - 12; }, []);
 
   const persistEvents = (next: CalendarEvent[]) => { setEvents(next); saveEvents(userId, next); };
@@ -370,7 +382,12 @@ export default function CalendarWeekView({
   });
 
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  const monthLabel = weekDays[0].toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
+  // Picking weekDays[0] (always Sunday) biased the label toward last month
+  // whenever a week starts with a trailing day from the previous month, even
+  // though 6 of the 7 visible days already belong to the new one — the
+  // Wednesday is never a trailing/leading day, so it always names the month
+  // this week actually belongs to.
+  const monthLabel = weekDays[3].toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
 
   const allDayLanes = useMemo(() => {
     const visible = allDay
@@ -516,7 +533,7 @@ export default function CalendarWeekView({
                   return (
                     <div
                       key={ymd}
-                      className={`border-l border-slate-100 ${ymd === todayYMD ? 'bg-blue-50/30' : ''}`}
+                      className={`border-l border-slate-100 ${ymd === todayYMD ? 'bg-blue-100' : ''}`}
                       onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'move'; }}
                       onDrop={(event) => { event.preventDefault(); const raw = event.dataTransfer.getData('application/json') || event.dataTransfer.getData('text/plain'); if (raw) onDropSchedule(event.clientX, event.clientY, raw); }}
                       onContextMenu={(event) => { event.preventDefault(); const p = pointFrom(event.clientX, event.clientY); setContextMenu({ x: event.clientX, y: event.clientY, ymd, min: p.min }); }}
