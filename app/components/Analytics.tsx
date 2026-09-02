@@ -112,7 +112,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       try {
         setErrorMessage('');
         const rows = await api.getSessions(user.id);
-        setFocusSessions(rows);
+        setFocusSessions(dedupeSessions(rows));
       } catch (error) {
         setErrorMessage(error instanceof Error ? error.message : 'Could not load focus sessions.');
       }
@@ -121,6 +121,17 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     void loadFocusSessions();
   }, [user?.id]);
 
+  // Giờ học mỗi ngày = ĐÚNG focused_minutes của ngày đó, không cộng thêm các
+  // phiên timer.
+  //
+  // Trước đây có cộng, và kết quả sai đến mức vô lý: ngày 1/9 ghi 30 phút
+  // focus nhưng biểu đồ vẽ 42.7h. Lý do là mọi phiên timer đều được tính trọn
+  // vẹn vào NGÀY BẮT ĐẦU của nó, nên một phiên chạy từ 21:06 ngày 1 tới 17:01
+  // ngày 2 (1195 phút) dồn hết 20 tiếng vào ngày 1 — cộng thêm một phiên trùng
+  // do lỗi bấm hai lần trước đây, thành gần 43 giờ trong một ngày 24 tiếng.
+  //
+  // Phiên timer đã có biểu đồ riêng ("Timer sessions"). Trộn hai đại lượng
+  // khác nhau vào cùng một cột chỉ làm cả hai cùng sai.
   const studyHoursByDate = useMemo(() => {
     const hoursByDate: Record<string, number> = {};
     allDates.forEach((date) => {
@@ -129,14 +140,8 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       const minutes = Number(date.focused_minutes) || 0;
       hoursByDate[dateKey] = (hoursByDate[dateKey] || 0) + minutes / 60;
     });
-    focusSessions.forEach((session) => {
-      const dateKey = normalizeSessionDate(session.session_date);
-      if (!dateKey || !isDateKeyInMonth(dateKey, currentMonth, currentYear)) return;
-      const minutes = getSessionFocusedMinutes(session);
-      hoursByDate[dateKey] = (hoursByDate[dateKey] || 0) + minutes / 60;
-    });
     return hoursByDate;
-  }, [allDates, currentMonth, currentYear, focusSessions]);
+  }, [allDates, currentMonth, currentYear]);
 
   const focusSessionDays = useMemo(() => {
     return new Set(
@@ -941,6 +946,25 @@ function CinematicChartPanel({ title, children, reducedMotion }: { title: string
 
 function formatDateKey(year: number, month: number, day: number) {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+// Bỏ các phiên bị ghi trùng.
+//
+// Lỗi "phải bấm hai lần mới dừng" trước đây làm lần bấm thứ hai lưu thêm một
+// phiên nữa cho đúng cùng một lần ngồi học — dữ liệu thật còn hai bản ghi cùng
+// bắt đầu lúc 21:06:31 ngày 1/9, lệch nhau 6 giây ở lúc kết thúc. Hai phiên
+// khởi động đúng cùng một giây cho cùng một task không thể là hai lần ngồi học
+// khác nhau, nên chỉ giữ lại bản dài nhất.
+function dedupeSessions(rows: ApiSession[]) {
+  const byStart = new Map<string, ApiSession>();
+  rows.forEach((session) => {
+    const key = `${session.task_id ?? ''}@${session.start_time ?? session.id}`;
+    const kept = byStart.get(key);
+    if (!kept || getSessionFocusedMinutes(session) > getSessionFocusedMinutes(kept)) {
+      byStart.set(key, session);
+    }
+  });
+  return rows.filter((session) => byStart.get(`${session.task_id ?? ''}@${session.start_time ?? session.id}`) === session);
 }
 
 function normalizeSessionDate(value?: string | null) {
