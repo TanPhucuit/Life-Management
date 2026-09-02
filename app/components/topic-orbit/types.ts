@@ -77,6 +77,8 @@ export type TreeLayoutEdge = {
 export type TreeLayout = {
   nodes: TreeLayoutNode[];
   edges: TreeLayoutEdge[];
+  /** Nút có quá nhiều con nên mở ở trạng thái đã gập, kèm huy hiệu "+N". */
+  defaultCollapsedIds: string[];
   growthEndsAt: number;
   completionEndsAt: number;
   reach: number; // furthest node distance, used to frame the camera

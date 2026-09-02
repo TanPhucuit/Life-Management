@@ -26,8 +26,13 @@ export const calendarUtils = {
   getMonthCalendar(year: number, month: number): MonthCalendar {
     const monthStart = startOfMonth(new Date(year, month - 1));
     const monthEnd = endOfMonth(monthStart);
-    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+    // Chủ Nhật là đầu tuần, khớp với hàng tiêu đề Sun..Sat của CalendarView và
+    // với Date.getDay() (0 = Chủ Nhật) mà chính file đó dùng ở chỗ khác.
+    // Trước đây lưới dựng theo thứ Hai đầu tuần trong khi tiêu đề ghi Sun
+    // trước, nên mọi ngày bị đẩy lệch đúng một cột: 2/9/2026 là thứ Tư nhưng
+    // rơi vào cột TUE.
+    const calendarStart = startOfWeek(monthStart, { weekStartsOn: 0 });
+    const calendarEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
 
     const allDays = eachDayOfInterval({
       start: calendarStart,
@@ -49,7 +54,8 @@ export const calendarUtils = {
     for (const dateInfo of dates) {
       currentWeek.push(dateInfo);
 
-      if (dateInfo.date.getDay() === 0 || dateInfo === dates[dates.length - 1]) {
+      // Tuần kết thúc vào thứ Bảy (6) vì tuần bắt đầu từ Chủ Nhật.
+      if (dateInfo.date.getDay() === 6 || dateInfo === dates[dates.length - 1]) {
         const weekStart = currentWeek[0].date;
         const weekEnd = currentWeek[currentWeek.length - 1].date;
         weeks.push({
@@ -90,10 +96,10 @@ export const calendarUtils = {
   },
 
   getStartOfWeek(date: Date): Date {
-    return startOfWeek(date, { weekStartsOn: 1 });
+    return startOfWeek(date, { weekStartsOn: 0 });
   },
 
   getEndOfWeek(date: Date): Date {
-    return endOfWeek(date, { weekStartsOn: 1 });
+    return endOfWeek(date, { weekStartsOn: 0 });
   },
 };

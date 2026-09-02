@@ -70,7 +70,7 @@ export function KnowledgeTree3D({
   const scratchColor = useMemo(() => new THREE.Color(), []);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [grownCount, setGrownCount] = useState(0);
-  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set(layout.defaultCollapsedIds));
 
   // The root of the tree IS the planet, so it is never drawn as a node.
   const drawnNodes = useMemo(() => layout.nodes.filter((node) => node.depth > 0), [layout.nodes]);
@@ -92,10 +92,34 @@ export function KnowledgeTree3D({
   if (initialisedRef.current !== body.id) {
     initialisedRef.current = body.id;
     showAtRef.current = new Map(layout.nodes.map((node) => [node.id, node.growAt]));
+    // Nodes with too many children open folded (see MAX_EXPANDED_CHILDREN in
+    // treeLayout): their whole subtree starts already retracted, so the scene
+    // shows the shape of the work instead of every leaf at once. A hide time
+    // in the past means "finished retracting before the first frame".
     hideAtRef.current = new Map();
+    if (layout.defaultCollapsedIds.length) {
+      const childrenByParent = new Map<string, string[]>();
+      layout.edges.forEach((edge) => {
+        childrenByParent.set(edge.fromId, [...(childrenByParent.get(edge.fromId) || []), edge.toId]);
+      });
+      const queue = [...layout.defaultCollapsedIds];
+      while (queue.length) {
+        const parentId = queue.shift() as string;
+        (childrenByParent.get(parentId) || []).forEach((childId) => {
+          hideAtRef.current.set(childId, -RETRACT_MS * 2);
+          queue.push(childId);
+        });
+      }
+    }
     completeAtRef.current = new Map(layout.nodes.filter((node) => node.done).map((node) => [node.id, node.completeAt]));
     doneSnapshotRef.current = new Set(layout.nodes.filter((node) => node.done).map((node) => node.id));
   }
+
+  // Mở cây của một hành tinh khác thì danh sách nút gập sẵn cũng phải theo cây
+  // đó, nếu không các id cũ sẽ dính lại và gập nhầm nút.
+  useEffect(() => {
+    setCollapsedIds(new Set(layout.defaultCollapsedIds));
+  }, [body.id, layout.defaultCollapsedIds]);
 
   // A task ticked off while the tree is open must animate from *now*, not jump
   // to the colour it would have had during the opening sequence.

@@ -18,7 +18,12 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const stamp = (day: number, hour: number, minute = 0) =>
   `${year}-${pad(month)}-${pad(day)}T${pad(hour)}:${pad(minute)}:00`;
 
+const prevMonth = month === 1 ? 12 : month - 1;
+const prevYear = month === 1 ? year - 1 : year;
+
 const mockSessions: ApiSession[] = [
+  // Phiên của THÁNG TRƯỚC: không được xuất hiện trên biểu đồ tháng này.
+  { id: 's0', user_id: USER_ID, task_id: null, start_time: `${prevYear}-${pad(prevMonth)}-28T08:00:00`, end_time: `${prevYear}-${pad(prevMonth)}-30T08:00:00`, session_date: `${prevYear}-${pad(prevMonth)}-28`, in_time_status: 'in_time', focused_minutes: 48 * 60 },
   // Phiên dài 100 giờ, từ ngày 2 tới ngày 6.
   { id: 's1', user_id: USER_ID, task_id: null, start_time: stamp(2, 8), end_time: stamp(6, 12), session_date: `${year}-${pad(month)}-02`, in_time_status: 'in_time', focused_minutes: 100 * 60 },
   { id: 's2', user_id: USER_ID, task_id: null, start_time: stamp(8, 9), end_time: stamp(8, 11, 30), session_date: `${year}-${pad(month)}-08`, in_time_status: 'in_time', focused_minutes: 150 },
@@ -26,7 +31,12 @@ const mockSessions: ApiSession[] = [
   { id: 's4', user_id: USER_ID, task_id: null, start_time: stamp(15, 20), end_time: stamp(15, 20, 45), session_date: `${year}-${pad(month)}-15`, in_time_status: 'in_time', focused_minutes: 45 },
 ];
 
-const mockDates: ApiDate[] = [];
+// Giờ học theo ngày cho biểu đồ "Cumulative study time": ngày 1 và 3 có dữ
+// liệu, ngày 2 và 4 KHÔNG — đoạn giữa phải là đường nằm ngang, không đứt.
+const mockDates: ApiDate[] = [
+  { id: 'd1', user_id: USER_ID, month_id: 'm', day: 1, month, year, focused_minutes: 120, holy_mind_minutes: 0, key_of_success: 1 },
+  { id: 'd3', user_id: USER_ID, month_id: 'm', day: 3, month, year, focused_minutes: 180, holy_mind_minutes: 0, key_of_success: 0 },
+] as ApiDate[];
 
 export default function AnalyticsPreviewPage() {
   useEffect(() => {

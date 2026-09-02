@@ -182,25 +182,44 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     ];
   }, [allDates, currentMonth, currentYear]);
 
+  // Đường thẳng, không phải đường cong: đoạn "không có dữ liệu" phải phẳng
+  // tuyệt đối để đọc ra là "không tăng". Đường monotone bo tròn qua các mốc
+  // nên đoạn đáng lẽ nằm ngang lại hơi vồng lên, trông như vẫn có tiến độ.
   const weeklyProgressData = useMemo(() => {
     const days = getDaysInWeek(currentMonth, currentYear, selectedWeek);
+    // Cộng dồn giờ học trong tuần. Đây là GIỜ FOCUS, khác hẳn biểu đồ "Timer
+    // sessions" bên dưới (biểu đồ kia đếm số phiên).
+    //
+    // Mốc 0 ở đầu là bắt buộc: nếu không, ngày đầu tuần đã nằm sẵn ở tổng của
+    // chính nó và đường biểu diễn mất luôn đoạn dốc đầu tiên.
+    const points: ChartPoint[] = [{ name: 'Đầu tuần', value: 0 }];
     let cumulativeSum = 0;
 
-    return days.map((day) => {
-      cumulativeSum += studyHoursByDate[day.date] || 0;
+    days.forEach((day) => {
       const dayOfWeek = new Date(day.year, day.month - 1, day.day).getDay();
-      const shouldShowValue = (allDates.some((date) => date.year === day.year && date.month === day.month && date.day === day.day) || focusSessionDays.has(day.date)) && !isFutureDate(day.day, day.month, day.year);
-
-      return {
-        name: `${dayNames[dayOfWeek]} ${day.day}`,
-        value: shouldShowValue ? roundOneDecimal(cumulativeSum) : null,
-      };
+      const name = `${dayNames[dayOfWeek]} ${day.day}`;
+      if (isFutureDate(day.day, day.month, day.year)) {
+        points.push({ name, value: null });
+        return;
+      }
+      // Ngày không có giờ focus KHÔNG làm đứt đường: tổng cộng dồn giữ nguyên,
+      // nên đoạn đó tự thành một đường nằm ngang — đúng nghĩa "không tăng".
+      // Trước đây ngày như vậy trả về null nên đường bị ngắt quãng.
+      cumulativeSum += studyHoursByDate[day.date] || 0;
+      points.push({ name, value: roundOneDecimal(cumulativeSum) });
     });
-  }, [allDates, currentMonth, currentYear, focusSessionDays, selectedWeek, studyHoursByDate]);
+
+    return points;
+  }, [currentMonth, currentYear, selectedWeek, studyHoursByDate]);
+
+  const monthRange = useMemo(() => {
+    const from = new Date(currentYear, currentMonth - 1, 1).getTime();
+    const to = new Date(currentYear, currentMonth, 1).getTime() - 1;
+    return [from, to] as [number, number];
+  }, [currentMonth, currentYear]);
 
   const focusTimerSessionData = useMemo(() => {
-    const monthStart = new Date(currentYear, currentMonth - 1, 1).getTime();
-    const monthEnd = new Date(currentYear, currentMonth, 1).getTime();
+    const [monthStart, monthEnd] = monthRange;
 
     const spans = focusSessions
       .map((session) => {
@@ -214,27 +233,32 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         return { startMs, endMs };
       })
       .filter((span): span is { startMs: number; endMs: number } => span !== null)
-      // Giữ mọi phiên CHẠM vào tháng đang xem, kể cả phiên bắt đầu từ tháng
-      // trước rồi kéo sang: cắt theo ngày bắt đầu sẽ làm biến mất đúng những
-      // phiên dài nhất.
-      .filter((span) => span.endMs >= monthStart && span.startMs < monthEnd)
+      // Chỉ những phiên BẮT ĐẦU trong tháng đang xem. Trước đây mọi phiên chạm
+      // vào tháng đều được vẽ, nên biểu đồ "September" lại mở từ 30/8 và đếm cả
+      // phiên của tháng trước.
+      .filter((span) => span.startMs >= monthStart && span.startMs <= monthEnd)
       .sort((a, b) => a.startMs - b.startMs);
+
+    // Đoạn dốc ngắn ở đầu mỗi phiên: trục y nhích lên 1 theo một đường hơi
+    // chéo rồi mới nằm ngang suốt thời lượng phiên, thay vì nhảy dựng đứng.
+    const rise = Math.max(1, (monthEnd - monthStart) * 0.012);
 
     const points: SessionPoint[] = [];
     spans.forEach((span, order) => {
-      const index = order + 1;
+      const level = order + 1;
+      const endMs = Math.min(span.endMs, monthEnd);
       const hours = (span.endMs - span.startMs) / 3600000;
       const label = hours >= 1 ? `${roundOneDecimal(hours)}h` : `${Math.max(1, Math.round(hours * 60))}m`;
-      const middle = span.startMs + (span.endMs - span.startMs) / 2;
-      points.push({ t: span.startMs, index });
-      points.push({ t: middle, index, label });
-      // Phiên rất ngắn có start trùng end sau khi làm tròn; cộng thêm 1ms để
-      // Recharts vẫn vẽ ra một đoạn thay vì bỏ qua điểm trùng.
-      points.push({ t: Math.max(span.endMs, span.startMs + 1), index });
+      const risenAt = Math.min(span.startMs + rise, Math.max(endMs, span.startMs + 1));
+
+      points.push({ t: span.startMs, index: level - 1 });
+      points.push({ t: risenAt, index: level });
+      points.push({ t: (risenAt + endMs) / 2, index: level, label });
+      points.push({ t: Math.max(endMs, risenAt + 1), index: level });
     });
 
     return points;
-  }, [currentMonth, currentYear, focusSessions]);
+  }, [monthRange, focusSessions]);
 
   const holyMindCumulativeData = useMemo(() => {
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
@@ -305,6 +329,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         dailyData={dailyData}
         errorMessage={errorMessage}
         focusTimerSessionData={focusTimerSessionData}
+        monthRange={monthRange}
         holyMindCumulativeData={holyMindCumulativeData}
         kosDistribution={kosDistribution}
         monthlyFocusSessionCount={monthlyFocusSessionCount}
@@ -472,7 +497,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
                   <ReferenceLine y={80} label={{ value: '80h', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeDasharray="4 4" />
                 )}
                 <Area
-                  type="monotone"
+                  type="linear"
                   dataKey="value"
                   stroke="#2563eb"
                   strokeWidth={3}
@@ -496,7 +521,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
                 dataKey="t"
                 type="number"
                 scale="time"
-                domain={['dataMin', 'dataMax']}
+                domain={monthRange}
                 stroke="#64748b"
                 tickLine={false}
                 axisLine={false}
@@ -504,11 +529,11 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
               />
               <YAxis stroke="#64748b" tickLine={false} axisLine={false} allowDecimals={false} domain={[0, 'dataMax + 1']} />
               <Tooltip {...sessionTooltipProps} contentStyle={legacyTooltipStyle} />
-              {/* stepAfter: giữ nguyên độ cao cho tới mốc thời gian tiếp theo
-                  rồi mới nhảy bậc, nên khoảng nghỉ giữa hai phiên là đường
-                  nằm ngang và mỗi phiên mới cộng đúng 1 đơn vị trên trục y. */}
+              {/* linear, không phải stepAfter: các điểm đã tự mô tả hình dạng
+                  mong muốn — dốc chéo ngắn khi lên 1 đơn vị, rồi nằm ngang
+                  suốt thời lượng phiên và suốt khoảng nghỉ tới phiên sau. */}
               <Line
-                type="stepAfter"
+                type="linear"
                 dataKey="index"
                 stroke="#2563eb"
                 strokeWidth={3}
@@ -562,6 +587,7 @@ interface DesktopCinematicAnalyticsProps {
   dailyData: Array<{ name: string; hours: number }>;
   errorMessage: string;
   focusTimerSessionData: SessionPoint[];
+  monthRange: [number, number];
   holyMindCumulativeData: ChartPoint[];
   kosDistribution: Array<{ name: string; value: number; color: string }>;
   monthlyFocusSessionCount: number;
@@ -606,6 +632,7 @@ function DesktopCinematicAnalytics({
   dailyData,
   errorMessage,
   focusTimerSessionData,
+  monthRange,
   holyMindCumulativeData,
   kosDistribution,
   monthlyFocusSessionCount,
@@ -816,7 +843,7 @@ function DesktopCinematicAnalytics({
                     <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])} contentStyle={cinematicTooltipStyle} />
                     <ReferenceLine y={40} label={{ value: '40h', fill: '#d97706', fontSize: 12 }} stroke="#d97706" strokeDasharray="4 4" />
                     {weeklyProgressMax > 50 && <ReferenceLine y={80} label={{ value: '80h', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeDasharray="4 4" />}
-                    <Area type="monotone" dataKey="value" stroke="var(--chart-1)" strokeWidth={3} fill="url(#cinematicWeeklyProgressGradient)" dot={{ fill: 'var(--chart-1)', r: 4 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
+                    <Area type="linear" dataKey="value" stroke="var(--chart-1)" strokeWidth={3} fill="url(#cinematicWeeklyProgressGradient)" dot={{ fill: 'var(--chart-1)', r: 4 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
                   </AreaChart>
                 </ResponsiveContainer>
               </CinematicChartPanel>
@@ -828,10 +855,10 @@ function DesktopCinematicAnalytics({
               <ResponsiveContainer width="100%" height={420}>
                 <LineChart data={focusTimerSessionData} margin={{ top: 28, right: 24, left: -4, bottom: 8 }} accessibilityLayer>
                   <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
-                  <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']} stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={formatSessionTick} />
+                  <XAxis dataKey="t" type="number" scale="time" domain={monthRange} stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={formatSessionTick} />
                   <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} allowDecimals={false} domain={[0, 'dataMax + 1']} />
                   <Tooltip {...sessionTooltipProps} contentStyle={cinematicTooltipStyle} />
-                  <Line type="stepAfter" dataKey="index" stroke="#2563eb" strokeWidth={3} dot={false} activeDot={{ r: 6 }} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out">
+                  <Line type="linear" dataKey="index" stroke="#2563eb" strokeWidth={3} dot={false} activeDot={{ r: 6 }} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out">
                     <LabelList dataKey="label" position="top" className="fill-[#2563eb] text-[11px] font-semibold" />
                   </Line>
                 </LineChart>

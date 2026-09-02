@@ -68,6 +68,46 @@ function makeMockData(topicId: string, planetCount: number) {
     }
     subtrees.set(id, nodes);
   }
+
+  // Một hành tinh cố tình rất "nặng" và lệch, đúng hình dạng dữ liệu thật:
+  // READING có con vừa là lá, vừa là nhánh 21 mục. Đây là ca làm lộ chồng lấn
+  // và cũng là ca kiểm tra việc tự gập nút quá nhiều con.
+  const heavyId = `${topicId}-heavy`;
+  planets.push({
+    id: heavyId,
+    title: 'READING (nhiều task)',
+    status: 'in_progress',
+    importance: 0.95,
+    childCount: 6,
+    accent: '#f43f5e',
+    completion: 0.35,
+    urgent: true,
+  });
+  const heavy: TreeTaskInput[] = [
+    { id: heavyId, parentId: null, title: 'READING', done: false, isLeaf: false, urgent: true },
+  ];
+  [
+    { name: 'Cam_vocab', sets: 0 },
+    { name: 'LEARN ENG_ENG', sets: 21 },
+    { name: 'LEARN VIET_ENG', sets: 21 },
+    { name: 'LEARN ENG_VIET', sets: 21 },
+    { name: 'LEARN WRITE', sets: 21 },
+    { name: '15 days practice', sets: 4 },
+  ].forEach((branch, index) => {
+    const branchId = `${heavyId}-${index}`;
+    heavy.push({
+      id: branchId, parentId: heavyId, title: branch.name,
+      done: false, isLeaf: branch.sets === 0, urgent: false,
+    });
+    for (let i = 0; i < branch.sets; i += 1) {
+      heavy.push({
+        id: `${branchId}-s${i}`, parentId: branchId, title: `15_day_practice_${10 + i}`,
+        done: i % 4 === 0, isLeaf: true, urgent: i === 3,
+      });
+    }
+  });
+  subtrees.set(heavyId, heavy);
+
   return { planets, subtrees };
 }
 
