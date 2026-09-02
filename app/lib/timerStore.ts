@@ -8,9 +8,13 @@ import { api, ApiActiveTimer } from '@/app/lib/api';
 // — never accumulated tick by tick — so it is exactly right the instant the
 // page loads, whether that's one second or three days after Start was pressed,
 // and however long the browser was closed in between.
+//
+// `taskId` is null for time that simply is not part of any task. Forcing every
+// session to name one made people attach unrelated hours to whichever task
+// happened to be selected, which is worse than recording no task at all.
 export type FocusTimer = {
   id: string;
-  taskId: string;
+  taskId: string | null;
   taskTitle: string;
   startedAtMs: number;
 };
@@ -18,9 +22,11 @@ export type FocusTimer = {
 interface TimerStore {
   timer: FocusTimer | null;
   ready: boolean;
+  /** True while a start/stop is in flight, so the button can't fire twice. */
+  busy: boolean;
   error: string | null;
   hydrate: (userId: string) => Promise<void>;
-  start: (userId: string, taskId: string, taskTitle: string) => Promise<void>;
+  start: (userId: string, taskId: string | null, taskTitle: string) => Promise<void>;
   stop: (userId: string) => Promise<void>;
 }
 
@@ -32,7 +38,7 @@ const readCache = (userId: string): FocusTimer | null => {
     const raw = window.localStorage.getItem(cacheKey(userId));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed.startedAtMs === 'number' && parsed.taskId ? parsed : null;
+    return parsed && typeof parsed.startedAtMs === 'number' ? parsed : null;
   } catch {
     return null;
   }
@@ -47,10 +53,12 @@ const writeCache = (userId: string, timer: FocusTimer | null) => {
   }
 };
 
+const UNASSIGNED_LABEL = 'Không thuộc task nào';
+
 const fromApi = (row: ApiActiveTimer): FocusTimer => ({
   id: row.id,
-  taskId: row.task_id,
-  taskTitle: row.tasks?.title || 'Task',
+  taskId: row.task_id ?? null,
+  taskTitle: row.tasks?.title || (row.task_id ? 'Task' : UNASSIGNED_LABEL),
   startedAtMs: new Date(row.started_at).getTime(),
 });
 
@@ -62,9 +70,22 @@ const toLocalStamp = (date: Date) =>
   `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 const toLocalDate = (date: Date) => toLocalStamp(date).slice(0, 10);
 
+// Bumped by every start/stop. `hydrate` captures it before its network call and
+// throws its own result away if the number moved while it was waiting.
+//
+// Without this, pressing Stop appeared to do nothing and needed a second press:
+// stop() clears the timer locally and only then deletes the server row, so a
+// hydrate racing it (the widget re-hydrates on window focus and on
+// visibilitychange, and both the landing page and the widget hydrate on mount)
+// would read the row that still existed and put the running timer straight
+// back. The same race in reverse swallowed Start. Worse, the second press then
+// wrote a DUPLICATE session for time already saved.
+let mutationSeq = 0;
+
 export const useFocusTimerStore = create<TimerStore>((set, get) => ({
   timer: null,
   ready: false,
+  busy: false,
   error: null,
 
   // Paints instantly from the local cache (so reopening the tab shows the
@@ -72,29 +93,43 @@ export const useFocusTimerStore = create<TimerStore>((set, get) => ({
   // server — the real source of truth, since another tab or device may have
   // started or stopped it since this cache was written.
   hydrate: async (userId) => {
+    if (get().busy) return;
+    const seq = mutationSeq;
     const cached = readCache(userId);
     if (cached) set({ timer: cached });
     try {
       const row = await api.getActiveTimer(userId);
+      if (seq !== mutationSeq) return; // a start/stop won the race; it is newer
       const timer = row ? fromApi(row) : null;
       set({ timer, ready: true, error: null });
       writeCache(userId, timer);
     } catch (error) {
+      if (seq !== mutationSeq) return;
       set({ ready: true, error: error instanceof Error ? error.message : 'Could not reach the timer.' });
     }
   },
 
   start: async (userId, taskId, taskTitle) => {
-    const current = get().timer;
-    if (current?.taskId === taskId) return; // already counting this task
-    if (current) await get().stop(userId);
-    const row = await api.startTimer(userId, taskId);
-    const timer = fromApi(row);
-    // Prefer the caller's title — it just clicked Start from a component that
-    // already holds the live task object, so this avoids a stale-title flash.
-    timer.taskTitle = taskTitle || timer.taskTitle;
-    set({ timer, error: null });
-    writeCache(userId, timer);
+    if (get().busy) return;
+    mutationSeq += 1;
+    set({ busy: true, error: null });
+    try {
+      const current = get().timer;
+      if (current && current.taskId === taskId) return; // already counting this
+      if (current) await get().stop(userId);
+      const row = await api.startTimer(userId, taskId);
+      mutationSeq += 1;
+      const timer = fromApi(row);
+      // Prefer the caller's title — it just clicked Start from a component that
+      // already holds the live task object, so this avoids a stale-title flash.
+      timer.taskTitle = taskTitle || timer.taskTitle;
+      set({ timer, ready: true, error: null });
+      writeCache(userId, timer);
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Không bắt đầu được bộ đếm.' });
+    } finally {
+      set({ busy: false });
+    }
   },
 
   // Clears the running state immediately (the user pressed Stop, so as far as
@@ -102,8 +137,11 @@ export const useFocusTimerStore = create<TimerStore>((set, get) => ({
   // server row in the background. The session write happens before the row is
   // deleted so a failed delete can never lose the time that was just counted.
   stop: async (userId) => {
+    const alreadyBusy = get().busy;
     const current = get().timer;
     if (!current) return;
+    mutationSeq += 1;
+    if (!alreadyBusy) set({ busy: true });
     const now = new Date();
     const elapsedMs = now.getTime() - current.startedAtMs;
     set({ timer: null });
@@ -119,8 +157,11 @@ export const useFocusTimerStore = create<TimerStore>((set, get) => ({
         focusedMinutes: Math.max(1, Math.round(elapsedMs / 60000)),
       });
       await api.stopTimer(userId);
+      mutationSeq += 1;
     } catch (error) {
-      set({ error: error instanceof Error ? error.message : 'Could not save the focus session.' });
+      set({ error: error instanceof Error ? error.message : 'Không lưu được phiên tập trung.' });
+    } finally {
+      if (!alreadyBusy) set({ busy: false });
     }
   },
 }));

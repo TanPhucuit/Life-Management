@@ -212,6 +212,14 @@ CREATE INDEX IF NOT EXISTS idx_cycle_ticks_user_id ON cycle_ticks(user_id);
 CREATE INDEX IF NOT EXISTS idx_cycle_ticks_year_month_day ON cycle_ticks(user_id, year, month, day);
 CREATE INDEX IF NOT EXISTS idx_ielts_hours_user_id ON ielts_hours(user_id);
 
+-- Focus time that belongs to no task at all.
+-- Requiring every session to name a task pushed people into attaching
+-- unrelated hours to whichever task happened to be selected, which is worse
+-- data than recording no task. Both columns become nullable; the foreign keys
+-- and ON DELETE behaviour are unchanged for rows that DO name a task.
+ALTER TABLE sessions ALTER COLUMN task_id DROP NOT NULL;
+ALTER TABLE active_timers ALTER COLUMN task_id DROP NOT NULL;
+
 CREATE TABLE IF NOT EXISTS active_timers (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,

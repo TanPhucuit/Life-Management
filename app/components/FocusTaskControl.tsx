@@ -17,8 +17,7 @@ export function FocusTaskControl({
   taskId: string;
   taskTitle: string;
 }) {
-  const { timer, start, stop } = useFocusTimerStore();
-  const [busy, setBusy] = useState(false);
+  const { timer, busy, start, stop } = useFocusTimerStore();
   const [, setTick] = useState(0);
   const isRunningThis = timer?.taskId === taskId;
 
@@ -29,13 +28,8 @@ export function FocusTaskControl({
   }, [isRunningThis]);
 
   const handleClick = async () => {
-    setBusy(true);
-    try {
-      if (isRunningThis) await stop(userId);
-      else await start(userId, taskId, taskTitle);
-    } finally {
-      setBusy(false);
-    }
+    if (isRunningThis) await stop(userId);
+    else await start(userId, taskId, taskTitle);
   };
 
   return (

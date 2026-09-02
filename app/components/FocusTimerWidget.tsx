@@ -13,10 +13,9 @@ import { StopwatchDigits } from '@/app/components/StopwatchDigits';
 // like the requirement: leave, come back, it's still counting.
 export default function FocusTimerWidget() {
   const { user } = useAppStore();
-  const { timer, ready, hydrate, stop } = useFocusTimerStore();
+  const { timer, ready, busy, hydrate, stop } = useFocusTimerStore();
   const pathname = usePathname();
   const [, setTick] = useState(0);
-  const [stopping, setStopping] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -43,14 +42,11 @@ export default function FocusTimerWidget() {
   const visible = pathname !== '/' && ready && Boolean(timer);
   const elapsed = timer ? Date.now() - timer.startedAtMs : 0;
 
+  // Cờ busy lấy từ store nên nút này và nút trên trang chủ chặn lẫn nhau: bấm
+  // dừng ở một nơi thì nơi kia không thể gửi thêm một lệnh dừng trùng lặp.
   const handleStop = async () => {
     if (!user?.id) return;
-    setStopping(true);
-    try {
-      await stop(user.id);
-    } finally {
-      setStopping(false);
-    }
+    await stop(user.id);
   };
 
   // The condition lives INSIDE AnimatePresence (not an early `return null`
@@ -81,7 +77,7 @@ export default function FocusTimerWidget() {
           <button
             type="button"
             onClick={() => void handleStop()}
-            disabled={stopping}
+            disabled={busy}
             title="Dừng và lưu focus time"
             aria-label="Dừng bộ đếm giờ"
             className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-600 text-white transition hover:bg-red-700 disabled:opacity-60"

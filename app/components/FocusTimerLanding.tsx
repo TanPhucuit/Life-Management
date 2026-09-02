@@ -18,12 +18,11 @@ const easeOut = [0.16, 1, 0.3, 1] as const;
 
 export default function FocusTimerLanding() {
   const { user, sessionReady, sessionError } = useAppStore();
-  const { timer, ready, hydrate, start, stop, error: timerError } = useFocusTimerStore();
+  const { timer, ready, busy, hydrate, start, stop, error: timerError } = useFocusTimerStore();
   const [tasks, setTasks] = useState<ApiTask[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [tasksError, setTasksError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [, setTick] = useState(0);
   const reducedMotion = Boolean(useReducedMotion());
 
@@ -31,7 +30,9 @@ export default function FocusTimerLanding() {
     () => tasks.filter((task) => isOpenTask(task)).sort((a, b) => a.title.localeCompare(b.title)),
     [tasks],
   );
-  const selectedTask = focusTasks.find((task) => task.id === selectedTaskId) || focusTasks[0] || null;
+  // Không fallback về focusTasks[0]: nếu người dùng chưa chọn gì thì nghĩa là
+  // KHÔNG gắn task, chứ không phải gắn vào task đầu danh sách.
+  const selectedTask = selectedTaskId ? focusTasks.find((task) => task.id === selectedTaskId) ?? null : null;
 
   const loadTasks = useCallback(async () => {
     if (!user?.id) return;
@@ -41,7 +42,7 @@ export default function FocusTimerLanding() {
       const rows = await api.getTasks(user.id, { view: 'tree' });
       setTasks(rows);
       const openRows = rows.filter((task) => isOpenTask(task));
-      setSelectedTaskId((current) => (current && openRows.some((task) => task.id === current) ? current : openRows[0]?.id || ''));
+      setSelectedTaskId((current) => (current && openRows.some((task) => task.id === current) ? current : ''));
     } catch (error) {
       setTasksError(error instanceof Error ? error.message : 'Could not load tasks.');
     } finally {
@@ -62,32 +63,32 @@ export default function FocusTimerLanding() {
   }, [timer]);
 
   const elapsed = timer ? Date.now() - timer.startedAtMs : 0;
-  const canStart = Boolean(user?.id && selectedTask && !timer);
-  const statusText = timer ? `Đang chạy: ${timer.taskTitle}` : selectedTask ? `Sẵn sàng: ${selectedTask.title}` : 'Chưa có task để chạy';
+  // Chạy được kể cả khi không chọn task: phần lớn thời gian tập trung không
+  // thuộc task nào, ép gán bừa vào một task chỉ làm hỏng số liệu của task đó.
+  const canStart = Boolean(user?.id && !timer);
+  const statusText = timer
+    ? `Đang chạy: ${timer.taskTitle}`
+    : selectedTask
+      ? `Sẵn sàng: ${selectedTask.title}`
+      : 'Sẵn sàng: không gắn task';
   // The animated status line keys off this SAME string it renders — never a
   // value computed separately from the visible text — so the swap trigger and
   // the content can never fall out of sync with each other.
   const displayStatus = sessionReady && ready ? statusText : 'Đang mở workspace...';
 
+  // `busy` sống trong store, không phải state cục bộ: bấm nút chỉ uỷ thác cho
+  // store, còn store tự chặn lần gọi thứ hai và tự vô hiệu hoá kết quả hydrate
+  // đến muộn. Trước đây mỗi component giữ cờ busy riêng nên một hydrate chạy
+  // song song vẫn ghi đè được kết quả, khiến phải bấm hai lần mới ăn.
   const handleStart = async () => {
-    if (!user?.id || !selectedTask) return;
-    setBusy(true);
-    try {
-      await start(user.id, selectedTask.id, selectedTask.title);
-    } finally {
-      setBusy(false);
-    }
+    if (!user?.id) return;
+    await start(user.id, selectedTask?.id ?? null, selectedTask?.title ?? 'Không thuộc task nào');
   };
 
   const handleStop = async () => {
     if (!user?.id) return;
-    setBusy(true);
-    try {
-      await stop(user.id);
-      void loadTasks();
-    } finally {
-      setBusy(false);
-    }
+    await stop(user.id);
+    void loadTasks();
   };
 
   if (sessionReady && sessionError) {
@@ -215,14 +216,19 @@ export default function FocusTimerLanding() {
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            {/* "Không gắn task" là lựa chọn đầu tiên và là mặc định khi chưa
+                chọn gì — phần lớn thời gian tập trung không thuộc task nào, và
+                trước đây danh sách tự chọn sẵn task đầu tiên (READING) khiến
+                thời gian bị ghi nhầm sang task đó. */}
             <select
-              value={selectedTask?.id || ''}
+              value={selectedTaskId}
               onChange={(event) => setSelectedTaskId(event.target.value)}
-              disabled={Boolean(timer) || loadingTasks || focusTasks.length === 0}
+              disabled={Boolean(timer) || loadingTasks}
               className="h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm outline-none transition focus:border-[var(--primary)] disabled:opacity-60"
               aria-label="Chọn task focus"
             >
-              {focusTasks.length === 0 ? <option value="">Chưa có task đang mở</option> : focusTasks.map((task) => (
+              <option value="">Không gắn task</option>
+              {focusTasks.map((task) => (
                 <option key={task.id} value={task.id}>{task.title}</option>
               ))}
             </select>

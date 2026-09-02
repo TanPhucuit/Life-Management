@@ -44,11 +44,13 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { userId, taskId } = body;
-    if (!userId || !taskId) return NextResponse.json({ error: 'userId and taskId are required' }, { status: 400, headers: corsHeaders });
+    if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400, headers: corsHeaders });
 
+    // taskId có thể là null: nhiều khoảng thời gian tập trung không thuộc task
+    // nào cả, ép chọn đại một task chỉ tạo ra dữ liệu sai.
     const { data, error } = await supabase
       .from('active_timers')
-      .upsert({ user_id: userId, task_id: taskId, started_at: new Date().toISOString() }, { onConflict: 'user_id' })
+      .upsert({ user_id: userId, task_id: taskId ?? null, started_at: new Date().toISOString() }, { onConflict: 'user_id' })
       .select('*, tasks(title, topic_id, task_color)')
       .single();
 

@@ -38,7 +38,8 @@ export interface ApiTask {
 export interface ApiSession {
   id: string;
   user_id: string;
-  task_id: string;
+  // null khi phiên tập trung không thuộc task nào.
+  task_id: string | null;
   session_name?: string | null;
   start_time: string;
   end_time: string;
@@ -90,7 +91,8 @@ export interface ApiIeltsHours {
 export interface ApiActiveTimer {
   id: string;
   user_id: string;
-  task_id: string;
+  // null khi người dùng đếm giờ mà không gắn vào task nào.
+  task_id: string | null;
   started_at: string; // real instant (timestamptz) — safe to diff against Date.now() from any device/timezone
   created_at?: string;
   tasks?: { title: string; topic_id: string; task_color?: string | null } | null;
@@ -282,7 +284,7 @@ export const api = {
   },
   createSession(input: {
     userId: string;
-    taskId: string;
+    taskId: string | null;
     sessionName?: string | null;
     startTime: string;
     endTime: string;
@@ -318,7 +320,7 @@ export const api = {
   getActiveTimer(userId: string) {
     return requestJson<ApiActiveTimer | null>(`/api/timer?userId=${encodeURIComponent(userId)}`);
   },
-  startTimer(userId: string, taskId: string) {
+  startTimer(userId: string, taskId: string | null) {
     return requestJson<ApiActiveTimer>('/api/timer', {
       method: 'POST',
       body: JSON.stringify({ userId, taskId }),

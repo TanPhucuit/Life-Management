@@ -10,7 +10,7 @@ import FocusTimerLanding from '@/app/components/FocusTimerLanding';
 
 const USER_ID = 'preview-user';
 const MOCK_DB_KEY = 'lm.preview.mockActiveTimerRow';
-type MockRow = { id: string; user_id: string; task_id: string; started_at: string; tasks: { title: string; topic_id: string } };
+type MockRow = { id: string; user_id: string; task_id: string | null; started_at: string; tasks: { title: string; topic_id: string } };
 const readMockRow = (): MockRow | null => {
   try { return JSON.parse(window.localStorage.getItem(MOCK_DB_KEY) || 'null'); } catch { return null; }
 };

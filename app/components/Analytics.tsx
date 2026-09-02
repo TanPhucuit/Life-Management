@@ -9,6 +9,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ReferenceLine,
@@ -23,6 +26,37 @@ import { useAppStore } from '@/app/lib/store';
 
 type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success' | 'cycle_ticks';
 type ChartPoint = { name: string; value: number | null };
+
+/**
+ * Một điểm trên biểu đồ "Timer sessions": trục x là mốc thời gian thật, trục y
+ * là số thứ tự phiên. Mỗi phiên góp ba điểm cùng độ cao (bắt đầu / giữa / kết
+ * thúc) nên nó vẽ ra một đoạn NẰM NGANG đúng bằng khoảng thời gian đã chạy —
+ * một phiên 100 giờ kéo từ ngày 2 đến ngày 6 hiện thành một vạch dài, không
+ * phải một cột dựng đứng. Nhãn thời lượng gắn vào điểm giữa để nằm chính giữa
+ * đoạn đó.
+ */
+type SessionPoint = { t: number; index: number; label?: string };
+
+/** Nhãn trục x: ngày/tháng, thêm giờ khi cả biểu đồ gói gọn trong một ngày. */
+function formatSessionTick(value: number): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getDate()}/${date.getMonth() + 1}`;
+}
+
+// Tooltip hiển thị đúng thứ người xem cần: đây là phiên thứ mấy và dài bao lâu.
+const sessionTooltipProps = {
+  labelFormatter: (value: number) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? ''
+      : date.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  },
+  formatter: (value: number, _name: string, entry: { payload?: SessionPoint }) => {
+    const label = entry?.payload?.label;
+    return [label ? `Phiên ${value} · ${label}` : `Phiên ${value}`, 'Focus timer'];
+  },
+} as const;
 
 export type AnalyticsVariant = 'legacy' | 'desktop-cinematic';
 
@@ -164,34 +198,42 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     });
   }, [allDates, currentMonth, currentYear, focusSessionDays, selectedWeek, studyHoursByDate]);
 
-  const focusTimerCumulativeData = useMemo(() => {
-    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
-    const monthStart = formatDateKey(currentYear, currentMonth, 1);
-    const trendData: ChartPoint[] = [];
-    let cumulativeMinutes = focusSessions.reduce((sum, session) => {
-      const dateKey = normalizeSessionDate(session.session_date);
-      if (!dateKey || dateKey >= monthStart) return sum;
-      return sum + getSessionFocusedMinutes(session);
-    }, 0);
-    const minutesByDay = new Map<number, number>();
+  const focusTimerSessionData = useMemo(() => {
+    const monthStart = new Date(currentYear, currentMonth - 1, 1).getTime();
+    const monthEnd = new Date(currentYear, currentMonth, 1).getTime();
 
-    focusSessions.forEach((session) => {
-      const dateKey = normalizeSessionDate(session.session_date);
-      if (!dateKey || !isDateKeyInMonth(dateKey, currentMonth, currentYear)) return;
-      const day = Number(dateKey.slice(8, 10));
-      minutesByDay.set(day, (minutesByDay.get(day) || 0) + getSessionFocusedMinutes(session));
+    const spans = focusSessions
+      .map((session) => {
+        const startMs = new Date(session.start_time).getTime();
+        const endMsRaw = new Date(session.end_time).getTime();
+        if (!Number.isFinite(startMs)) return null;
+        // Phiên chưa có giờ kết thúc hợp lệ thì suy ra từ focused_minutes.
+        const endMs = Number.isFinite(endMsRaw) && endMsRaw > startMs
+          ? endMsRaw
+          : startMs + getSessionFocusedMinutes(session) * 60000;
+        return { startMs, endMs };
+      })
+      .filter((span): span is { startMs: number; endMs: number } => span !== null)
+      // Giữ mọi phiên CHẠM vào tháng đang xem, kể cả phiên bắt đầu từ tháng
+      // trước rồi kéo sang: cắt theo ngày bắt đầu sẽ làm biến mất đúng những
+      // phiên dài nhất.
+      .filter((span) => span.endMs >= monthStart && span.startMs < monthEnd)
+      .sort((a, b) => a.startMs - b.startMs);
+
+    const points: SessionPoint[] = [];
+    spans.forEach((span, order) => {
+      const index = order + 1;
+      const hours = (span.endMs - span.startMs) / 3600000;
+      const label = hours >= 1 ? `${roundOneDecimal(hours)}h` : `${Math.max(1, Math.round(hours * 60))}m`;
+      const middle = span.startMs + (span.endMs - span.startMs) / 2;
+      points.push({ t: span.startMs, index });
+      points.push({ t: middle, index, label });
+      // Phiên rất ngắn có start trùng end sau khi làm tròn; cộng thêm 1ms để
+      // Recharts vẫn vẽ ra một đoạn thay vì bỏ qua điểm trùng.
+      points.push({ t: Math.max(span.endMs, span.startMs + 1), index });
     });
 
-    for (let day = 1; day <= daysInMonth; day++) {
-      cumulativeMinutes += minutesByDay.get(day) || 0;
-
-      trendData.push({
-        name: `${day}`,
-        value: !isFutureDate(day, currentMonth, currentYear) ? roundOneDecimal(cumulativeMinutes / 60) : null,
-      });
-    }
-
-    return trendData;
+    return points;
   }, [currentMonth, currentYear, focusSessions]);
 
   const holyMindCumulativeData = useMemo(() => {
@@ -262,7 +304,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         currentYear={currentYear}
         dailyData={dailyData}
         errorMessage={errorMessage}
-        focusTimerCumulativeData={focusTimerCumulativeData}
+        focusTimerSessionData={focusTimerSessionData}
         holyMindCumulativeData={holyMindCumulativeData}
         kosDistribution={kosDistribution}
         monthlyFocusSessionCount={monthlyFocusSessionCount}
@@ -446,30 +488,37 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       )}
 
       {analyticsView === 'key_of_success' && (
-        <ChartPanel title={`Timer cumulative total - ${monthNames[currentMonth - 1]} ${currentYear}`}>
+        <ChartPanel title={`Timer sessions - ${monthNames[currentMonth - 1]} ${currentYear}`}>
           <ResponsiveContainer width="100%" height={340}>
-            <AreaChart data={focusTimerCumulativeData} margin={{ top: 10, right: 10, left: -14, bottom: 0 }} accessibilityLayer>
-              <defs>
-                <linearGradient id="timerCumulativeGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.24} />
-                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                </linearGradient>
-              </defs>
+            <LineChart data={focusTimerSessionData} margin={{ top: 24, right: 18, left: -14, bottom: 0 }} accessibilityLayer>
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
-              <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} />
-              <YAxis stroke="#64748b" tickLine={false} axisLine={false} domain={[0, 'dataMax + 5']} />
-              <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Timer total'])} contentStyle={legacyTooltipStyle} />
-              <Area
-                type="monotone"
-                dataKey="value"
+              <XAxis
+                dataKey="t"
+                type="number"
+                scale="time"
+                domain={['dataMin', 'dataMax']}
+                stroke="#64748b"
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={formatSessionTick}
+              />
+              <YAxis stroke="#64748b" tickLine={false} axisLine={false} allowDecimals={false} domain={[0, 'dataMax + 1']} />
+              <Tooltip {...sessionTooltipProps} contentStyle={legacyTooltipStyle} />
+              {/* stepAfter: giữ nguyên độ cao cho tới mốc thời gian tiếp theo
+                  rồi mới nhảy bậc, nên khoảng nghỉ giữa hai phiên là đường
+                  nằm ngang và mỗi phiên mới cộng đúng 1 đơn vị trên trục y. */}
+              <Line
+                type="stepAfter"
+                dataKey="index"
                 stroke="#2563eb"
                 strokeWidth={3}
-                fill="url(#timerCumulativeGradient)"
-                dot={{ fill: '#2563eb', r: 3 }}
+                dot={false}
                 activeDot={{ r: 5 }}
-                connectNulls={false}
-              />
-            </AreaChart>
+                isAnimationActive={false}
+              >
+                <LabelList dataKey="label" position="top" className="fill-[#2563eb] text-[11px] font-semibold" />
+              </Line>
+            </LineChart>
           </ResponsiveContainer>
         </ChartPanel>
       )}
@@ -512,7 +561,7 @@ interface DesktopCinematicAnalyticsProps {
   currentYear: number;
   dailyData: Array<{ name: string; hours: number }>;
   errorMessage: string;
-  focusTimerCumulativeData: ChartPoint[];
+  focusTimerSessionData: SessionPoint[];
   holyMindCumulativeData: ChartPoint[];
   kosDistribution: Array<{ name: string; value: number; color: string }>;
   monthlyFocusSessionCount: number;
@@ -556,7 +605,7 @@ function DesktopCinematicAnalytics({
   currentYear,
   dailyData,
   errorMessage,
-  focusTimerCumulativeData,
+  focusTimerSessionData,
   holyMindCumulativeData,
   kosDistribution,
   monthlyFocusSessionCount,
@@ -775,21 +824,17 @@ function DesktopCinematicAnalytics({
           )}
 
           {analyticsView === 'key_of_success' && (
-            <CinematicChartPanel title={`Timer cumulative total - ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
+            <CinematicChartPanel title={`Timer sessions - ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
               <ResponsiveContainer width="100%" height={420}>
-                <AreaChart data={focusTimerCumulativeData} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
-                  <defs>
-                    <linearGradient id="cinematicTimerCumulativeGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#2563eb" stopOpacity={.32} />
-                      <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
+                <LineChart data={focusTimerSessionData} margin={{ top: 28, right: 24, left: -4, bottom: 8 }} accessibilityLayer>
                   <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
-                  <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
-                  <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} domain={[0, 'dataMax + 5']} />
-                  <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Timer total'])} contentStyle={cinematicTooltipStyle} />
-                  <Area type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={3} fill="url(#cinematicTimerCumulativeGradient)" dot={{ fill: '#2563eb', r: 3 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
-                </AreaChart>
+                  <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']} stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={formatSessionTick} />
+                  <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} allowDecimals={false} domain={[0, 'dataMax + 1']} />
+                  <Tooltip {...sessionTooltipProps} contentStyle={cinematicTooltipStyle} />
+                  <Line type="stepAfter" dataKey="index" stroke="#2563eb" strokeWidth={3} dot={false} activeDot={{ r: 6 }} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out">
+                    <LabelList dataKey="label" position="top" className="fill-[#2563eb] text-[11px] font-semibold" />
+                  </Line>
+                </LineChart>
               </ResponsiveContainer>
             </CinematicChartPanel>
           )}

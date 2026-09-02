@@ -121,7 +121,9 @@ export async function POST(request: NextRequest) {
       focusedMinutes,
     } = body;
 
-    if (!userId || !taskId || !startTime || !endTime || !sessionDate) {
+    // taskId cố ý không nằm trong danh sách bắt buộc — phiên tập trung có thể
+    // không gắn với task nào.
+    if (!userId || !startTime || !endTime || !sessionDate) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400, headers: corsHeaders });
     }
 
@@ -130,7 +132,7 @@ export async function POST(request: NextRequest) {
       .insert([
         {
           user_id: userId,
-          task_id: taskId,
+          task_id: taskId ?? null,
           session_name: sessionName?.trim() || null,
           start_time: startTime,
           end_time: endTime,
