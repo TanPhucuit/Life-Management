@@ -3371,15 +3371,14 @@ function DesktopTaskNetworkCanvas({
       const wasExpanded = current.has(task.id);
       const next = isLevelOne ? new Set<string>() : new Set(current);
       if (!wasExpanded) {
-        // Any node — level-1 or nested — reveals its own full subtree, scoped
-        // to itself only. Ancestors, siblings and cousins are untouched.
-        const revealBranch = (branchTask: ApiTask) => {
-          const children = (childrenByParent.get(branchTask.id) || []).filter((child) => child.topic_id === selectedTopicId && visibleTaskIds.has(child.id));
-          if (!children.length) return;
-          next.add(branchTask.id);
-          children.forEach(revealBranch);
-        };
-        revealBranch(task);
+        // Mở MỘT cấp: chỉ hiện con trực tiếp của node vừa bấm.
+        //
+        // Trước đây một cú bấm bung nguyên cây con. Bấm READING là 140 node
+        // trong 156 đổ ra cùng lúc, xếp quanh một vòng tròn mà mỗi node chỉ
+        // được chừng 31px cung trong khi nhãn rộng 190px — đo trên cây thật là
+        // 453 cặp nhãn đè lên nhau. Muốn xem sâu hơn thì bấm tiếp vào đúng
+        // nhánh cần xem, và chỉ nhánh đó mở ra.
+        next.add(task.id);
       } else if (!isLevelOne) {
         // Collapse this node's own subtree only, recursively.
         const collapseBranch = (branchTaskId: string) => {
@@ -4985,3 +4984,4 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
     </div>
   );
 }
+

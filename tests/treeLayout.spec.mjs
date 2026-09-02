@@ -99,9 +99,19 @@ function measure(label, tasks, rootId) {
     }
   }
 
+  // Cây trải quá rộng thì dù không chồng lấn vẫn rất mệt khi di chuyển: phải
+  // kéo rất xa mới tới được nhánh kế bên. Đo luôn cả hai.
+  const farthest = Math.max(...nodes.map((n) => Math.hypot(n.position[0], n.position[1], n.position[2])));
+  const longestEdge = Math.max(
+    0,
+    ...layout.edges.map((e) => Math.hypot(e.to[0] - e.from[0], e.to[1] - e.from[1], e.to[2] - e.from[2])),
+  );
+
   const pairs = (nodes.length * (nodes.length - 1)) / 2;
   console.log(
     `${label.padEnd(34)} nodes=${String(nodes.length).padStart(4)}` +
+      ` xa_nhat=${farthest.toFixed(2).padStart(6)}` +
+      ` nhanh_dai_nhat=${longestEdge.toFixed(2).padStart(6)}` +
       ` va_cham=${String(collisions).padStart(5)}/${String(pairs).padStart(6)}` +
       ` (${((collisions / Math.max(1, pairs)) * 100).toFixed(2)}%)` +
       ` khe_node=${minGap === Infinity ? 'n/a' : minGap.toFixed(3)}` +
