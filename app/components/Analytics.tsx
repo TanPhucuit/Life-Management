@@ -20,7 +20,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, ApiDate, ApiSession } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { useFocusTimerStore } from '@/app/lib/timerStore';
@@ -65,10 +65,15 @@ function renderSessionDot(props: { key?: string; cx?: number; cy?: number; paylo
   );
 }
 
-/** Nhãn trục x: ngày/tháng, thêm giờ khi cả biểu đồ gói gọn trong một ngày. */
-function formatSessionTick(value: number): string {
+/**
+ * Nhãn trục x: ngày/tháng khi xem cả tháng; giờ:phút khi đã phóng đại xuống
+ * cửa sổ vài chục phút — lúc đó ngày/tháng không đổi trong suốt biểu đồ nên
+ * vô dụng, còn giờ:phút mới cho thấy từng mốc thời gian đang trôi qua.
+ */
+function formatSessionTick(value: number, zoomed = false): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
+  if (zoomed) return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
   return `${date.getDate()}/${date.getMonth() + 1}`;
 }
 
@@ -318,6 +323,58 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     // re-run trigger; its value is never read, only its change matters.
   }, [monthRange, focusSessions, liveTimer, liveTick]);
 
+  // "Phóng đại tối đa": thu trục x từ cả tháng xuống một cửa sổ vài chục phút
+  // quanh phiên đang chạy (hoặc quanh thời điểm hiện tại nếu không có phiên
+  // nào), để đoạn đường đang dài ra chiếm gần hết chiều rộng biểu đồ — ở mức
+  // cả tháng, một phút trôi qua chỉ là một điểm ảnh không ai nhận ra được.
+  const [sessionZoom, setSessionZoom] = useState(false);
+
+  const sessionXDomain = useMemo<[number, number]>(() => {
+    if (!sessionZoom) return monthRange;
+    const now = Date.now();
+    // Giữ tối thiểu 15 phút trên trục dù phiên mới chạy được vài giây, để vẫn
+    // còn vài mốc phút làm điểm tựa thay vì phóng to tới mức trống trơn.
+    const minSpanMs = 15 * 60 * 1000;
+    // ...nhưng cũng CHẶN TRÊN ở 60 phút: một phiên đã chạy 8 tiếng mà lấy toàn
+    // bộ 8 tiếng đó làm cửa sổ thì một phút trôi qua lại quay về chỗ cũ — chỉ
+    // là một điểm ảnh trên trục dài 8 tiếng. Luôn chỉ xem MỘT GIỜ GẦN NHẤT
+    // tính đến hiện tại thì mốc phút mới thực sự còn ý nghĩa.
+    const maxSpanMs = 60 * 60 * 1000;
+    const paddingMs = 90 * 1000;
+    const sessionStart = liveTimer ? liveTimer.startedAtMs : now - minSpanMs;
+    const spanMs = Math.min(maxSpanMs, Math.max(minSpanMs, now - sessionStart));
+    return [Math.max(monthRange[0], now - spanMs), Math.min(monthRange[1], now + paddingMs)];
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- liveTick kéo cửa
+    // sổ đuổi theo Date.now() mỗi vài giây, giống focusTimerSessionData ở trên.
+  }, [sessionZoom, liveTimer, monthRange, liveTick]);
+
+  // Trên một cửa sổ chỉ rộng vài chục phút, thuật toán chọn mốc "đẹp" mặc định
+  // của Recharts (nghĩ theo mili-giây kể từ epoch, không phải theo phút) có
+  // thể chỉ nhả ra ĐÚNG MỘT mốc cho cả trục — tự tính lấy các mốc cách đều 10
+  // phút để trục luôn có đủ điểm tựa cho mắt dõi theo từng phút trôi qua.
+  const sessionXTicks = useMemo<number[] | undefined>(() => {
+    if (!sessionZoom) return undefined;
+    const [start, end] = sessionXDomain;
+    const stepMs = 10 * 60 * 1000;
+    const ticks: number[] = [];
+    for (let t = Math.ceil(start / stepMs) * stepMs; t <= end; t += stepMs) ticks.push(t);
+    return ticks;
+  }, [sessionZoom, sessionXDomain]);
+
+  // Ở chế độ phóng đại, trục y cũng nên chỉ trải theo (các) phiên đang lọt vào
+  // khung nhìn hẹp đó — nếu vẫn dùng domain "0 tới phiên thứ N trong tháng"
+  // như lúc xem cả tháng, đường duy nhất còn thấy được sẽ bị dồn xuống một
+  // dải mỏng phía dưới, phí mất phần lớn chiều cao biểu đồ.
+  const sessionYDomain = useMemo<[number, number] | undefined>(() => {
+    if (!sessionZoom) return undefined;
+    const [start, end] = sessionXDomain;
+    const visibleIndices = focusTimerSessionData
+      .filter((point) => point.t >= start && point.t <= end)
+      .map((point) => point.index);
+    if (visibleIndices.length === 0) return undefined;
+    return [Math.max(0, Math.min(...visibleIndices) - 0.5), Math.max(...visibleIndices) + 0.5];
+  }, [sessionZoom, sessionXDomain, focusTimerSessionData]);
+
   const holyMindCumulativeData = useMemo(() => {
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
     const monthStart = formatDateKey(currentYear, currentMonth, 1);
@@ -387,7 +444,11 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         dailyData={dailyData}
         errorMessage={errorMessage}
         focusTimerSessionData={focusTimerSessionData}
-        monthRange={monthRange}
+        sessionZoom={sessionZoom}
+        setSessionZoom={setSessionZoom}
+        sessionXDomain={sessionXDomain}
+        sessionXTicks={sessionXTicks}
+        sessionYDomain={sessionYDomain}
         holyMindCumulativeData={holyMindCumulativeData}
         kosDistribution={kosDistribution}
         monthlyFocusSessionCount={monthlyFocusSessionCount}
@@ -571,21 +632,30 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       )}
 
       {analyticsView === 'key_of_success' && (
-        <ChartPanel title={`Timer sessions - ${monthNames[currentMonth - 1]} ${currentYear}`}>
+        <ChartPanel
+          title={`Timer sessions - ${monthNames[currentMonth - 1]} ${currentYear}`}
+          action={<SessionZoomToggle zoomed={sessionZoom} onToggle={() => setSessionZoom((value) => !value)} />}
+        >
           <ResponsiveContainer width="100%" height={340}>
             <LineChart data={focusTimerSessionData} margin={{ top: 24, right: 18, left: -14, bottom: 0 }} accessibilityLayer>
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+              {/* allowDataOverflow: mặc định Recharts TỰ NỚI domain ra để chứa
+                  hết mọi điểm dữ liệu, bất kể domain truyền vào — nếu không
+                  bật cờ này, cửa sổ "phóng đại tối đa" bị lờ đi hoàn toàn và
+                  trục lại giãn về đúng khoảng bao trọn cả 3 phiên như cũ. */}
               <XAxis
                 dataKey="t"
                 type="number"
                 scale="time"
-                domain={monthRange}
+                domain={sessionXDomain}
+                ticks={sessionXTicks}
+                allowDataOverflow
                 stroke="#64748b"
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={formatSessionTick}
+                tickFormatter={(value) => formatSessionTick(value, sessionZoom)}
               />
-              <YAxis stroke="#64748b" tickLine={false} axisLine={false} allowDecimals={false} domain={[0, 'dataMax + 1']} />
+              <YAxis stroke="#64748b" tickLine={false} axisLine={false} allowDecimals={false} allowDataOverflow={sessionZoom} domain={sessionYDomain ?? [0, 'dataMax + 1']} />
               <Tooltip {...sessionTooltipProps} contentStyle={legacyTooltipStyle} />
               {/* linear, không phải stepAfter: các điểm đã tự mô tả hình dạng
                   mong muốn — dốc chéo ngắn khi lên 1 đơn vị, rồi nằm ngang
@@ -645,7 +715,11 @@ interface DesktopCinematicAnalyticsProps {
   dailyData: Array<{ name: string; hours: number }>;
   errorMessage: string;
   focusTimerSessionData: SessionPoint[];
-  monthRange: [number, number];
+  sessionZoom: boolean;
+  setSessionZoom: (value: boolean | ((current: boolean) => boolean)) => void;
+  sessionXDomain: [number, number];
+  sessionXTicks: number[] | undefined;
+  sessionYDomain: [number, number] | undefined;
   holyMindCumulativeData: ChartPoint[];
   kosDistribution: Array<{ name: string; value: number; color: string }>;
   monthlyFocusSessionCount: number;
@@ -690,7 +764,11 @@ function DesktopCinematicAnalytics({
   dailyData,
   errorMessage,
   focusTimerSessionData,
-  monthRange,
+  sessionZoom,
+  setSessionZoom,
+  sessionXDomain,
+  sessionXTicks,
+  sessionYDomain,
   holyMindCumulativeData,
   kosDistribution,
   monthlyFocusSessionCount,
@@ -909,14 +987,24 @@ function DesktopCinematicAnalytics({
           )}
 
           {analyticsView === 'key_of_success' && (
-            <CinematicChartPanel title={`Timer sessions - ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
+            <CinematicChartPanel
+              title={`Timer sessions - ${monthNames[currentMonth - 1]} ${currentYear}`}
+              reducedMotion={reducedMotion}
+              action={<SessionZoomToggle zoomed={sessionZoom} onToggle={() => setSessionZoom((value) => !value)} />}
+            >
               <ResponsiveContainer width="100%" height={420}>
                 <LineChart data={focusTimerSessionData} margin={{ top: 28, right: 24, left: -4, bottom: 8 }} accessibilityLayer>
                   <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
-                  <XAxis dataKey="t" type="number" scale="time" domain={monthRange} stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={formatSessionTick} />
-                  <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} allowDecimals={false} domain={[0, 'dataMax + 1']} />
+                  <XAxis dataKey="t" type="number" scale="time" domain={sessionXDomain} ticks={sessionXTicks} allowDataOverflow stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={(value) => formatSessionTick(value, sessionZoom)} />
+                  <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} allowDecimals={false} allowDataOverflow={sessionZoom} domain={sessionYDomain ?? [0, 'dataMax + 1']} />
                   <Tooltip {...sessionTooltipProps} contentStyle={cinematicTooltipStyle} />
-                  <Line type="linear" dataKey="index" stroke="#2563eb" strokeWidth={3} dot={renderSessionDot} activeDot={{ r: 6 }} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out">
+                  {/* isAnimationActive cố định false: dữ liệu của biểu đồ này
+                      tự làm mới mỗi 5s trong lúc có phiên đang chạy (xem
+                      liveTick ở trên), và Recharts ẨN HẲN dot + LabelList
+                      trong suốt thời gian một animation "vẽ vào" đang chạy.
+                      Bật animation ở đây khiến chấm đỏ và nhãn thời lượng chỉ
+                      lóe lên rồi tắt mỗi 5 giây thay vì hiển thị liên tục. */}
+                  <Line type="linear" dataKey="index" stroke="#2563eb" strokeWidth={3} dot={renderSessionDot} activeDot={{ r: 6 }} isAnimationActive={false}>
                     <LabelList dataKey="label" position="top" className="fill-[#2563eb] text-[11px] font-semibold" />
                   </Line>
                 </LineChart>
@@ -979,7 +1067,17 @@ function CinematicWeekSelector({ weeksCount, selectedWeek, onSelect, label, redu
   );
 }
 
-function CinematicChartPanel({ title, children, reducedMotion }: { title: string; children: React.ReactNode; reducedMotion: boolean }) {
+function CinematicChartPanel({
+  title,
+  action,
+  children,
+  reducedMotion,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+  reducedMotion: boolean;
+}) {
   return (
     <section className="relative overflow-hidden rounded-[30px] border border-[var(--border)] bg-[var(--glass)] p-5 shadow-[var(--shadow-md)] backdrop-blur-xl">
       {!reducedMotion && (
@@ -991,7 +1089,10 @@ function CinematicChartPanel({ title, children, reducedMotion }: { title: string
           transition={{ duration: .9, ease: 'easeOut' }}
         />
       )}
-      <h2 className="mb-4 text-base font-semibold tracking-[-.015em]">{title}</h2>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-sm">
+        <h2 className="text-base font-semibold tracking-[-.015em]">{title}</h2>
+        {action}
+      </div>
       {children}
     </section>
   );
@@ -1199,11 +1300,37 @@ function WeekSelector({
   );
 }
 
-function ChartPanel({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartPanel({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="premium-card p-4 sm:p-5">
-      <h3 className="mb-4 text-base font-semibold text-slate-950">{title}</h3>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-sm">
+        <h3 className="text-base font-semibold text-slate-950">{title}</h3>
+        {action}
+      </div>
       {children}
     </motion.section>
+  );
+}
+
+/**
+ * Nút bật/tắt "Phóng đại tối đa" của biểu đồ Timer sessions — dùng chung cho
+ * cả bản legacy và desktop-cinematic nên style trung tính, không lệ thuộc
+ * theme riêng của bên nào.
+ */
+function SessionZoomToggle({ zoomed, onToggle }: { zoomed: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={zoomed}
+      className={`inline-flex items-center gap-xs rounded-full border px-sm py-1 text-xs font-semibold transition ${
+        zoomed
+          ? 'border-primary bg-primary text-on-primary'
+          : 'border-[var(--border,rgb(226_232_240))] text-on-surface-variant hover:border-primary hover:text-primary dark:text-white/65'
+      }`}
+    >
+      {zoomed ? <ZoomOut size={14} /> : <ZoomIn size={14} />}
+      {zoomed ? 'Xem cả tháng' : 'Phóng đại tối đa'}
+    </button>
   );
 }
