@@ -118,14 +118,36 @@ const getApiUrl = (endpoint: string): string => {
   return `${baseUrl}${path}`;
 };
 
+// Không có giới hạn thời gian thì một request treo (mạng chập chờn, proxy,
+// tường lửa) sẽ giữ promise ở trạng thái pending mãi mãi. Với timer, hệ quả cụ
+// thể là nút "Chạy" bấm xong khoá lại (busy=true) rồi kẹt luôn: fetch không
+// bao giờ rejected/resolved nên finally không bao giờ chạy để mở khoá lại, và
+// người dùng thấy nút mờ đi, giống như bị vô hiệu hoá, không có thông báo lỗi
+// nào giải thích tại sao. 15 giây đủ rộng cho một request bình thường, ngắn
+// đủ để không bắt người dùng chờ vô thời hạn.
+const REQUEST_TIMEOUT_MS = 15_000;
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(getApiUrl(path), {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(getApiUrl(path), {
+      ...init,
+      signal: init?.signal ?? controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers || {}),
+      },
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Kết nối quá chậm, không nhận được phản hồi. Hãy thử lại.');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({}));
