@@ -23,6 +23,7 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, ApiDate, ApiSession } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
+import { useFocusTimerStore } from '@/app/lib/timerStore';
 
 type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success' | 'cycle_ticks';
 type ChartPoint = { name: string; value: number | null };
@@ -34,8 +35,35 @@ type ChartPoint = { name: string; value: number | null };
  * một phiên 100 giờ kéo từ ngày 2 đến ngày 6 hiện thành một vạch dài, không
  * phải một cột dựng đứng. Nhãn thời lượng gắn vào điểm giữa để nằm chính giữa
  * đoạn đó.
+ *
+ * `live: true` chỉ được gắn vào điểm CUỐI CÙNG của một phiên đang chạy — đầu
+ * đường vẫn vẽ như phiên thường, chỉ riêng đầu mút hiện tại mới có chấm đỏ.
  */
-type SessionPoint = { t: number; index: number; label?: string };
+type SessionPoint = { t: number; index: number; label?: string; live?: boolean };
+
+/**
+ * Chấm cuối một phiên: trong suốt cho mọi điểm bình thường, đỏ (kèm vòng
+ * quầng mờ) cho điểm cuối của phiên ĐANG CHẠY — dấu hiệu duy nhất phân biệt
+ * "chưa kết thúc" với một phiên đã lưu.
+ */
+function renderSessionDot(props: { key?: string; cx?: number; cy?: number; payload?: SessionPoint }) {
+  // Recharts đặt phần tử trả về thẳng vào một mảng con — không tự bọc key
+  // như với phần tử JSX tĩnh — nên phải tự gắn lại props.key vào gốc, nếu
+  // không React sẽ cảnh báo "unique key prop" mỗi lần biểu đồ vẽ lại.
+  const { key, cx, cy, payload } = props;
+  if (typeof cx !== 'number' || typeof cy !== 'number' || !payload?.live) {
+    return <circle key={key} cx={cx ?? 0} cy={cy ?? 0} r={0} fill="none" />;
+  }
+  return (
+    <g key={key}>
+      <circle cx={cx} cy={cy} r={8} fill="#ef4444" fillOpacity={0.25}>
+        <animate attributeName="r" values="6;10;6" dur="1.6s" repeatCount="indefinite" />
+        <animate attributeName="fill-opacity" values="0.35;0.05;0.35" dur="1.6s" repeatCount="indefinite" />
+      </circle>
+      <circle cx={cx} cy={cy} r={4.5} fill="#ef4444" stroke="#fff" strokeWidth={1.5} />
+    </g>
+  );
+}
 
 /** Nhãn trục x: ngày/tháng, thêm giờ khi cả biểu đồ gói gọn trong một ngày. */
 function formatSessionTick(value: number): string {
@@ -88,6 +116,18 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const [focusSessions, setFocusSessions] = useState<ApiSession[]>([]);
   const [selectedTotal, setSelectedTotal] = useState<'timer' | 'holy'>('timer');
   const [errorMessage, setErrorMessage] = useState('');
+  const { timer: liveTimer } = useFocusTimerStore();
+  // Ép focusTimerSessionData tính lại mỗi vài giây trong khi có phiên đang
+  // chạy: bản thân `liveTimer` không đổi giữa các tick (cùng startedAtMs),
+  // nên nếu không có biến đếm này useMemo sẽ không bao giờ chạy lại và đầu
+  // mút của đường biểu đồ sẽ đứng yên thay vì đuổi theo Date.now().
+  const [liveTick, setLiveTick] = useState(0);
+
+  useEffect(() => {
+    if (!liveTimer) return;
+    const id = window.setInterval(() => setLiveTick((tick) => tick + 1), 5000);
+    return () => window.clearInterval(id);
+  }, [liveTimer]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -226,7 +266,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const focusTimerSessionData = useMemo(() => {
     const [monthStart, monthEnd] = monthRange;
 
-    const spans = focusSessions
+    const spans: { startMs: number; endMs: number; live?: boolean }[] = focusSessions
       .map((session) => {
         const startMs = new Date(session.start_time).getTime();
         const endMsRaw = new Date(session.end_time).getTime();
@@ -241,8 +281,17 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       // Chỉ những phiên BẮT ĐẦU trong tháng đang xem. Trước đây mọi phiên chạm
       // vào tháng đều được vẽ, nên biểu đồ "September" lại mở từ 30/8 và đếm cả
       // phiên của tháng trước.
-      .filter((span) => span.startMs >= monthStart && span.startMs <= monthEnd)
-      .sort((a, b) => a.startMs - b.startMs);
+      .filter((span) => span.startMs >= monthStart && span.startMs <= monthEnd);
+
+    // Phiên đang chạy chưa có dòng session nào trong `focusSessions` — nó chỉ
+    // được ghi khi bấm Dừng. Ghép nó vào đây như một "phiên ảo" có endMs luôn
+    // đuổi theo Date.now(), để đường biểu đồ dài ra đúng nhịp với đồng hồ thật
+    // thay vì chỉ xuất hiện sau khi timer kết thúc.
+    if (liveTimer && liveTimer.startedAtMs >= monthStart && liveTimer.startedAtMs <= monthEnd) {
+      spans.push({ startMs: liveTimer.startedAtMs, endMs: Date.now(), live: true });
+    }
+
+    spans.sort((a, b) => a.startMs - b.startMs);
 
     // Đoạn dốc ngắn ở đầu mỗi phiên: trục y nhích lên 1 theo một đường hơi
     // chéo rồi mới nằm ngang suốt thời lượng phiên, thay vì nhảy dựng đứng.
@@ -258,12 +307,16 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
 
       points.push({ t: span.startMs, index: level - 1 });
       points.push({ t: risenAt, index: level });
-      points.push({ t: (risenAt + endMs) / 2, index: level, label });
-      points.push({ t: Math.max(endMs, risenAt + 1), index: level });
+      points.push({ t: (risenAt + endMs) / 2, index: level, label: span.live ? `${label} · đang chạy` : label });
+      // `live` chỉ gắn vào điểm cuối cùng này — đầu mút hiện tại của phiên
+      // chưa kết thúc — để renderSessionDot vẽ đúng một chấm đỏ ở đó.
+      points.push({ t: Math.max(endMs, risenAt + 1), index: level, live: span.live });
     });
 
     return points;
-  }, [monthRange, focusSessions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- liveTick is a pure
+    // re-run trigger; its value is never read, only its change matters.
+  }, [monthRange, focusSessions, liveTimer, liveTick]);
 
   const holyMindCumulativeData = useMemo(() => {
     const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
@@ -542,7 +595,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
                 dataKey="index"
                 stroke="#2563eb"
                 strokeWidth={3}
-                dot={false}
+                dot={renderSessionDot}
                 activeDot={{ r: 5 }}
                 isAnimationActive={false}
               >
@@ -863,7 +916,7 @@ function DesktopCinematicAnalytics({
                   <XAxis dataKey="t" type="number" scale="time" domain={monthRange} stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={formatSessionTick} />
                   <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} allowDecimals={false} domain={[0, 'dataMax + 1']} />
                   <Tooltip {...sessionTooltipProps} contentStyle={cinematicTooltipStyle} />
-                  <Line type="linear" dataKey="index" stroke="#2563eb" strokeWidth={3} dot={false} activeDot={{ r: 6 }} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out">
+                  <Line type="linear" dataKey="index" stroke="#2563eb" strokeWidth={3} dot={renderSessionDot} activeDot={{ r: 6 }} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out">
                     <LabelList dataKey="label" position="top" className="fill-[#2563eb] text-[11px] font-semibold" />
                   </Line>
                 </LineChart>
