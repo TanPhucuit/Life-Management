@@ -227,36 +227,27 @@ export default function FocusTimerLanding() {
                 <option key={task.id} value={task.id}>{task.title}</option>
               ))}
             </select>
-            {/* One persistent button, not a pair swapped through AnimatePresence
-                — only its label/colour change. That way "does the button
-                actually flip to Stop" can never be held hostage by an exit
-                animation that has to finish first (see StopwatchDigits for
-                why that risk is real on this page: things tick every second
-                for potentially hours). `layout` still gives the width change
-                between "Chạy" and "Dừng và lưu" a smooth resize. */}
-            <motion.button
+            {/* Nút thuần HTML, không còn qua framer-motion.
+                motion.button trước đây dùng whileTap, mà cơ chế nhận diện cử
+                chỉ của framer-motion theo dõi pointerdown rồi so khoảng cách
+                di chuyển tới pointerup để quyết định có tính là "tap" hay
+                không — nếu bất kỳ script nào khác trên trang (ví dụ content
+                script của một tiện ích mở rộng trình duyệt) chen vào giữa hai
+                sự kiện đó, framer-motion có thể huỷ cử chỉ và không bao giờ
+                bắn ra click, dù DOM cho thấy nút không hề bị che hay disabled.
+                Một <button> gốc chỉ cần đúng một sự kiện "click" chuẩn của
+                trình duyệt, không có tầng trung gian nào có thể chặn được. */}
+            <button
               type="button"
-              layout
               onClick={() => void (timer ? handleStop() : handleStart())}
               disabled={timer ? busy || !user?.id : busy || !canStart}
-              whileHover={reducedMotion || busy || (!timer && !canStart) ? undefined : { scale: 1.03 }}
-              whileTap={reducedMotion || busy || (!timer && !canStart) ? undefined : { scale: 0.96 }}
-              transition={{ duration: 0.18, ease: easeOut }}
-              className={`inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold text-white transition-colors disabled:opacity-60 ${
+              className={`inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold text-white transition-[background-color,transform] duration-150 active:scale-[0.97] disabled:opacity-60 disabled:active:scale-100 ${
                 timer ? 'bg-red-600 hover:bg-red-700' : 'bg-[var(--primary)] hover:bg-[var(--primary-hover)]'
               }`}
             >
-              <motion.span
-                key={timer ? 'stop' : 'start'}
-                initial={reducedMotion ? false : { opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.16, ease: easeOut }}
-                className="inline-flex items-center gap-2"
-              >
-                {timer ? <Square className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
-                {timer ? 'Dừng và lưu' : 'Chạy'}
-              </motion.span>
-            </motion.button>
+              {timer ? <Square className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
+              {timer ? 'Dừng và lưu' : 'Chạy'}
+            </button>
           </div>
 
           {(tasksError || timerError) && (
