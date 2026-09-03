@@ -1,60 +1,44 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
 import { AlertCircle, ArrowRight, Clock3, Play, Square } from 'lucide-react';
-import { api, ApiTask } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { formatStopwatch, useFocusTimerStore } from '@/app/lib/timerStore';
 import { StopwatchDigits } from '@/app/components/StopwatchDigits';
 
-const isOpenTask = (task: ApiTask) => {
-  const status = task.effective_status || task.status;
-  return status !== 'completed' && !task.archived_at;
-};
-
 const easeOut = [0.16, 1, 0.3, 1] as const;
+const UNASSIGNED_LABEL = 'Không thuộc task nào';
 
 export default function FocusTimerLanding() {
   const { user, sessionReady, sessionError } = useAppStore();
   const { timer, ready, busy, hydrate, start, stop, error: timerError } = useFocusTimerStore();
-  const [tasks, setTasks] = useState<ApiTask[]>([]);
-  const [selectedTaskId, setSelectedTaskId] = useState('');
-  const [loadingTasks, setLoadingTasks] = useState(false);
-  const [tasksError, setTasksError] = useState('');
   const [, setTick] = useState(0);
   const reducedMotion = Boolean(useReducedMotion());
 
-  const focusTasks = useMemo(
-    () => tasks.filter((task) => isOpenTask(task)).sort((a, b) => a.title.localeCompare(b.title)),
-    [tasks],
-  );
-  // Không fallback về focusTasks[0]: nếu người dùng chưa chọn gì thì nghĩa là
-  // KHÔNG gắn task, chứ không phải gắn vào task đầu danh sách.
-  const selectedTask = selectedTaskId ? focusTasks.find((task) => task.id === selectedTaskId) ?? null : null;
-
-  const loadTasks = useCallback(async () => {
-    if (!user?.id) return;
-    setLoadingTasks(true);
-    setTasksError('');
-    try {
-      const rows = await api.getTasks(user.id, { view: 'tree' });
-      setTasks(rows);
-      const openRows = rows.filter((task) => isOpenTask(task));
-      setSelectedTaskId((current) => (current && openRows.some((task) => task.id === current) ? current : ''));
-    } catch (error) {
-      setTasksError(error instanceof Error ? error.message : 'Could not load tasks.');
-    } finally {
-      setLoadingTasks(false);
-    }
-  }, [user?.id]);
+  // Chặn lệch giữa bản vẽ trên server và trên trình duyệt.
+  //
+  // `useAppStore`/`useFocusTimerStore` đọc localStorage ngay khi module chạy,
+  // nên trên TRÌNH DUYỆT, y hệt lần vẽ đầu tiên (chưa qua useEffect nào) đã có
+  // thể thấy user khác null — trong khi trên SERVER (không có localStorage)
+  // user luôn là null. Hai lần vẽ đầu cho ra hai giá trị `disabled` khác nhau
+  // ngay trên cùng một nút, và vì layout.tsx đặt suppressHydrationWarning ở
+  // <html>/<body>, React coi đây là hydration nên bỏ qua việc á lại DOM cho
+  // khớp — nút kẹt ở trạng thái của lần vẽ SERVER (disabled=true) vĩnh viễn,
+  // dù chính React đang giữ đúng giá trị false trong bộ nhớ của nó.
+  //
+  // `mounted` bắt đầu là false ở CẢ HAI phía nên lần vẽ đầu tiên luôn khớp
+  // nhau tuyệt đối (không có gì để hydrate-mismatch); chỉ sau khi mount xong,
+  // một lần vẽ lại BÌNH THƯỜNG (không phải hydrate) mới bật nút lên — và lần
+  // vẽ lại đó React chắc chắn ghi xuống DOM thật.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!user?.id) return;
     void hydrate(user.id);
-    void loadTasks();
-  }, [hydrate, loadTasks, user?.id]);
+  }, [hydrate, user?.id]);
 
   useEffect(() => {
     if (!timer) return;
@@ -63,35 +47,23 @@ export default function FocusTimerLanding() {
   }, [timer]);
 
   const elapsed = timer ? Date.now() - timer.startedAtMs : 0;
-  // Chạy được kể cả khi không chọn task: phần lớn thời gian tập trung không
-  // thuộc task nào, ép gán bừa vào một task chỉ làm hỏng số liệu của task đó.
-  const canStart = Boolean(user?.id && !timer);
-  const statusText = timer
-    ? `Đang chạy: ${timer.taskTitle}`
-    : selectedTask
-      ? `Sẵn sàng: ${selectedTask.title}`
-      : 'Sẵn sàng: không gắn task';
-  // The animated status line keys off this SAME string it renders — never a
-  // value computed separately from the visible text — so the swap trigger and
-  // the content can never fall out of sync with each other.
-  const displayStatus = sessionReady && ready ? statusText : 'Đang mở workspace...';
+  // Timer session là một giá trị độc lập, không thuộc về bất kì task nào —
+  // không còn lựa chọn gắn task nữa, mọi phiên đều ghi taskId = null.
+  const canStart = Boolean(mounted && user?.id && !timer);
+  const statusText = timer ? `Đang chạy: ${timer.taskTitle}` : 'Sẵn sàng';
+  const displayStatus = mounted && sessionReady && ready ? statusText : 'Đang mở workspace...';
 
-  // `busy` sống trong store, không phải state cục bộ: bấm nút chỉ uỷ thác cho
-  // store, còn store tự chặn lần gọi thứ hai và tự vô hiệu hoá kết quả hydrate
-  // đến muộn. Trước đây mỗi component giữ cờ busy riêng nên một hydrate chạy
-  // song song vẫn ghi đè được kết quả, khiến phải bấm hai lần mới ăn.
   const handleStart = async () => {
     if (!user?.id) return;
-    await start(user.id, selectedTask?.id ?? null, selectedTask?.title ?? 'Không thuộc task nào');
+    await start(user.id, null, UNASSIGNED_LABEL);
   };
 
   const handleStop = async () => {
     if (!user?.id) return;
     await stop(user.id);
-    void loadTasks();
   };
 
-  if (sessionReady && sessionError) {
+  if (mounted && sessionReady && sessionError) {
     return (
       <main className="grid min-h-dvh place-items-center bg-[var(--background)] p-6 text-center text-[var(--foreground)]">
         <div>
@@ -210,47 +182,21 @@ export default function FocusTimerLanding() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-            {/* "Không gắn task" là lựa chọn đầu tiên và là mặc định khi chưa
-                chọn gì — phần lớn thời gian tập trung không thuộc task nào, và
-                trước đây danh sách tự chọn sẵn task đầu tiên (READING) khiến
-                thời gian bị ghi nhầm sang task đó. */}
-            <select
-              value={selectedTaskId}
-              onChange={(event) => setSelectedTaskId(event.target.value)}
-              disabled={Boolean(timer) || loadingTasks}
-              className="h-12 w-full rounded-2xl border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm outline-none transition focus:border-[var(--primary)] disabled:opacity-60"
-              aria-label="Chọn task focus"
-            >
-              <option value="">Không gắn task</option>
-              {focusTasks.map((task) => (
-                <option key={task.id} value={task.id}>{task.title}</option>
-              ))}
-            </select>
-            {/* Nút thuần HTML, không còn qua framer-motion.
-                motion.button trước đây dùng whileTap, mà cơ chế nhận diện cử
-                chỉ của framer-motion theo dõi pointerdown rồi so khoảng cách
-                di chuyển tới pointerup để quyết định có tính là "tap" hay
-                không — nếu bất kỳ script nào khác trên trang (ví dụ content
-                script của một tiện ích mở rộng trình duyệt) chen vào giữa hai
-                sự kiện đó, framer-motion có thể huỷ cử chỉ và không bao giờ
-                bắn ra click, dù DOM cho thấy nút không hề bị che hay disabled.
-                Một <button> gốc chỉ cần đúng một sự kiện "click" chuẩn của
-                trình duyệt, không có tầng trung gian nào có thể chặn được. */}
-            <button
-              type="button"
-              onClick={() => void (timer ? handleStop() : handleStart())}
-              disabled={timer ? busy || !user?.id : busy || !canStart}
-              className={`inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold text-white transition-[background-color,transform] duration-150 active:scale-[0.97] disabled:opacity-60 disabled:active:scale-100 ${
-                timer ? 'bg-red-600 hover:bg-red-700' : 'bg-[var(--primary)] hover:bg-[var(--primary-hover)]'
-              }`}
-            >
-              {timer ? <Square className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
-              {timer ? 'Dừng và lưu' : 'Chạy'}
-            </button>
-          </div>
+          {/* Không còn lựa chọn task: timer session luôn là một giá trị độc
+              lập, không gắn với bất kì task nào. */}
+          <button
+            type="button"
+            onClick={() => void (timer ? handleStop() : handleStart())}
+            disabled={timer ? busy || !user?.id : busy || !canStart}
+            className={`mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl px-5 text-sm font-semibold text-white transition-[background-color,transform] duration-150 active:scale-[0.97] disabled:opacity-60 disabled:active:scale-100 ${
+              timer ? 'bg-red-600 hover:bg-red-700' : 'bg-[var(--primary)] hover:bg-[var(--primary-hover)]'
+            }`}
+          >
+            {timer ? <Square className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current" />}
+            {timer ? 'Dừng và lưu' : 'Chạy'}
+          </button>
 
-          {(tasksError || timerError) && (
+          {timerError && (
             <motion.div
               initial={reducedMotion ? false : { opacity: 0, y: -6 }}
               animate={{ opacity: 1, y: 0 }}
@@ -258,7 +204,7 @@ export default function FocusTimerLanding() {
               className="mt-4 flex gap-2 rounded-2xl border border-[var(--danger)] bg-[var(--danger-soft)] p-3 text-sm text-[var(--danger)]"
             >
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <p>{tasksError || timerError}</p>
+              <p>{timerError}</p>
             </motion.div>
           )}
 
