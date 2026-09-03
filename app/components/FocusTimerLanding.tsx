@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
-import { AlertCircle, ArrowRight, Clock3, ListTodo, Play, Square } from 'lucide-react';
+import { AlertCircle, ArrowRight, Clock3, Play, Square } from 'lucide-react';
 import { api, ApiTask } from '@/app/lib/api';
 import { useAppStore } from '@/app/lib/store';
 import { formatStopwatch, useFocusTimerStore } from '@/app/lib/timerStore';
@@ -126,26 +126,21 @@ export default function FocusTimerLanding() {
         initial={reducedMotion ? false : { opacity: 0, y: 16, scale: 0.99 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.42, ease: easeOut }}
-        className="mx-auto grid min-h-dvh w-full max-w-6xl content-center gap-6 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(300px,.95fr)] lg:px-8"
+        className="mx-auto grid min-h-dvh w-full max-w-xl content-center gap-6 px-4 py-5 sm:px-6 lg:px-8"
       >
         <section className="rounded-[28px] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-xl sm:p-7 lg:p-8">
-          <div className="mb-6 flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <motion.span
-                animate={!reducedMotion && timer ? { scale: [1, 1.08, 1] } : { scale: 1 }}
-                transition={{ duration: 2.4, repeat: timer ? Infinity : 0, ease: 'easeInOut' }}
-                className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--primary-soft)] text-[var(--primary)]"
-              >
-                <Clock3 className="h-5 w-5" />
-              </motion.span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-[var(--foreground-muted)]">Focus timer</p>
-                <h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">Bộ đếm thời gian</h1>
-              </div>
+          <div className="mb-6 flex items-center gap-3">
+            <motion.span
+              animate={!reducedMotion && timer ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+              transition={{ duration: 2.4, repeat: timer ? Infinity : 0, ease: 'easeInOut' }}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[var(--primary-soft)] text-[var(--primary)]"
+            >
+              <Clock3 className="h-5 w-5" />
+            </motion.span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[var(--foreground-muted)]">Focus timer</p>
+              <h1 className="truncate text-xl font-semibold tracking-tight sm:text-2xl">Bộ đếm thời gian</h1>
             </div>
-            <Link href="/overview" className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl border border-[var(--border)] text-[var(--foreground-muted)] transition hover:bg-[var(--surface-soft)]" aria-label="Open dashboard">
-              <ArrowRight className="h-5 w-5" />
-            </Link>
           </div>
 
           <div
@@ -275,49 +270,15 @@ export default function FocusTimerLanding() {
               <p>{tasksError || timerError}</p>
             </motion.div>
           )}
-        </section>
 
-        <motion.aside
-          initial={reducedMotion ? false : 'hidden'}
-          animate="visible"
-          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05, delayChildren: 0.1 } } }}
-          className="grid content-start gap-4 rounded-[28px] border border-[var(--border)] bg-[var(--glass)] p-5 shadow-md backdrop-blur sm:p-6"
-        >
-          <motion.div
-            variants={{ hidden: { opacity: 0, y: -8 }, visible: { opacity: 1, y: 0 } }}
-            transition={{ duration: 0.3, ease: easeOut }}
-            className="flex items-center gap-3"
+          <Link
+            href="/overview"
+            className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-raised)] px-5 text-sm font-semibold transition hover:bg-[var(--surface-soft)]"
           >
-            <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[var(--accent-soft)] text-[var(--accent)]">
-              <ListTodo className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-semibold">Task focus</p>
-              <p className="text-sm text-[var(--foreground-muted)]">{loadingTasks ? 'Đang tải task...' : `${focusTasks.length} task có thể chạy`}</p>
-            </div>
-          </motion.div>
-          <div className="space-y-2.5">
-            {focusTasks.slice(0, 5).map((task) => (
-              <motion.button
-                key={task.id}
-                type="button"
-                onClick={() => setSelectedTaskId(task.id)}
-                disabled={Boolean(timer)}
-                variants={{ hidden: { opacity: 0, x: -10 }, visible: { opacity: 1, x: 0 } }}
-                transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                whileHover={reducedMotion || timer ? undefined : { x: 2 }}
-                whileTap={reducedMotion || timer ? undefined : { scale: 0.98 }}
-                className={`flex min-h-12 w-full min-w-0 items-center rounded-2xl border px-3 text-left text-sm transition-colors disabled:opacity-60 ${selectedTask?.id === task.id ? 'border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]' : 'border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-soft)]'}`}
-              >
-                <span className="truncate font-medium">{task.title}</span>
-              </motion.button>
-            ))}
-          </div>
-          <Link href="/tasks" className="mt-1 inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-semibold transition hover:bg-[var(--surface-soft)]">
-            Mở danh sách task
+            Tiếp theo · Vào giao diện chính
             <ArrowRight className="h-4 w-4" />
           </Link>
-        </motion.aside>
+        </section>
       </motion.div>
     </main>
   );
