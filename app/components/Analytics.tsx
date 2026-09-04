@@ -323,39 +323,60 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     // re-run trigger; its value is never read, only its change matters.
   }, [monthRange, focusSessions, liveTimer, liveTick]);
 
-  // "Phóng đại tối đa": thu trục x từ cả tháng xuống một cửa sổ vài chục phút
-  // quanh phiên đang chạy (hoặc quanh thời điểm hiện tại nếu không có phiên
-  // nào), để đoạn đường đang dài ra chiếm gần hết chiều rộng biểu đồ — ở mức
-  // cả tháng, một phút trôi qua chỉ là một điểm ảnh không ai nhận ra được.
+  // "Phóng đại tối đa": thu trục x từ cả tháng xuống một cửa sổ đủ hẹp để một
+  // phút trôi qua còn nhìn thấy được, nhưng KHÔNG hẹp tới mức chỉ còn mỗi
+  // phiên đang chạy trơ trọi — bản đầu tiên mắc đúng lỗi đó (cửa sổ = đúng
+  // thời lượng phiên hiện tại), phóng to xong chỉ thấy một đường chéo độc
+  // lập, mất hết ngữ cảnh "trước đó đã học được bao nhiêu". Cửa sổ bây giờ
+  // luôn kéo lùi đủ xa để bao trọn vài phiên gần nhất (tối đa 4, kể cả phiên
+  // đang chạy), rồi mới áp thêm hai chặn trên/dưới cho hợp lý.
   const [sessionZoom, setSessionZoom] = useState(false);
+  const RECENT_SESSIONS_IN_ZOOM = 4;
 
   const sessionXDomain = useMemo<[number, number]>(() => {
     if (!sessionZoom) return monthRange;
     const now = Date.now();
-    // Giữ tối thiểu 15 phút trên trục dù phiên mới chạy được vài giây, để vẫn
-    // còn vài mốc phút làm điểm tựa thay vì phóng to tới mức trống trơn.
+    const [monthStart, monthEnd] = monthRange;
+
+    const starts = focusSessions
+      .map((session) => new Date(session.start_time).getTime())
+      .filter((t) => Number.isFinite(t) && t >= monthStart && t <= monthEnd);
+    if (liveTimer && liveTimer.startedAtMs >= monthStart && liveTimer.startedAtMs <= monthEnd) {
+      starts.push(liveTimer.startedAtMs);
+    }
+    starts.sort((a, b) => a - b);
+    const earliestOfRecent = starts.length
+      ? starts[Math.max(0, starts.length - RECENT_SESSIONS_IN_ZOOM)]
+      : now;
+
+    // Sàn 15 phút: phiên vừa bấm Chạy được vài giây vẫn cần vài mốc phút làm
+    // điểm tựa, không phóng to tới mức trống trơn. Trần 6 giờ: ràng buộc còn
+    // lại để cửa sổ không phình trở lại thành gần hết một ngày nếu 4 phiên
+    // gần nhất trải dài bất thường — 6 giờ vẫn nhỏ hơn hàng chục lần so với
+    // cả tháng, mốc theo phút/giờ vẫn còn ý nghĩa.
     const minSpanMs = 15 * 60 * 1000;
-    // ...nhưng cũng CHẶN TRÊN ở 60 phút: một phiên đã chạy 8 tiếng mà lấy toàn
-    // bộ 8 tiếng đó làm cửa sổ thì một phút trôi qua lại quay về chỗ cũ — chỉ
-    // là một điểm ảnh trên trục dài 8 tiếng. Luôn chỉ xem MỘT GIỜ GẦN NHẤT
-    // tính đến hiện tại thì mốc phút mới thực sự còn ý nghĩa.
-    const maxSpanMs = 60 * 60 * 1000;
+    const maxSpanMs = 6 * 60 * 60 * 1000;
     const paddingMs = 90 * 1000;
-    const sessionStart = liveTimer ? liveTimer.startedAtMs : now - minSpanMs;
-    const spanMs = Math.min(maxSpanMs, Math.max(minSpanMs, now - sessionStart));
-    return [Math.max(monthRange[0], now - spanMs), Math.min(monthRange[1], now + paddingMs)];
+    const spanMs = Math.min(maxSpanMs, Math.max(minSpanMs, now - earliestOfRecent));
+    return [Math.max(monthStart, now - spanMs), Math.min(monthEnd, now + paddingMs)];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- liveTick kéo cửa
     // sổ đuổi theo Date.now() mỗi vài giây, giống focusTimerSessionData ở trên.
-  }, [sessionZoom, liveTimer, monthRange, liveTick]);
+  }, [sessionZoom, focusSessions, liveTimer, monthRange, liveTick]);
 
-  // Trên một cửa sổ chỉ rộng vài chục phút, thuật toán chọn mốc "đẹp" mặc định
-  // của Recharts (nghĩ theo mili-giây kể từ epoch, không phải theo phút) có
-  // thể chỉ nhả ra ĐÚNG MỘT mốc cho cả trục — tự tính lấy các mốc cách đều 10
-  // phút để trục luôn có đủ điểm tựa cho mắt dõi theo từng phút trôi qua.
+  // Trên một cửa sổ hẹp, thuật toán chọn mốc "đẹp" mặc định của Recharts (nghĩ
+  // theo mili-giây kể từ epoch, không phải theo phút) có thể nhả ra rất ít mốc
+  // hoặc mốc lệch giờ khó đọc — tự chọn bước mốc theo đúng độ rộng cửa sổ hiện
+  // tại: cửa sổ càng rộng (bao nhiều phiên cũ) thì bước mốc càng thưa, để
+  // không vẽ hàng chục vạch dày đặc khi zoom kéo dài tới 5-6 giờ.
   const sessionXTicks = useMemo<number[] | undefined>(() => {
     if (!sessionZoom) return undefined;
     const [start, end] = sessionXDomain;
-    const stepMs = 10 * 60 * 1000;
+    const spanMs = end - start;
+    const minute = 60 * 1000;
+    const stepMs = spanMs <= 30 * minute ? 5 * minute
+      : spanMs <= 90 * minute ? 10 * minute
+      : spanMs <= 4 * 60 * minute ? 30 * minute
+      : 60 * minute;
     const ticks: number[] = [];
     for (let t = Math.ceil(start / stepMs) * stepMs; t <= end; t += stepMs) ticks.push(t);
     return ticks;
