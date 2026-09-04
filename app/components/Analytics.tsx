@@ -30,16 +30,28 @@ type ChartPoint = { name: string; value: number | null };
 
 /**
  * Một điểm trên biểu đồ "Timer sessions": trục x là mốc thời gian thật, trục y
- * là số thứ tự phiên. Mỗi phiên góp ba điểm cùng độ cao (bắt đầu / giữa / kết
- * thúc) nên nó vẽ ra một đoạn NẰM NGANG đúng bằng khoảng thời gian đã chạy —
- * một phiên 100 giờ kéo từ ngày 2 đến ngày 6 hiện thành một vạch dài, không
- * phải một cột dựng đứng. Nhãn thời lượng gắn vào điểm giữa để nằm chính giữa
- * đoạn đó.
+ * là số thứ tự phiên (mỗi phiên là một bậc thang).
  *
- * `live: true` chỉ được gắn vào điểm CUỐI CÙNG của một phiên đang chạy — đầu
- * đường vẫn vẽ như phiên thường, chỉ riêng đầu mút hiện tại mới có chấm đỏ.
+ * Hai chuỗi giá trị TÁCH RIÊNG, và đây là điểm mấu chốt của biểu đồ này:
+ *
+ * - `active`: chỉ có giá trị TRONG lúc một phiên đang chạy. Bề ngang của đoạn
+ *   này bằng ĐÚNG thời lượng thật của phiên.
+ * - `idle`: chỉ có giá trị trong khoảng NGHỈ giữa hai phiên, vẽ nét đứt mờ.
+ *
+ * Trước đây cả hai dùng chung một chuỗi nên đoạn nghỉ trông y hệt đoạn phiên:
+ * một phiên 19.9h kết thúc lúc 17:01 ngày 2 nhưng đường vẫn nằm ngang tới tận
+ * 14:16 ngày 3 (lúc phiên sau bắt đầu), thành ra nhãn "19.9h" nằm trên một
+ * vạch dài hơn 30 tiếng — đọc thế nào cũng thấy sai.
+ *
+ * `live: true` chỉ gắn vào điểm CUỐI của phiên đang chạy để vẽ chấm đỏ.
  */
-type SessionPoint = { t: number; index: number; label?: string; live?: boolean };
+type SessionPoint = {
+  t: number;
+  active?: number | null;
+  idle?: number | null;
+  label?: string;
+  live?: boolean;
+};
 
 /**
  * Chấm cuối một phiên: trong suốt cho mọi điểm bình thường, đỏ (kèm vòng
@@ -65,19 +77,29 @@ function renderSessionDot(props: { key?: string; cx?: number; cy?: number; paylo
   );
 }
 
+/** Cách ghi nhãn trục x, chọn theo độ rộng cửa sổ đang hiển thị. */
+type SessionTickMode = 'date' | 'time' | 'datetime';
+
 /**
- * Nhãn trục x: ngày/tháng khi xem cả tháng; giờ:phút khi đã phóng đại xuống
- * cửa sổ vài chục phút — lúc đó ngày/tháng không đổi trong suốt biểu đồ nên
- * vô dụng, còn giờ:phút mới cho thấy từng mốc thời gian đang trôi qua.
+ * Nhãn trục x:
+ * - 'date' (xem cả tháng): ngày/tháng.
+ * - 'time' (phóng đại trong vòng một ngày): giờ:phút — ngày/tháng lúc này
+ *   không đổi suốt biểu đồ nên ghi ra chỉ tổ thừa.
+ * - 'datetime' (phóng đại nhưng cửa sổ vắt qua nhiều ngày): cần cả hai, nếu
+ *   không thì 02:00 của ngày này và 02:00 của ngày kia trông y hệt nhau.
  */
-function formatSessionTick(value: number, zoomed = false): string {
+function formatSessionTick(value: number, mode: SessionTickMode = 'date'): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  if (zoomed) return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-  return `${date.getDate()}/${date.getMonth() + 1}`;
+  const hhmm = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  const dm = `${date.getDate()}/${date.getMonth() + 1}`;
+  if (mode === 'time') return hhmm;
+  if (mode === 'datetime') return `${dm} ${hhmm}`;
+  return dm;
 }
 
-// Tooltip hiển thị đúng thứ người xem cần: đây là phiên thứ mấy và dài bao lâu.
+// Tooltip hiển thị đúng thứ người xem cần: đây là phiên thứ mấy, dài bao lâu,
+// và đang ở trong phiên hay đang ở quãng nghỉ giữa hai phiên.
 const sessionTooltipProps = {
   labelFormatter: (value: number) => {
     const date = new Date(value);
@@ -85,7 +107,9 @@ const sessionTooltipProps = {
       ? ''
       : date.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   },
-  formatter: (value: number, _name: string, entry: { payload?: SessionPoint }) => {
+  formatter: (value: number, name: string, entry: { payload?: SessionPoint }) => {
+    if (value == null) return [];
+    if (name === 'idle') return [`Nghỉ sau phiên ${value}`, 'Giữa hai phiên'];
     const label = entry?.payload?.label;
     return [label ? `Phiên ${value} · ${label}` : `Phiên ${value}`, 'Focus timer'];
   },
@@ -121,7 +145,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   const [focusSessions, setFocusSessions] = useState<ApiSession[]>([]);
   const [selectedTotal, setSelectedTotal] = useState<'timer' | 'holy'>('timer');
   const [errorMessage, setErrorMessage] = useState('');
-  const { timer: liveTimer } = useFocusTimerStore();
+  const { timer: liveTimer, savedSessions } = useFocusTimerStore();
   // Ép focusTimerSessionData tính lại mỗi vài giây trong khi có phiên đang
   // chạy: bản thân `liveTimer` không đổi giữa các tick (cùng startedAtMs),
   // nên nếu không có biến đếm này useMemo sẽ không bao giờ chạy lại và đầu
@@ -164,7 +188,10 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     };
 
     void loadFocusSessions();
-  }, [user?.id]);
+    // savedSessions: bấm Dừng xong là nạp lại NGAY, nếu không phiên vừa kết
+    // thúc sẽ biến mất khỏi biểu đồ (đoạn "đang chạy" bị gỡ cùng lúc timer bị
+    // xoá, còn dòng phiên mới thì chỉ được đọc lại ở lần mount sau).
+  }, [user?.id, savedSessions]);
 
   // Giờ học mỗi ngày = ĐÚNG focused_minutes của ngày đó, không cộng thêm các
   // phiên timer.
@@ -268,7 +295,13 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     return [from, to] as [number, number];
   }, [currentMonth, currentYear]);
 
-  const focusTimerSessionData = useMemo(() => {
+  /**
+   * Khoảng thời gian THẬT của từng phiên trong tháng đang xem, kể cả phiên
+   * đang chạy. Tách riêng ra đây vì cả việc dựng điểm biểu đồ lẫn việc tính
+   * cửa sổ phóng đại đều cần đúng tập phiên này — trước đây mỗi chỗ tự lọc
+   * lấy một kiểu nên cửa sổ phóng đại có thể trỏ vào quãng chẳng có phiên nào.
+   */
+  const sessionSpans = useMemo(() => {
     const [monthStart, monthEnd] = monthRange;
 
     const spans: { startMs: number; endMs: number; live?: boolean }[] = focusSessions
@@ -297,10 +330,14 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     }
 
     spans.sort((a, b) => a.startMs - b.startMs);
+    return spans;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- liveTick là bộ
+    // kích hoạt tính lại thuần tuý, giá trị của nó không bao giờ được đọc.
+  }, [focusSessions, liveTimer, monthRange, liveTick]);
 
-    // Đoạn dốc ngắn ở đầu mỗi phiên: trục y nhích lên 1 theo một đường hơi
-    // chéo rồi mới nằm ngang suốt thời lượng phiên, thay vì nhảy dựng đứng.
-    const rise = Math.max(1, (monthEnd - monthStart) * 0.012);
+  const focusTimerSessionData = useMemo(() => {
+    const [, monthEnd] = monthRange;
+    const spans = sessionSpans;
 
     const points: SessionPoint[] = [];
     spans.forEach((span, order) => {
@@ -308,79 +345,129 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       const endMs = Math.min(span.endMs, monthEnd);
       const hours = (span.endMs - span.startMs) / 3600000;
       const label = hours >= 1 ? `${roundOneDecimal(hours)}h` : `${Math.max(1, Math.round(hours * 60))}m`;
-      const risenAt = Math.min(span.startMs + rise, Math.max(endMs, span.startMs + 1));
+      const nextStartMs = spans[order + 1]?.startMs;
 
-      points.push({ t: span.startMs, index: level - 1 });
-      points.push({ t: risenAt, index: level });
-      points.push({ t: (risenAt + endMs) / 2, index: level, label: span.live ? `${label} · đang chạy` : label });
-      // `live` chỉ gắn vào điểm cuối cùng này — đầu mút hiện tại của phiên
-      // chưa kết thúc — để renderSessionDot vẽ đúng một chấm đỏ ở đó.
-      points.push({ t: Math.max(endMs, risenAt + 1), index: level, live: span.live });
+      // Bậc dựng THẲNG ĐỨNG ngay tại thời điểm bắt đầu: hai điểm cùng mốc t.
+      //
+      // Bản trước dựng chéo trong một khoảng `rise` cố định bằng 1.2% cả tháng
+      // (~8.6 tiếng!). Đoạn chéo đó ăn thẳng vào thời lượng thật của phiên:
+      // một phiên 19.9h mất 8.6h cho phần dốc, và mọi phiên ngắn hơn 8.6h bị
+      // vẽ thành một đường chéo suốt từ đầu đến cuối, đỉnh dốc rơi đúng vào
+      // lúc phiên đã kết thúc. Không có cách nào đọc ra thời lượng thật từ
+      // hình dạng đó. Dựng đứng thì bề ngang đoạn nằm ngang = đúng thời lượng.
+      points.push({ t: span.startMs, active: level - 1, idle: order === 0 ? null : level - 1 });
+      points.push({ t: span.startMs, active: level });
+      points.push({ t: (span.startMs + endMs) / 2, active: level, label: span.live ? `${label} · đang chạy` : label });
+      // Điểm kết thúc phiên: vừa đóng đoạn đặc, vừa mở đoạn nghỉ nét đứt.
+      // `live` chỉ gắn ở đây — đầu mút hiện tại của phiên chưa kết thúc — để
+      // renderSessionDot vẽ đúng một chấm đỏ. Phiên đang chạy thì chưa có
+      // quãng nghỉ nào phía sau nên không mở `idle`.
+      points.push({
+        t: Math.max(endMs, span.startMs + 1),
+        active: level,
+        // Chỉ mở đoạn nghỉ khi thực sự CÓ phiên kế tiếp để nối tới: phiên cuối
+        // cùng (hoặc phiên đang chạy) mà vẫn mở thì để lại một điểm lẻ không
+        // vẽ ra được đoạn nào.
+        idle: span.live || nextStartMs === undefined ? null : level,
+        live: span.live,
+      });
+      // Ngắt chuỗi `active` giữa quãng nghỉ. Không có điểm null ở đây thì
+      // Recharts nối thẳng đoạn đặc của phiên này sang phiên sau, và quãng
+      // nghỉ lại trông y hệt một phiên đang chạy dài.
+      if (!span.live && nextStartMs !== undefined && nextStartMs > endMs) {
+        points.push({ t: (endMs + nextStartMs) / 2, active: null, idle: level });
+      }
     });
 
     return points;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- liveTick is a pure
-    // re-run trigger; its value is never read, only its change matters.
-  }, [monthRange, focusSessions, liveTimer, liveTick]);
+  }, [monthRange, sessionSpans]);
 
-  // "Phóng đại tối đa": thu trục x từ cả tháng xuống một cửa sổ đủ hẹp để một
-  // phút trôi qua còn nhìn thấy được, nhưng KHÔNG hẹp tới mức chỉ còn mỗi
-  // phiên đang chạy trơ trọi — bản đầu tiên mắc đúng lỗi đó (cửa sổ = đúng
-  // thời lượng phiên hiện tại), phóng to xong chỉ thấy một đường chéo độc
-  // lập, mất hết ngữ cảnh "trước đó đã học được bao nhiêu". Cửa sổ bây giờ
-  // luôn kéo lùi đủ xa để bao trọn vài phiên gần nhất (tối đa 4, kể cả phiên
-  // đang chạy), rồi mới áp thêm hai chặn trên/dưới cho hợp lý.
+  // "Phóng đại tối đa": thu trục x từ cả tháng xuống đúng khoảng chứa VÀI
+  // PHIÊN GẦN NHẤT, để vừa thấy tiến trình trước đó vừa đủ hẹp mà quan sát
+  // phiên đang chạy nhích lên.
+  //
+  // Cửa sổ neo vào DỮ LIỆU chứ không neo vào đồng hồ. Bản trước lấy "N giờ
+  // gần đây tính đến bây giờ", nên khi phiên cuối đã kết thúc từ hôm trước
+  // thì phóng đại ra một khung hoàn toàn TRỐNG — chẳng còn gì để xem. Chỉ khi
+  // đang có phiên chạy thì mép phải mới bám theo Date.now(), vì lúc đó "bây
+  // giờ" chính là đầu mút đang dài ra.
   const [sessionZoom, setSessionZoom] = useState(false);
   const RECENT_SESSIONS_IN_ZOOM = 4;
 
   const sessionXDomain = useMemo<[number, number]>(() => {
     if (!sessionZoom) return monthRange;
-    const now = Date.now();
     const [monthStart, monthEnd] = monthRange;
+    if (sessionSpans.length === 0) return monthRange;
 
-    const starts = focusSessions
-      .map((session) => new Date(session.start_time).getTime())
-      .filter((t) => Number.isFinite(t) && t >= monthStart && t <= monthEnd);
-    if (liveTimer && liveTimer.startedAtMs >= monthStart && liveTimer.startedAtMs <= monthEnd) {
-      starts.push(liveTimer.startedAtMs);
-    }
-    starts.sort((a, b) => a - b);
-    const earliestOfRecent = starts.length
-      ? starts[Math.max(0, starts.length - RECENT_SESSIONS_IN_ZOOM)]
-      : now;
+    const recent = sessionSpans.slice(-RECENT_SESSIONS_IN_ZOOM);
+    const hasLive = sessionSpans.some((span) => span.live);
+    const to = hasLive ? Date.now() : Math.max(...recent.map((span) => span.endMs));
 
-    // Sàn 15 phút: phiên vừa bấm Chạy được vài giây vẫn cần vài mốc phút làm
-    // điểm tựa, không phóng to tới mức trống trơn. Trần 6 giờ: ràng buộc còn
-    // lại để cửa sổ không phình trở lại thành gần hết một ngày nếu 4 phiên
-    // gần nhất trải dài bất thường — 6 giờ vẫn nhỏ hơn hàng chục lần so với
-    // cả tháng, mốc theo phút/giờ vẫn còn ý nghĩa.
+    // Ba mốc, lấy theo thứ tự ưu tiên dưới đây:
+    // - preferredFrom: gom đủ vài phiên gần nhất (nhiều ngữ cảnh nhất).
+    // - cappedFrom: trần 3 ngày, để phóng đại vẫn ra dáng phóng đại chứ không
+    //   thành "xem cả tháng" khi các phiên nằm rải rác.
+    // - mustFrom: phiên LIỀN TRƯỚC, luôn phải nằm trong khung. Đây là ràng
+    //   buộc mạnh hơn cả trần thời gian: yêu cầu là phóng to mà vẫn thấy được
+    //   tiến trình trước đó, nên thà nới khung rộng hơn 3 ngày còn hơn để lại
+    //   mỗi một đoạn trơ trọi không có gì so sánh.
+    const preferredFrom = recent[0].startMs;
+    const cappedFrom = to - 3 * 24 * 60 * 60 * 1000;
+    const previous = sessionSpans[sessionSpans.length - 2];
+    const mustFrom = previous ? previous.startMs : sessionSpans[sessionSpans.length - 1].startMs;
+    const from = Math.max(preferredFrom, Math.min(mustFrom, cappedFrom));
+
+    // Sàn 15 phút để một phiên vừa bấm Chạy được vài giây không bị phóng tới
+    // mức trục chẳng còn mốc nào.
     const minSpanMs = 15 * 60 * 1000;
-    const maxSpanMs = 6 * 60 * 60 * 1000;
-    const paddingMs = 90 * 1000;
-    const spanMs = Math.min(maxSpanMs, Math.max(minSpanMs, now - earliestOfRecent));
-    return [Math.max(monthStart, now - spanMs), Math.min(monthEnd, now + paddingMs)];
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- liveTick kéo cửa
-    // sổ đuổi theo Date.now() mỗi vài giây, giống focusTimerSessionData ở trên.
-  }, [sessionZoom, focusSessions, liveTimer, monthRange, liveTick]);
+    const rawSpan = Math.max(to - from, minSpanMs);
+    const paddingMs = Math.max(rawSpan * 0.05, 60 * 1000);
+    const center = (from + to) / 2;
+    const start = Math.min(from, center - rawSpan / 2) - paddingMs;
+    const end = Math.max(to, center + rawSpan / 2) + paddingMs;
+    return [Math.max(monthStart, start), Math.min(monthEnd, end)];
+  }, [sessionZoom, sessionSpans, monthRange]);
 
   // Trên một cửa sổ hẹp, thuật toán chọn mốc "đẹp" mặc định của Recharts (nghĩ
   // theo mili-giây kể từ epoch, không phải theo phút) có thể nhả ra rất ít mốc
   // hoặc mốc lệch giờ khó đọc — tự chọn bước mốc theo đúng độ rộng cửa sổ hiện
-  // tại: cửa sổ càng rộng (bao nhiều phiên cũ) thì bước mốc càng thưa, để
-  // không vẽ hàng chục vạch dày đặc khi zoom kéo dài tới 5-6 giờ.
+  // tại: cửa sổ càng rộng thì bước mốc càng thưa.
+  //
+  // Mốc được đếm từ NỬA ĐÊM ĐỊA PHƯƠNG chứ không từ epoch: mọi bước ở đây đều
+  // chia hết cho một ngày, nên cách này cho ra các mốc tròn trịa (00:00, 06:00,
+  // 12:00...) theo đúng giờ người dùng đang nhìn, thay vì lệch đúng bằng phần
+  // chênh múi giờ như khi lấy bội số của epoch.
   const sessionXTicks = useMemo<number[] | undefined>(() => {
     if (!sessionZoom) return undefined;
     const [start, end] = sessionXDomain;
     const spanMs = end - start;
     const minute = 60 * 1000;
+    const hour = 60 * minute;
+    const day = 24 * hour;
     const stepMs = spanMs <= 30 * minute ? 5 * minute
       : spanMs <= 90 * minute ? 10 * minute
-      : spanMs <= 4 * 60 * minute ? 30 * minute
-      : 60 * minute;
+      : spanMs <= 4 * hour ? 30 * minute
+      : spanMs <= 12 * hour ? hour
+      : spanMs <= 2 * day ? 3 * hour
+      : spanMs <= 5 * day ? 6 * hour
+      : 12 * hour;
+
+    const midnight = new Date(start);
+    midnight.setHours(0, 0, 0, 0);
     const ticks: number[] = [];
-    for (let t = Math.ceil(start / stepMs) * stepMs; t <= end; t += stepMs) ticks.push(t);
+    for (let t = midnight.getTime(); t <= end; t += stepMs) {
+      if (t >= start) ticks.push(t);
+    }
     return ticks;
   }, [sessionZoom, sessionXDomain]);
+
+  // Cửa sổ phóng đại có thể vắt qua nhiều ngày (khi vài phiên gần nhất nằm
+  // rải rác), lúc đó nhãn chỉ có giờ:phút sẽ mơ hồ.
+  const sessionTickMode: SessionTickMode = !sessionZoom
+    ? 'date'
+    : sessionXDomain[1] - sessionXDomain[0] > 24 * 60 * 60 * 1000
+      ? 'datetime'
+      : 'time';
 
   // Ở chế độ phóng đại, trục y cũng nên chỉ trải theo (các) phiên đang lọt vào
   // khung nhìn hẹp đó — nếu vẫn dùng domain "0 tới phiên thứ N trong tháng"
@@ -391,7 +478,8 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     const [start, end] = sessionXDomain;
     const visibleIndices = focusTimerSessionData
       .filter((point) => point.t >= start && point.t <= end)
-      .map((point) => point.index);
+      .map((point) => point.active ?? point.idle)
+      .filter((value): value is number => typeof value === 'number');
     if (visibleIndices.length === 0) return undefined;
     return [Math.max(0, Math.min(...visibleIndices) - 0.5), Math.max(...visibleIndices) + 0.5];
   }, [sessionZoom, sessionXDomain, focusTimerSessionData]);
@@ -466,6 +554,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         errorMessage={errorMessage}
         focusTimerSessionData={focusTimerSessionData}
         sessionZoom={sessionZoom}
+        sessionTickMode={sessionTickMode}
         setSessionZoom={setSessionZoom}
         sessionXDomain={sessionXDomain}
         sessionXTicks={sessionXTicks}
@@ -674,20 +763,31 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
                 stroke="#64748b"
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={(value) => formatSessionTick(value, sessionZoom)}
+                tickFormatter={(value) => formatSessionTick(value, sessionTickMode)}
               />
               <YAxis stroke="#64748b" tickLine={false} axisLine={false} allowDecimals={false} allowDataOverflow={sessionZoom} domain={sessionYDomain ?? [0, 'dataMax + 1']} />
               <Tooltip {...sessionTooltipProps} contentStyle={legacyTooltipStyle} />
-              {/* linear, không phải stepAfter: các điểm đã tự mô tả hình dạng
-                  mong muốn — dốc chéo ngắn khi lên 1 đơn vị, rồi nằm ngang
-                  suốt thời lượng phiên và suốt khoảng nghỉ tới phiên sau. */}
+              {/* Quãng NGHỈ giữa hai phiên: nét đứt mờ, vẽ trước để nằm dưới. */}
               <Line
                 type="linear"
-                dataKey="index"
+                dataKey="idle"
+                stroke="#94a3b8"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                dot={false}
+                activeDot={false}
+                connectNulls={false}
+                isAnimationActive={false}
+              />
+              {/* Bản thân PHIÊN: nét đặc, bề ngang đúng bằng thời lượng thật. */}
+              <Line
+                type="linear"
+                dataKey="active"
                 stroke="#2563eb"
                 strokeWidth={3}
                 dot={renderSessionDot}
                 activeDot={{ r: 5 }}
+                connectNulls={false}
                 isAnimationActive={false}
               >
                 <LabelList dataKey="label" position="top" className="fill-[#2563eb] text-[11px] font-semibold" />
@@ -737,6 +837,7 @@ interface DesktopCinematicAnalyticsProps {
   errorMessage: string;
   focusTimerSessionData: SessionPoint[];
   sessionZoom: boolean;
+  sessionTickMode: SessionTickMode;
   setSessionZoom: (value: boolean | ((current: boolean) => boolean)) => void;
   sessionXDomain: [number, number];
   sessionXTicks: number[] | undefined;
@@ -786,6 +887,7 @@ function DesktopCinematicAnalytics({
   errorMessage,
   focusTimerSessionData,
   sessionZoom,
+  sessionTickMode,
   setSessionZoom,
   sessionXDomain,
   sessionXTicks,
@@ -1016,7 +1118,7 @@ function DesktopCinematicAnalytics({
               <ResponsiveContainer width="100%" height={420}>
                 <LineChart data={focusTimerSessionData} margin={{ top: 28, right: 24, left: -4, bottom: 8 }} accessibilityLayer>
                   <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
-                  <XAxis dataKey="t" type="number" scale="time" domain={sessionXDomain} ticks={sessionXTicks} allowDataOverflow stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={(value) => formatSessionTick(value, sessionZoom)} />
+                  <XAxis dataKey="t" type="number" scale="time" domain={sessionXDomain} ticks={sessionXTicks} allowDataOverflow stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={(value) => formatSessionTick(value, sessionTickMode)} />
                   <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} allowDecimals={false} allowDataOverflow={sessionZoom} domain={sessionYDomain ?? [0, 'dataMax + 1']} />
                   <Tooltip {...sessionTooltipProps} contentStyle={cinematicTooltipStyle} />
                   {/* isAnimationActive cố định false: dữ liệu của biểu đồ này
@@ -1025,7 +1127,8 @@ function DesktopCinematicAnalytics({
                       trong suốt thời gian một animation "vẽ vào" đang chạy.
                       Bật animation ở đây khiến chấm đỏ và nhãn thời lượng chỉ
                       lóe lên rồi tắt mỗi 5 giây thay vì hiển thị liên tục. */}
-                  <Line type="linear" dataKey="index" stroke="#2563eb" strokeWidth={3} dot={renderSessionDot} activeDot={{ r: 6 }} isAnimationActive={false}>
+                  <Line type="linear" dataKey="idle" stroke="var(--foreground-subtle)" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={false} connectNulls={false} isAnimationActive={false} />
+                  <Line type="linear" dataKey="active" stroke="#2563eb" strokeWidth={3} dot={renderSessionDot} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={false}>
                     <LabelList dataKey="label" position="top" className="fill-[#2563eb] text-[11px] font-semibold" />
                   </Line>
                 </LineChart>

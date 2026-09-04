@@ -24,6 +24,16 @@ interface TimerStore {
   ready: boolean;
   /** True while a start/stop is in flight, so the button can't fire twice. */
   busy: boolean;
+  /**
+   * Tăng lên MỖI KHI một phiên vừa được ghi thành công xuống database.
+   *
+   * Màn hình nào đang vẽ danh sách phiên (biểu đồ Timer sessions) thì lấy số
+   * này làm phụ thuộc để nạp lại. Không thể chỉ dựa vào `timer` chuyển sang
+   * null: stop() xoá timer NGAY rồi mới gọi createSession, nên nạp lại theo
+   * mốc đó sẽ chạy trước lúc dòng dữ liệu kịp được ghi và đọc về đúng bản cũ
+   * — phiên vừa kết thúc biến mất khỏi biểu đồ cho tới khi tải lại trang.
+   */
+  savedSessions: number;
   error: string | null;
   hydrate: (userId: string) => Promise<void>;
   start: (userId: string, taskId: string | null, taskTitle: string) => Promise<void>;
@@ -86,6 +96,7 @@ export const useFocusTimerStore = create<TimerStore>((set, get) => ({
   timer: null,
   ready: false,
   busy: false,
+  savedSessions: 0,
   error: null,
 
   // Paints instantly from the local cache (so reopening the tab shows the
@@ -156,6 +167,9 @@ export const useFocusTimerStore = create<TimerStore>((set, get) => ({
         sessionDate: toLocalDate(startDate),
         focusedMinutes: Math.max(1, Math.round(elapsedMs / 60000)),
       });
+      // Chỉ tăng SAU khi dòng phiên đã ghi xong: đây chính là tín hiệu để các
+      // màn hình đang hiển thị danh sách phiên nạp lại và thấy phiên vừa xong.
+      set({ savedSessions: get().savedSessions + 1 });
       await api.stopTimer(userId);
       mutationSeq += 1;
     } catch (error) {
