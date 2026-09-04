@@ -8,12 +8,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   LabelList,
   Line,
   LineChart,
-  Pie,
-  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -27,6 +24,69 @@ import { useFocusTimerStore } from '@/app/lib/timerStore';
 
 type AnalyticsView = 'month_overview' | 'week_daily' | 'weekly_progress' | 'key_of_success' | 'cycle_ticks';
 type ChartPoint = { name: string; value: number | null };
+
+/**
+ * Một mốc của biểu đồ "Cumulative study time".
+ *
+ * Hai chuỗi thay vì một, để phân biệt bằng mắt hai chuyện khác hẳn nhau:
+ *   - `value`  — ngày CÓ dữ liệu, vẽ nét liền.
+ *   - `gap`    — quãng ngày trống nằm giữa hai ngày có dữ liệu, vẽ nét đứt.
+ * Ngày trống ở cuối (hôm nay chưa học, hoặc ngày trong tương lai) không thuộc
+ * chuỗi nào nên đường dừng hẳn lại — chứ không kéo một vệt phẳng tới đó.
+ */
+type WeeklyProgressPoint = ChartPoint & { gap?: number | null };
+
+/**
+ * Dựng chuỗi mốc cho các biểu đồ cộng dồn giờ học ("Cumulative study time" của
+ * tuần và của cả tháng). Cả hai vẽ y hệt nhau, chỉ khác phạm vi ngày, nên dùng
+ * chung một hàm — tách đôi thì sớm muộn hai biểu đồ cũng lệch nhau.
+ *
+ * `anchorLabel` là mốc 0 giờ đứng trước ngày đầu tiên. Thiếu nó thì ngày đầu
+ * kỳ đã nằm sẵn ở tổng của chính nó và đường mất luôn đoạn dốc đầu tiên.
+ */
+function buildCumulativeSeries(
+  anchorLabel: string,
+  days: { name: string; hours: number; future: boolean }[],
+): WeeklyProgressPoint[] {
+  // Mốc gốc luôn được coi là "có dữ liệu": nó là điểm neo 0 giờ, và nếu ngày
+  // đầu tiên trống thì nét đứt phải bắt đầu từ đây.
+  const rows: { name: string; cumulative: number; hasData: boolean; future: boolean }[] = [
+    { name: anchorLabel, cumulative: 0, hasData: true, future: false },
+  ];
+  let cumulativeSum = 0;
+
+  days.forEach((day) => {
+    cumulativeSum += day.hours;
+    rows.push({
+      name: day.name,
+      cumulative: roundOneDecimal(cumulativeSum),
+      hasData: day.hours > 0,
+      future: day.future,
+    });
+  });
+
+  // Ngày có dữ liệu cuối cùng: mọi thứ sau nó là quãng trống chưa khép lại
+  // (hôm nay chưa học, hoặc ngày chưa tới) nên không vẽ gì — vẽ tới đó thì
+  // đúng về mặt cộng dồn nhưng trông như đã có tiến độ ở ngày chưa hề học.
+  const lastWithData = rows.reduce((last, row, index) => (row.hasData && !row.future ? index : last), 0);
+
+  return rows.map((row, index) => {
+    if (index > lastWithData) return { name: row.name, value: null, gap: null };
+    // Ngày trống nằm giữa hai ngày có dữ liệu không mang mốc nào cả. Chuỗi nét
+    // đứt chỉ gồm hai đầu mút và được nối thẳng qua (connectNulls), nên đoạn
+    // đứt là MỘT đường thẳng từ tổng cộng dồn của ngày có dữ liệu trước tới
+    // ngày có dữ liệu sau — không phải đoạn phẳng rồi vọt lên ở cuối.
+    if (!row.hasData && index > 0) return { name: row.name, value: null, gap: null };
+
+    const value = row.cumulative;
+    // Ngày có dữ liệu đứng ngay cạnh một quãng trống chính là đầu mút của đoạn
+    // đứt; thiếu nó thì đoạn đứt lơ lửng không dính vào đâu cả.
+    const touchesGap =
+      (index > 0 && !rows[index - 1].hasData) ||
+      (index + 1 <= lastWithData && !rows[index + 1].hasData);
+    return { name: row.name, value, gap: touchesGap ? value : null };
+  });
+}
 
 /**
  * Một điểm trên biểu đồ "Timer sessions": trục x là mốc thời gian thật, trục y
@@ -248,46 +308,41 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     });
   }, [currentMonth, currentYear, selectedWeek, studyHoursByDate]);
 
-  const kosDistribution = useMemo(() => {
-    const monthData = allDates.filter((date) => date.year === currentYear && date.month === currentMonth);
-    const successDays = monthData.filter((date) => Number(date.key_of_success) > 0).length;
-    const noSuccessDays = monthData.filter((date) => Number(date.key_of_success) === 0).length;
-
-    return [
-      { name: 'With Key of Success', value: successDays, color: 'var(--chart-1)' },
-      { name: 'Without Key of Success', value: noSuccessDays, color: 'var(--chart-4)' },
-    ];
-  }, [allDates, currentMonth, currentYear]);
 
   // Đường thẳng, không phải đường cong: đoạn "không có dữ liệu" phải phẳng
   // tuyệt đối để đọc ra là "không tăng". Đường monotone bo tròn qua các mốc
   // nên đoạn đáng lẽ nằm ngang lại hơi vồng lên, trông như vẫn có tiến độ.
   const weeklyProgressData = useMemo(() => {
     const days = getDaysInWeek(currentMonth, currentYear, selectedWeek);
-    // Cộng dồn giờ học trong tuần. Đây là GIỜ FOCUS, khác hẳn biểu đồ "Timer
-    // sessions" bên dưới (biểu đồ kia đếm số phiên).
-    //
-    // Mốc 0 ở đầu là bắt buộc: nếu không, ngày đầu tuần đã nằm sẵn ở tổng của
-    // chính nó và đường biểu diễn mất luôn đoạn dốc đầu tiên.
-    const points: ChartPoint[] = [{ name: 'Đầu tuần', value: 0 }];
-    let cumulativeSum = 0;
-
-    days.forEach((day) => {
-      const dayOfWeek = new Date(day.year, day.month - 1, day.day).getDay();
-      const name = `${dayNames[dayOfWeek]} ${day.day}`;
-      if (isFutureDate(day.day, day.month, day.year)) {
-        points.push({ name, value: null });
-        return;
-      }
-      // Ngày không có giờ focus KHÔNG làm đứt đường: tổng cộng dồn giữ nguyên,
-      // nên đoạn đó tự thành một đường nằm ngang — đúng nghĩa "không tăng".
-      // Trước đây ngày như vậy trả về null nên đường bị ngắt quãng.
-      cumulativeSum += studyHoursByDate[day.date] || 0;
-      points.push({ name, value: roundOneDecimal(cumulativeSum) });
-    });
-
-    return points;
+    return buildCumulativeSeries(
+      'Đầu tuần',
+      days.map((day) => ({
+        name: `${dayNames[new Date(day.year, day.month - 1, day.day).getDay()]} ${day.day}`,
+        hours: studyHoursByDate[day.date] || 0,
+        future: isFutureDate(day.day, day.month, day.year),
+      })),
+    );
   }, [currentMonth, currentYear, selectedWeek, studyHoursByDate]);
+
+  // Cùng cách vẽ với biểu đồ tuần, chỉ khác phạm vi: cộng dồn CHẠY SUỐT từ
+  // ngày 1 tới cuối tháng, không trả về 0 ở đầu mỗi tuần. Nhãn trục X chỉ là
+  // số ngày — 28 tới 31 mốc thì thứ trong tuần chen vào là không đọc nổi.
+  const monthProgressData = useMemo(() => {
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    // Nhãn neo để trống: cạnh một dãy nhãn toàn số ngày, một chữ dài như "Đầu
+    // tháng" chiếm chỗ tới mức trục X nuốt mất nhãn của ngày 1.
+    return buildCumulativeSeries(
+      '',
+      Array.from({ length: daysInMonth }, (_, index) => {
+        const day = index + 1;
+        return {
+          name: String(day),
+          hours: studyHoursByDate[formatDateKey(currentYear, currentMonth, day)] || 0,
+          future: isFutureDate(day, currentMonth, currentYear),
+        };
+      }),
+    );
+  }, [currentMonth, currentYear, studyHoursByDate]);
 
   const monthRange = useMemo(() => {
     const from = new Date(currentYear, currentMonth - 1, 1).getTime();
@@ -560,7 +615,6 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         sessionXTicks={sessionXTicks}
         sessionYDomain={sessionYDomain}
         holyMindCumulativeData={holyMindCumulativeData}
-        kosDistribution={kosDistribution}
         monthlyFocusSessionCount={monthlyFocusSessionCount}
         monthlyKosTotal={monthlyKosTotal}
         monthlyRecordCount={monthlyRecordCount}
@@ -575,6 +629,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
         totalHolyMindMinutes={totalHolyMindMinutes}
         weeklyData={weeklyData}
         weeklyProgressData={weeklyProgressData}
+        monthProgressData={monthProgressData}
         weeklyProgressDomain={weeklyProgressDomain}
         weeklyProgressMax={weeklyProgressMax}
         weeksCount={weeksCount}
@@ -652,7 +707,7 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       </section>
 
       {analyticsView === 'month_overview' && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4">
           <ChartPanel title={`Study hours by week - ${monthNames[currentMonth - 1]}`}>
             <ResponsiveContainer width="100%" height={280}>
               <BarChart data={weeklyData} barCategoryGap="26%" margin={{ top: 8, right: 8, left: -14, bottom: 0 }} accessibilityLayer>
@@ -665,25 +720,23 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
             </ResponsiveContainer>
           </ChartPanel>
 
-          <ChartPanel title="Key of Success distribution">
-            <ResponsiveContainer width="100%" height={280}>
-              <PieChart accessibilityLayer>
-                <Pie data={kosDistribution} dataKey="value" nameKey="name" innerRadius={48} outerRadius={92} paddingAngle={3} cornerRadius={7} labelLine={false}>
-                  {kosDistribution.map((entry) => (
-                    <Cell key={entry.name} fill={entry.color} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={legacyTooltipStyle} />
-              </PieChart>
+          <ChartPanel title={`Month progress - ${monthNames[currentMonth - 1]} ${currentYear}`}>
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={monthProgressData} margin={{ top: 10, right: 10, left: -14, bottom: 0 }} accessibilityLayer>
+                <defs>
+                  <linearGradient id="monthProgressGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.24} />
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                <XAxis dataKey="name" stroke="#64748b" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={12} />
+                <YAxis stroke="#64748b" tickLine={false} axisLine={false} />
+                <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])} contentStyle={legacyTooltipStyle} />
+                <Area type="linear" dataKey="gap" stroke="#2563eb" strokeWidth={2} strokeDasharray="6 6" strokeOpacity={0.65} fill="none" dot={false} activeDot={false} connectNulls tooltipType="none" />
+                <Area type="linear" dataKey="value" stroke="#2563eb" strokeWidth={3} fill="url(#monthProgressGradient)" dot={{ fill: '#2563eb', r: 3 }} activeDot={{ r: 6 }} connectNulls={false} />
+              </AreaChart>
             </ResponsiveContainer>
-            <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-              {kosDistribution.map((entry) => (
-                <div key={entry.name} className="rounded-md bg-slate-50 px-3 py-2 text-slate-600">
-                  <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-                  {entry.name}: <span className="font-semibold text-slate-900">{entry.value}</span>
-                </div>
-              ))}
-            </div>
           </ChartPanel>
         </div>
       )}
@@ -725,6 +778,22 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
                 {weeklyProgressMax > 50 && (
                   <ReferenceLine y={80} label={{ value: '80h', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeDasharray="4 4" />
                 )}
+                {/* Nét đứt vẽ TRƯỚC để nét liền nằm đè lên ở hai điểm neo.
+                    tooltipType="none": hai chuỗi trùng giá trị ở điểm neo, để cả
+                    hai vào tooltip thì cùng một ngày hiện hai dòng y hệt nhau. */}
+                <Area
+                  type="linear"
+                  dataKey="gap"
+                  stroke="#2563eb"
+                  strokeWidth={2}
+                  strokeDasharray="6 6"
+                  strokeOpacity={0.65}
+                  fill="none"
+                  dot={false}
+                  activeDot={false}
+                  connectNulls
+                  tooltipType="none"
+                />
                 <Area
                   type="linear"
                   dataKey="value"
@@ -843,7 +912,6 @@ interface DesktopCinematicAnalyticsProps {
   sessionXTicks: number[] | undefined;
   sessionYDomain: [number, number] | undefined;
   holyMindCumulativeData: ChartPoint[];
-  kosDistribution: Array<{ name: string; value: number; color: string }>;
   monthlyFocusSessionCount: number;
   monthlyKosTotal: number;
   monthlyRecordCount: number;
@@ -857,7 +925,8 @@ interface DesktopCinematicAnalyticsProps {
   totalFocusTimerMinutes: number;
   totalHolyMindMinutes: number;
   weeklyData: Array<{ name: string; hours: number }>;
-  weeklyProgressData: ChartPoint[];
+  weeklyProgressData: WeeklyProgressPoint[];
+  monthProgressData: WeeklyProgressPoint[];
   weeklyProgressDomain: [number, number];
   weeklyProgressMax: number;
   weeksCount: number;
@@ -893,7 +962,6 @@ function DesktopCinematicAnalytics({
   sessionXTicks,
   sessionYDomain,
   holyMindCumulativeData,
-  kosDistribution,
   monthlyFocusSessionCount,
   monthlyKosTotal,
   monthlyRecordCount,
@@ -908,6 +976,7 @@ function DesktopCinematicAnalytics({
   totalHolyMindMinutes,
   weeklyData,
   weeklyProgressData,
+  monthProgressData,
   weeklyProgressDomain,
   weeklyProgressMax,
   weeksCount,
@@ -1021,7 +1090,7 @@ function DesktopCinematicAnalytics({
           className="space-y-4"
         >
           {analyticsView === 'month_overview' && (
-            <div className="grid grid-cols-2 gap-5">
+            <div className="grid grid-cols-1 gap-5">
               <CinematicChartPanel title={`Study hours by week - ${monthNames[currentMonth - 1]}`} reducedMotion={reducedMotion}>
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={weeklyData} barCategoryGap="22%" margin={{ top: 10, right: 10, left: -8, bottom: 0 }} accessibilityLayer>
@@ -1034,35 +1103,23 @@ function DesktopCinematicAnalytics({
                 </ResponsiveContainer>
               </CinematicChartPanel>
 
-              <CinematicChartPanel title="Key of Success distribution" reducedMotion={reducedMotion}>
-                <ResponsiveContainer width="100%" height={260}>
-                  <PieChart accessibilityLayer>
-                    <Pie
-                      data={kosDistribution}
-                      dataKey="value"
-                      nameKey="name"
-                      innerRadius={56}
-                      outerRadius={96}
-                      paddingAngle={3}
-                      cornerRadius={7}
-                      labelLine={false}
-                      isAnimationActive={!reducedMotion}
-                      animationDuration={lineDuration}
-                      animationEasing="ease-out"
-                    >
-                      {kosDistribution.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
-                    </Pie>
-                    <Tooltip contentStyle={cinematicTooltipStyle} />
-                  </PieChart>
+              <CinematicChartPanel title={`Month progress - ${monthNames[currentMonth - 1]} ${currentYear}`} reducedMotion={reducedMotion}>
+                <ResponsiveContainer width="100%" height={380}>
+                  <AreaChart data={monthProgressData} margin={{ top: 14, right: 22, left: -4, bottom: 8 }} accessibilityLayer>
+                    <defs>
+                      <linearGradient id="cinematicMonthProgressGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--chart-1)" stopOpacity={.32} />
+                        <stop offset="95%" stopColor="var(--chart-1)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
+                    <XAxis dataKey="name" stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={12} />
+                    <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} />
+                    <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])} contentStyle={cinematicTooltipStyle} />
+                    <Area type="linear" dataKey="gap" stroke="var(--chart-1)" strokeWidth={2} strokeDasharray="6 6" strokeOpacity={0.65} fill="none" dot={false} activeDot={false} connectNulls tooltipType="none" isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
+                    <Area type="linear" dataKey="value" stroke="var(--chart-1)" strokeWidth={3} fill="url(#cinematicMonthProgressGradient)" dot={{ fill: 'var(--chart-1)', r: 3 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
+                  </AreaChart>
                 </ResponsiveContainer>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  {kosDistribution.map((entry) => (
-                    <div key={entry.name} className="flex items-center justify-between rounded-xl bg-[var(--surface-soft)] px-3 py-2.5">
-                      <span className="flex items-center gap-2 text-[var(--foreground-muted)]"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />{entry.name}</span>
-                      <strong className="tabular-nums">{entry.value}</strong>
-                    </div>
-                  ))}
-                </div>
               </CinematicChartPanel>
             </div>
           )}
@@ -1102,6 +1159,7 @@ function DesktopCinematicAnalytics({
                     <Tooltip formatter={(value) => (value == null ? [] : [`${value}h`, 'Cumulative'])} contentStyle={cinematicTooltipStyle} />
                     <ReferenceLine y={40} label={{ value: '40h', fill: '#d97706', fontSize: 12 }} stroke="#d97706" strokeDasharray="4 4" />
                     {weeklyProgressMax > 50 && <ReferenceLine y={80} label={{ value: '80h', fill: '#dc2626', fontSize: 12 }} stroke="#dc2626" strokeDasharray="4 4" />}
+                    <Area type="linear" dataKey="gap" stroke="var(--chart-1)" strokeWidth={2} strokeDasharray="6 6" strokeOpacity={0.65} fill="none" dot={false} activeDot={false} connectNulls tooltipType="none" isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
                     <Area type="linear" dataKey="value" stroke="var(--chart-1)" strokeWidth={3} fill="url(#cinematicWeeklyProgressGradient)" dot={{ fill: 'var(--chart-1)', r: 4 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={!reducedMotion} animationDuration={lineDuration} animationEasing="ease-out" />
                   </AreaChart>
                 </ResponsiveContainer>

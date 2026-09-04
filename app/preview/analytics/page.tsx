@@ -34,14 +34,19 @@ const mockSessions: ApiSession[] = [
   { id: 's1b', user_id: USER_ID, task_id: null, start_time: stamp(2, 8), end_time: stamp(6, 12), session_date: `${year}-${pad(month)}-02`, in_time_status: 'in_time', focused_minutes: 100 * 60 - 1 },
 ];
 
-// Giờ học theo ngày cho biểu đồ "Cumulative study time": ngày 1 và 3 có dữ
-// liệu, ngày 2 và 4 KHÔNG — đoạn giữa phải là đường nằm ngang, không đứt.
+// Giờ học theo ngày cho biểu đồ "Cumulative study time". Dựng sẵn hai tình
+// huống mà biểu đồ phải xử lý khác nhau:
+//   - Ngày 3 trống, NẰM GIỮA ngày 2 và ngày 4 đều có dữ liệu → nối bằng một
+//     đoạn nét đứt thẳng từ tổng của ngày 2 tới tổng của ngày 4.
+//   - Ngày 5 (hôm nay, nếu tháng đang xem là tháng này) không có dữ liệu và
+//     không còn ngày có dữ liệu nào phía sau → đường phải DỪNG ở ngày 4, không
+//     kéo một vệt phẳng tới hôm nay.
 const mockDates: ApiDate[] = [
   { id: 'd1', user_id: USER_ID, month_id: 'm', day: 1, month, year, focused_minutes: 120, holy_mind_minutes: 0, key_of_success: 1 },
   // Ngày 2 chỉ có 30 phút focus, nhưng cũng là ngày một phiên timer 100 giờ bắt
   // đầu. Cột "Daily study hours" của ngày này phải là 0.5h, không phải 100.5h.
   { id: 'd2', user_id: USER_ID, month_id: 'm', day: 2, month, year, focused_minutes: 30, holy_mind_minutes: 0, key_of_success: 0 },
-  { id: 'd3', user_id: USER_ID, month_id: 'm', day: 3, month, year, focused_minutes: 180, holy_mind_minutes: 0, key_of_success: 0 },
+  { id: 'd4', user_id: USER_ID, month_id: 'm', day: 4, month, year, focused_minutes: 180, holy_mind_minutes: 0, key_of_success: 0 },
 ] as ApiDate[];
 
 export default function AnalyticsPreviewPage() {
