@@ -437,49 +437,45 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
     return points;
   }, [monthRange, sessionSpans]);
 
-  // "Phóng đại tối đa": thu trục x từ cả tháng xuống đúng khoảng chứa VÀI
-  // PHIÊN GẦN NHẤT, để vừa thấy tiến trình trước đó vừa đủ hẹp mà quan sát
-  // phiên đang chạy nhích lên.
+  // "Phóng đại tối đa": thu trục x từ cả tháng xuống đúng MỘT KHUNG CỐ ĐỊNH 5
+  // NGÀY — từ 5 ngày trước tới hiện tại — chứ không phải "vài phiên gần nhất".
   //
-  // Cửa sổ neo vào DỮ LIỆU chứ không neo vào đồng hồ. Bản trước lấy "N giờ
-  // gần đây tính đến bây giờ", nên khi phiên cuối đã kết thúc từ hôm trước
-  // thì phóng đại ra một khung hoàn toàn TRỐNG — chẳng còn gì để xem. Chỉ khi
-  // đang có phiên chạy thì mép phải mới bám theo Date.now(), vì lúc đó "bây
-  // giờ" chính là đầu mút đang dài ra.
+  // Bản trước neo theo phiên (gom vài phiên gần nhất, rồi bắt buộc kéo dài
+  // thêm để chứa trọn phiên liền trước nó). Khi một tháng có dữ liệu dày —
+  // càng nhiều ngày liên tiếp có phiên thì phiên "liền trước" càng gần, quy
+  // tắc bắt buộc đó không còn kéo dài khung ra mấy — nhưng khi có một khoảng
+  // trống dài xen giữa (nghỉ vài ngày không học), phiên liền trước lại nằm xa
+  // tít, khung zoom bị kéo rộng ra cả tuần, cả tháng, và ô "phóng đại" trông
+  // chẳng khác gì biểu đồ nhìn cả tháng. Khung cố định 5 ngày không phụ thuộc
+  // vào việc phiên trước cách đây bao lâu nên luôn hẹp đúng như phóng đại phải
+  // hẹp, bất kể lịch sử phía sau dày hay thưa.
+  //
+  // Cửa sổ neo vào DỮ LIỆU/đồng hồ chứ không neo vào phiên: mép phải là hiện
+  // tại (nếu đang có phiên chạy) hoặc thời điểm phiên gần nhất kết thúc (nếu
+  // không), để xem một tháng đã qua vẫn ra một khung có nội dung thay vì một
+  // khung trống nằm sau ngày cuối cùng có dữ liệu.
   const [sessionZoom, setSessionZoom] = useState(false);
-  const RECENT_SESSIONS_IN_ZOOM = 4;
+  const ZOOM_WINDOW_DAYS = 5;
 
   const sessionXDomain = useMemo<[number, number]>(() => {
     if (!sessionZoom) return monthRange;
     const [monthStart, monthEnd] = monthRange;
     if (sessionSpans.length === 0) return monthRange;
 
-    const recent = sessionSpans.slice(-RECENT_SESSIONS_IN_ZOOM);
     const hasLive = sessionSpans.some((span) => span.live);
-    const to = hasLive ? Date.now() : Math.max(...recent.map((span) => span.endMs));
-
-    // Ba mốc, lấy theo thứ tự ưu tiên dưới đây:
-    // - preferredFrom: gom đủ vài phiên gần nhất (nhiều ngữ cảnh nhất).
-    // - cappedFrom: trần 3 ngày, để phóng đại vẫn ra dáng phóng đại chứ không
-    //   thành "xem cả tháng" khi các phiên nằm rải rác.
-    // - mustFrom: phiên LIỀN TRƯỚC, luôn phải nằm trong khung. Đây là ràng
-    //   buộc mạnh hơn cả trần thời gian: yêu cầu là phóng to mà vẫn thấy được
-    //   tiến trình trước đó, nên thà nới khung rộng hơn 3 ngày còn hơn để lại
-    //   mỗi một đoạn trơ trọi không có gì so sánh.
-    const preferredFrom = recent[0].startMs;
-    const cappedFrom = to - 3 * 24 * 60 * 60 * 1000;
-    const previous = sessionSpans[sessionSpans.length - 2];
-    const mustFrom = previous ? previous.startMs : sessionSpans[sessionSpans.length - 1].startMs;
-    const from = Math.max(preferredFrom, Math.min(mustFrom, cappedFrom));
+    const lastDataEnd = Math.max(...sessionSpans.map((span) => span.endMs));
+    const to = hasLive ? Date.now() : lastDataEnd;
+    const from = to - ZOOM_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 
     // Sàn 15 phút để một phiên vừa bấm Chạy được vài giây không bị phóng tới
-    // mức trục chẳng còn mốc nào.
+    // mức trục chẳng còn mốc nào. Đệm nhỏ (1%, tối thiểu 1 phút) chỉ để đường
+    // và chấm cuối không dính sát mép biểu đồ — không được lớn tới mức đẩy độ
+    // rộng cửa sổ vượt quá bậc "5 ngày" của sessionXTicks bên dưới.
     const minSpanMs = 15 * 60 * 1000;
     const rawSpan = Math.max(to - from, minSpanMs);
-    const paddingMs = Math.max(rawSpan * 0.05, 60 * 1000);
-    const center = (from + to) / 2;
-    const start = Math.min(from, center - rawSpan / 2) - paddingMs;
-    const end = Math.max(to, center + rawSpan / 2) + paddingMs;
+    const paddingMs = Math.max(rawSpan * 0.01, 60 * 1000);
+    const start = from - paddingMs;
+    const end = to + paddingMs;
     return [Math.max(monthStart, start), Math.min(monthEnd, end)];
   }, [sessionZoom, sessionSpans, monthRange]);
 
@@ -504,7 +500,10 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
       : spanMs <= 4 * hour ? 30 * minute
       : spanMs <= 12 * hour ? hour
       : spanMs <= 2 * day ? 3 * hour
-      : spanMs <= 5 * day ? 6 * hour
+      // 5.5 chứ không phải 5: khung phóng đại 5 ngày còn cộng thêm đệm nhỏ ở
+      // hai đầu (xem sessionXDomain), nên độ rộng thật luôn nhỉnh hơn 5 ngày
+      // một chút — lấy đúng 5 ngày làm ngưỡng sẽ luôn rớt sang bậc 12 giờ.
+      : spanMs <= 5.5 * day ? 6 * hour
       : 12 * hour;
 
     const midnight = new Date(start);
@@ -815,8 +814,13 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
           title={`Timer sessions - ${monthNames[currentMonth - 1]} ${currentYear}`}
           action={<SessionZoomToggle zoomed={sessionZoom} onToggle={() => setSessionZoom((value) => !value)} />}
         >
+          {/* key={sessionZoom}: khi bật/tắt phóng đại, ticks đi từ "tự tính"
+              (undefined, cả tháng) sang một mảng tường minh (khung 5 ngày) —
+              Recharts giữ lại DOM tick cũ bên trong cùng một trục thay vì thay
+              hẳn, cộng dồn thành cả hai bộ nhãn chồng lên nhau. Đổi key buộc
+              React dựng lại toàn bộ biểu đồ thay vì cập nhật tại chỗ. */}
           <ResponsiveContainer width="100%" height={340}>
-            <LineChart data={focusTimerSessionData} margin={{ top: 24, right: 18, left: -14, bottom: 0 }} accessibilityLayer>
+            <LineChart key={sessionZoom ? 'zoom' : 'full'} data={focusTimerSessionData} margin={{ top: 24, right: 18, left: -14, bottom: 0 }} accessibilityLayer>
               <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
               {/* allowDataOverflow: mặc định Recharts TỰ NỚI domain ra để chứa
                   hết mọi điểm dữ liệu, bất kể domain truyền vào — nếu không
@@ -1174,7 +1178,7 @@ function DesktopCinematicAnalytics({
               action={<SessionZoomToggle zoomed={sessionZoom} onToggle={() => setSessionZoom((value) => !value)} />}
             >
               <ResponsiveContainer width="100%" height={420}>
-                <LineChart data={focusTimerSessionData} margin={{ top: 28, right: 24, left: -4, bottom: 8 }} accessibilityLayer>
+                <LineChart key={sessionZoom ? 'zoom' : 'full'} data={focusTimerSessionData} margin={{ top: 28, right: 24, left: -4, bottom: 8 }} accessibilityLayer>
                   <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 6" vertical={false} />
                   <XAxis dataKey="t" type="number" scale="time" domain={sessionXDomain} ticks={sessionXTicks} allowDataOverflow stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} tickFormatter={(value) => formatSessionTick(value, sessionTickMode)} />
                   <YAxis stroke="var(--foreground-subtle)" tickLine={false} axisLine={false} allowDecimals={false} allowDataOverflow={sessionZoom} domain={sessionYDomain ?? [0, 'dataMax + 1']} />
