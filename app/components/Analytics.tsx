@@ -142,20 +142,25 @@ type SessionTickMode = 'date' | 'time' | 'datetime';
 
 /**
  * Nhãn trục x:
- * - 'date' (xem cả tháng): ngày/tháng.
- * - 'time' (phóng đại trong vòng một ngày): giờ:phút — ngày/tháng lúc này
- *   không đổi suốt biểu đồ nên ghi ra chỉ tổ thừa.
- * - 'datetime' (phóng đại nhưng cửa sổ vắt qua nhiều ngày): cần cả hai, nếu
- *   không thì 02:00 của ngày này và 02:00 của ngày kia trông y hệt nhau.
+ * - 'date' (xem cả tháng): chỉ số ngày trong tháng (1, 2, 3...). Tháng/năm đã
+ *   ghi sẵn trên tiêu đề biểu đồ ("Timer sessions - September 2026"), nên ghi
+ *   thêm "/9" vào từng nhãn chỉ tổ thừa — và với biểu đồ nhiều ngày, dạng
+ *   "3/9" hai ba ký tự chồng lấn lên nhãn bên cạnh khi khoảng cách giữa các
+ *   mốc hẹp, còn số ngày đơn thuần thì không.
+ * - 'time' (phóng đại trong vòng một ngày): giờ:phút — ngày lúc này không đổi
+ *   suốt biểu đồ nên ghi ra chỉ tổ thừa.
+ * - 'datetime' (phóng đại nhưng cửa sổ vắt qua nhiều ngày): cần thêm ngày,
+ *   nếu không thì 02:00 của ngày này và 02:00 của ngày kia trông y hệt nhau —
+ *   nhưng cũng chỉ cần số ngày, không cần lặp lại tháng.
  */
 function formatSessionTick(value: number, mode: SessionTickMode = 'date'): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
   const hhmm = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-  const dm = `${date.getDate()}/${date.getMonth() + 1}`;
+  const day = String(date.getDate());
   if (mode === 'time') return hhmm;
-  if (mode === 'datetime') return `${dm} ${hhmm}`;
-  return dm;
+  if (mode === 'datetime') return `${day} ${hhmm}`;
+  return day;
 }
 
 // Tooltip hiển thị đúng thứ người xem cần: đây là phiên thứ mấy, dài bao lâu,
@@ -489,8 +494,21 @@ export default function Analytics({ variant = 'legacy' }: AnalyticsProps) {
   // 12:00...) theo đúng giờ người dùng đang nhìn, thay vì lệch đúng bằng phần
   // chênh múi giờ như khi lấy bội số của epoch.
   const sessionXTicks = useMemo<number[] | undefined>(() => {
-    if (!sessionZoom) return undefined;
     const [start, end] = sessionXDomain;
+    if (!sessionZoom) {
+      // Không truyền ticks (undefined) từng để Recharts tự chọn mốc "đẹp" cho
+      // trục số — thuật toán đó không biết gì về ranh giới ngày, nên nhả ra
+      // vài mốc mỗi ngày và formatSessionTick(chỉ còn mỗi số ngày) in ra cùng
+      // một số liền nhau nhiều lần ("1 1 2 2 3 3...") thay vì đúng một mốc cho
+      // một ngày như tên trục đang thể hiện.
+      const midnight = new Date(start);
+      midnight.setHours(0, 0, 0, 0);
+      const ticks: number[] = [];
+      for (let t = midnight.getTime(); t <= end; t += 24 * 60 * 60 * 1000) {
+        if (t >= start) ticks.push(t);
+      }
+      return ticks;
+    }
     const spanMs = end - start;
     const minute = 60 * 1000;
     const hour = 60 * minute;
